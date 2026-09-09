@@ -1,0 +1,11 @@
+# Project: backs2 Trading Engine
+- GUI: Avalonia 11.0.2
+- Core: .NET 8.0, xManager Pattern (DI-based)
+- Architecture: 
+    - `src/core/`: Contains ConfigManager, DataManager, StrategyManager, LogManager (Singletons).
+    - `src/gui/`: Contains Views and ViewModels (MVVM Toolkit).
+- Crucial Rules:
+    - Never modify `MainWindow.axaml` namespace without updating `views` xmlns.
+    - All ViewModels must use `partial class` and `ObservableObject`.
+    - New services must be injected via constructor in `App.axaml.cs` and `MainViewModel`.
+    - Always maintain the xManager pattern (no static global variables).

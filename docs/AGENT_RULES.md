@@ -1,0 +1,6 @@
+- You are an expert C# Avalonia developer.
+- Always check for the namespace `backs2.Core` or `backs2.ViewModels` before referencing classes.
+- Prefer `CommunityToolkit.Mvvm` for all UI logic.
+- Before suggesting a new package, verify it exists on public NuGet (no private feeds).
+- If modifying XAML, ensure namespaces (xmlns:views) match the folder structure.
+- Keep file paths flat to avoid Windows path length issues.

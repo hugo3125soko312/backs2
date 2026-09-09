@@ -1,0 +1,1 @@
+tree /f /a | Where-Object { $_ -notmatch 'bin|obj|.vscode|.git' } | Out-File -FilePath docs/tree.txt
