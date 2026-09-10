@@ -1,11 +1,17 @@
 # Project: backs2 Trading Engine
 - GUI: Avalonia 11.0.2
-- Core: .NET 8.0, xManager Pattern (DI-based)
+- Core: .NET 8.0, DI-based xManager Pattern
+- Core Dependencies: 
+    - `Microsoft.Extensions.DependencyInjection` (DI Container)
+    - `Microsoft.Extensions.Caching.Memory` (RAM Caching)
+    - `CommunityToolkit.Mvvm` (UI Logic)
+    - `Microsoft.CodeAnalysis.CSharp.Scripting` (Dynamic Strategy Execution)
 - Architecture: 
-    - `src/core/`: Contains ConfigManager, DataManager, StrategyManager, LogManager (Singletons).
-    - `src/gui/`: Contains Views and ViewModels (MVVM Toolkit).
+    - `src/core/`: Managers, Metrics, Models, Providers.
+    - `src/gui/`: ViewModels, Views (organized by feature module).
 - Crucial Rules:
     - Never modify `MainWindow.axaml` namespace without updating `views` xmlns.
-    - All ViewModels must use `partial class` and `ObservableObject`.
-    - New services must be injected via constructor in `App.axaml.cs` and `MainViewModel`.
-    - Always maintain the xManager pattern (no static global variables).
+    - All ViewModels must be `partial class` inheriting from `ObservableObject`.
+    - New services must be registered in `App.axaml.cs` -> `ConfigureServices`.
+    - Enforce "Async-First": Disk and Network I/O must use `Task`-based patterns.
+    - DI: No `new` keywords for core services; always inject via constructor.

@@ -1,14 +1,30 @@
 # Architecture: backs2 Trading Engine
-## 1. Core Services (xManager Pattern)
-- Singletons: ConfigManager, DataManager, StrategyManager, LogManager.
-- Dependency Injection: Managed in `App.axaml.cs`. All services are injected into the `MainViewModel`.
-- Data Flow:
-    - Provider (Yahoo/API) -> DataManager (CSV/Parquet) -> Memory/RAM (StrategyManager).
-- Strategy Execution: 
-    - Roslyn Scripting API executes dynamic code from `strats/`. 
-    - `StrategyManager` uses `SemaphoreSlim` to throttle concurrent backtests.
 
-## 2. GUI (MVVM Toolkit)
-- Pattern: View (AXAML) + ViewModel (C#).
-- ViewModels: `ObservableObject` base, uses `[ObservableProperty]` and `[RelayCommand]`.
-- Navigation: `MainWindow` contains a `TabControl` that switches between `Views`.
+## 1. Core Services & Dependency Injection
+- DI Container: `Microsoft.Extensions.DependencyInjection` managed in `App.axaml.cs`.
+- Service Lifecycle: 
+    - Singletons: `LogManager`, `ConfigManager`, `DataManager`, `StrategyManager`, `MetricRegistry`, `CacheManager`.
+    - Transients: All ViewModels.
+- Enforcement: No static global variables allowed. All dependencies are resolved via constructor injection.
+
+## 2. Data Pipeline (3-Tier)
+1. **Memory Tier (`IMemoryCache`):** RAM-based fast lookup for immediate data access.
+2. **Persistence Tier (`CacheManager`):** Async JSON/Parquet storage at `data/cache/`.
+3. **Network Tier (`IDataProvider`):** Abstracted interface (e.g., `YahooProvider`) for external API fetching.
+- Flow: `IDataProvider` -> `DataManager` -> `CacheManager` -> `IMemoryCache` -> `StrategyManager`.
+
+## 3. Metrics Engine
+- `IMetric` Interface: Base template for all mathematical indicators.
+- `MetricRegistry`: Centralized service for dynamic strategy queries.
+- Implementation: Derived metrics (VWAP, Z-Score) are injected into the registry at startup.
+
+## 4. Strategy Execution
+- Roslyn Scripting API: Compiles strategies in-memory.
+- Execution: `StrategyManager` uses `SemaphoreSlim` to throttle concurrent backtests to protect memory and CPU.
+- Script Context: Strategies have access to `ScriptGlobals` (containing `Engine` and `Data`).
+
+## 5. GUI (MVVM Toolkit)
+- Pattern: Avalonia View (AXAML) + partial ViewModel (C#).
+- MVVM Toolkit: `ObservableObject` base class, `[ObservableProperty]`, `[RelayCommand]`.
+- Navigation: `MainWindow` acts as the host with a `TabControl`.
+- Async UI: All heavy operations (I/O, backtests) use `Task.Run` and `IProgress<string>` for non-blocking status updates.

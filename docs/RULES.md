@@ -1,6 +1,11 @@
 # Development Rules
 - ALWAYS check namespace before writing code (e.g., `backs2.Core` for logic, `backs2.ViewModels` for UI).
 - ViewModels: Must be `public partial class` and inherit from `ObservableObject`.
-- AXAML: Always ensure `x:Class="backs2.Views.YourView"`.
-- File limits: Keep path depth shallow. 
-- Style: Use High-Performance C# (minimal allocations, `List<T>` over LINQ in hot paths).
+- AXAML: Always ensure `x:Class="backs2.Views.YourView"` and include `x:DataType` for compiled bindings.
+- File limits: Keep path depth shallow.
+- Style: High-Performance C# (minimal allocations, `List<T>` over LINQ in hot paths).
+- Architecture:
+    - No static global variables (Enforce xManager/DI pattern).
+    - All I/O must be non-blocking (Async/Await).
+    - UI progress must be communicated via `IProgress<T>`.
+    - Strictly typed bindings (`x:DataType`) are required for all AXAML files.
