@@ -1,7 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:backs2.Views"
+        xmlns:vm="using:backs2.ViewModels"
         x:Class="backs2.MainWindow"
+        x:DataType="vm:MainViewModel"
         Title="backs2 - Trading Engine"
         Width="1000" Height="600">
 
@@ -27,6 +29,7 @@
 
         <TabControl>
             <TabItem Header="Chart"><views:ChartView /></TabItem>
+            <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>
             <TabItem Header="Builder"><views:StrategyEditorView /></TabItem>
             <TabItem Header="Logs"><views:LogsView /></TabItem>

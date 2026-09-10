@@ -1,0 +1,294 @@
+Folder PATH listing
+Volume serial number is 0000008C F293:7A92
+C:.
+|   App.axaml
+|   App.axaml.cs
+|   app.manifest
+|   backs2.csproj
+|   MainWindow.axaml
+|   MainWindow.axaml.cs
+|   Program.cs
+|   
+|       settings.json
+|       
+|   \---Debug
+|       \---net8.0
+|           |   Avalonia.Base.dll
+|           |   Avalonia.Controls.dll
+|           |   Avalonia.DesignerSupport.dll
+|           |   Avalonia.Desktop.dll
+|           |   Avalonia.Dialogs.dll
+|           |   Avalonia.dll
+|           |   Avalonia.Fonts.Inter.dll
+|           |   Avalonia.FreeDesktop.dll
+|           |   Avalonia.Markup.dll
+|           |   Avalonia.Markup.Xaml.dll
+|           |   Avalonia.Metal.dll
+|           |   Avalonia.MicroCom.dll
+|           |   Avalonia.Native.dll
+|           |   Avalonia.OpenGL.dll
+|           |   Avalonia.Remote.Protocol.dll
+|           |   Avalonia.Skia.dll
+|           |   Avalonia.Themes.Fluent.dll
+|           |   Avalonia.Win32.dll
+|           |   Avalonia.X11.dll
+|           |   backs2.deps.json
+|           |   backs2.dll
+|           |   backs2.exe
+|           |   backs2.pdb
+|           |   backs2.runtimeconfig.json
+|           |   CommunityToolkit.Mvvm.dll
+|           |   CsvHelper.dll
+|           |   HarfBuzzSharp.dll
+|           |   IronSnappy.dll
+|           |   MicroCom.Runtime.dll
+|           |   Microsoft.CodeAnalysis.CSharp.dll
+|           |   Microsoft.CodeAnalysis.CSharp.Scripting.dll
+|           |   Microsoft.CodeAnalysis.dll
+|           |   Microsoft.CodeAnalysis.Scripting.dll
+|           |   Microsoft.Win32.SystemEvents.dll
+|           |   Parquet.dll
+|           |   ScottPlot.Avalonia.dll
+|           |   ScottPlot.dll
+|           |   Serilog.dll
+|           |   Serilog.Sinks.File.dll
+|           |   SkiaSharp.dll
+|           |   System.Drawing.Common.dll
+|           |   System.IO.Pipelines.dll
+|           |   Tmds.DBus.Protocol.dll
+|           |   
+|           +---cs
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---de
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---es
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---fr
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---it
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---ja
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---ko
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---pl
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---pt-BR
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---ru
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---runtimes
+|           |   +---linux-arm
+|           |   |   \---native
+|           |   |           libHarfBuzzSharp.so
+|           |   |           libSkiaSharp.so
+|           |   |           
+|           |   +---linux-arm64
+|           |   |   \---native
+|           |   |           libHarfBuzzSharp.so
+|           |   |           libSkiaSharp.so
+|           |   |           
+|           |   +---linux-musl-x64
+|           |   |   \---native
+|           |   |           libHarfBuzzSharp.so
+|           |   |           libSkiaSharp.so
+|           |   |           
+|           |   +---linux-x64
+|           |   |   \---native
+|           |   |           libHarfBuzzSharp.so
+|           |   |           libSkiaSharp.so
+|           |   |           
+|           |   +---osx
+|           |   |   \---native
+|           |   |           libAvaloniaNative.dylib
+|           |   |           libHarfBuzzSharp.dylib
+|           |   |           libSkiaSharp.dylib
+|           |   |           
+|           |   +---unix
+|           |   |   \---lib
+|           |   |       \---net6.0
+|           |   |               System.Drawing.Common.dll
+|           |   |               
+|           |   +---win
+|           |   |   \---lib
+|           |   |       \---net6.0
+|           |   |               Microsoft.Win32.SystemEvents.dll
+|           |   |               System.Drawing.Common.dll
+|           |   |               
+|           |   +---win-arm64
+|           |   |   \---native
+|           |   |           av_libglesv2.dll
+|           |   |           libHarfBuzzSharp.dll
+|           |   |           libSkiaSharp.dll
+|           |   |           
+|           |   +---win-x64
+|           |   |   \---native
+|           |   |           av_libglesv2.dll
+|           |   |           libHarfBuzzSharp.dll
+|           |   |           libSkiaSharp.dll
+|           |   |           
+|           |   \---win-x86
+|           |       \---native
+|           |               av_libglesv2.dll
+|           |               libHarfBuzzSharp.dll
+|           |               libSkiaSharp.dll
+|           |               
+|           +---tr
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           +---zh-Hans
+|           |       Microsoft.CodeAnalysis.CSharp.resources.dll
+|           |       Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|           |       Microsoft.CodeAnalysis.resources.dll
+|           |       Microsoft.CodeAnalysis.Scripting.resources.dll
+|           |       
+|           \---zh-Hant
+|                   Microsoft.CodeAnalysis.CSharp.resources.dll
+|                   Microsoft.CodeAnalysis.CSharp.Scripting.resources.dll
+|                   Microsoft.CodeAnalysis.resources.dll
+|                   Microsoft.CodeAnalysis.Scripting.resources.dll
+|                   
++---config
+|   \---providers
++---data
++---docs
+|       AGENT_RULES.md
+|       ARCHITECTURE.md
+|       PROJECT_CONTEXT.md
+|       ROADMAP.md
+|       RULES.md
+|       starting_promt.txt
+|       tree.txt
+|       tree_command.txt
+|       
++---logs
+|   |   backs2.csproj.nuget.dgspec.json
+|   |   backs2.csproj.nuget.g.props
+|   |   backs2.csproj.nuget.g.targets
+|   |   project.assets.json
+|   |   project.nuget.cache
+|   |   
+|   \---Debug
+|       \---net8.0
+|           |   .NETCoreApp,Version=v8.0.AssemblyAttributes.cs
+|           |   apphost.exe
+|           |   backs2.AssemblyInfo.cs
+|           |   backs2.AssemblyInfoInputs.cache
+|           |   backs2.assets.cache
+|           |   backs2.csproj.AssemblyReference.cache
+|           |   backs2.csproj.CoreCompileInputs.cache
+|           |   backs2.csproj.FileListAbsolute.txt
+|           |   backs2.csproj.Up2Date
+|           |   backs2.dll
+|           |   backs2.GeneratedMSBuildEditorConfig.editorconfig
+|           |   backs2.genruntimeconfig.cache
+|           |   backs2.pdb
+|           |   
+|           +---Avalonia
+|           |       original.dll
+|           |       original.pdb
+|           |       original.ref.dll
+|           |       references
+|           |       resources
+|           |       Resources.Inputs.cache
+|           |       
+|           +---ref
+|           |       backs2.dll
+|           |       
+|           \---refint
+|                   backs2.dll
+|                   
++---src
+|   +---core
+|   |   |   CacheManager.cs
+|   |   |   ConfigManager.cs
+|   |   |   DataManager.cs
+|   |   |   LogManager.cs
+|   |   |   StrategyManager.cs
+|   |   |   
+|   |   +---Metrics
+|   |   |       IMetric.cs
+|   |   |       MetricRegistry.cs
+|   |   |       
+|   |   +---Models
+|   |   |       Kline.cs
+|   |   |       
+|   |   \---Providers
+|   |           IDataProvider.cs
+|   |           YahooAuthService.cs
+|   |           YahooProvider.cs
+|   |           
+|   \---gui
+|       |   MainViewModel.cs
+|       |   
+|       +---Chart
+|       |       ChartView.axaml
+|       |       ChartView.axaml.cs
+|       |       
+|       +---Config
+|       |       ConfigView.axaml
+|       |       ConfigView.axaml.cs
+|       |       
+|       +---Data
+|       |       DataView.axaml
+|       |       DataView.axaml.cs
+|       |       DataViewModel.cs
+|       |       
+|       +---Logs
+|       |       LogsView.axaml
+|       |       LogsView.axaml.cs
+|       |       
+|       +---Strats
+|       |       StratsView.axaml
+|       |       StratsView.axaml.cs
+|       |       StratsViewModel.cs
+|       |       
+|       \---StratsBuilder
+|               StrategyEditorView.axaml
+|               StrategyEditorView.axaml.cs
+|               StrategyEditorViewModel.cs
+|               
+\---strats

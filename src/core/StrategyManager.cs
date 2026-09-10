@@ -1,43 +1,48 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Collections.Generic; // Required for List<T>
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
-using backs2.Core;
+using backs2.Core.Metrics;    // Required for MetricRegistry
+using backs2.Core.Models;     // Required for Kline
 
 namespace backs2.Core;
 
-public record BacktestResult(double SharpeRatio, double Drawdown, double WinRate);
-
 public class StrategyManager
 {
-    private readonly ConfigManager _config;
-    private readonly SemaphoreSlim _throttle;
+    private readonly MetricRegistry _registry;
+    private readonly SemaphoreSlim _throttle = new SemaphoreSlim(1, 1);
 
-    public StrategyManager(ConfigManager config)
+    // Assuming ConfigManager is not used in the body, removed from constructor 
+    // to match current usage, or keep it if you need it later.
+    public StrategyManager(MetricRegistry registry) 
     {
-        _config = config;
-        _throttle = new SemaphoreSlim(_config.Settings.MaxThreads);
+        _registry = registry;
     }
 
-    public async Task<bool> CompileStrategy(string code)
-    {
-        try { await CSharpScript.EvaluateAsync(code); return true; }
-        catch { return false; }
-    }
-
-    public async Task RunBacktestAsync(string stratId, string dataSymbol)
+    public async Task RunBacktestAsync(string script, List<Kline> data)
     {
         await _throttle.WaitAsync();
-        try { await Task.Delay(100); }
-        finally { _throttle.Release(); }
-    }
+        try
+        {
+            var globals = new ScriptGlobals { Engine = _registry, Data = data };
+            
+            var options = ScriptOptions.Default
+                .AddReferences(typeof(IMetric).Assembly)
+                .AddImports("backs2.Core.Metrics", "backs2.Core.Models");
 
-    public BacktestResult CalculateStatistics(List<double> returns)
-    {
-        if (returns.Count == 0) return new BacktestResult(0, 0, 0);
-        return new BacktestResult(returns.Average() / 0.05, returns.Min(), returns.Count(r => r > 0) / (double)returns.Count);
+            await CSharpScript.EvaluateAsync(script, options, globals);
+        }
+        finally
+        {
+            _throttle.Release();
+        }
     }
+}
+
+// Helper class for the script context
+public class ScriptGlobals
+{
+    public MetricRegistry Engine { get; set; } = null!;
+    public List<Kline> Data { get; set; } = null!;
 }

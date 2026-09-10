@@ -3,12 +3,17 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using backs2.Core;
 using backs2.ViewModels;
-using backs2.Views;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using backs2.Core.Providers;
+using backs2.Core.Metrics;
 
 namespace backs2;
 
 public partial class App : Application
 {
+    public IServiceProvider Services { get; private set; } = null!;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -16,26 +21,40 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        // 1. Initialize Managers (The DI Composition Root)
-        // Order matters: LogManager first so others can use it, ConfigManager second
-        var logManager = new LogManager();
-        var configManager = new ConfigManager();
-        var dataManager = new DataManager(configManager);
-        var strategyManager = new StrategyManager(configManager);
+        var collection = new ServiceCollection();
+        ConfigureServices(collection);
+        Services = collection.BuildServiceProvider();
 
-        // The constructor now expects 4 arguments
-        var mainViewModel = new MainViewModel(configManager, dataManager, strategyManager, logManager);
-
-        // 3. Assign the DataContext to the MainWindow
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow
             {
-                // This makes the ViewModels available to the entire UI
-                DataContext = mainViewModel 
+                // Resolve the MainViewModel from the container
+                DataContext = Services.GetRequiredService<MainViewModel>()
             };
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void ConfigureServices(ServiceCollection services)
+    {
+        // Caching
+        services.AddMemoryCache(); // Added: Required for MemoryCache
+        services.AddSingleton<CacheManager>();
+        
+        // Core Services
+        services.AddSingleton<LogManager>();
+        services.AddSingleton<ConfigManager>();
+        services.AddSingleton<IDataProvider, YahooProvider>();
+        services.AddSingleton<DataManager>();
+        services.AddSingleton<StrategyManager>();
+        services.AddSingleton<MetricRegistry>(); // Clean: Only registered once
+    
+        // ViewModels
+        services.AddTransient<MainViewModel>();
+        services.AddTransient<MetricsViewModel>();
+        services.AddTransient<StrategyEditorViewModel>();
+        services.AddTransient<StratsViewModel>();
     }
 }

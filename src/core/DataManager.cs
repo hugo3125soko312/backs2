@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory; // Required
+using backs2.Core.Models;
 using backs2.Core.Providers;
 
 namespace backs2.Core;
@@ -10,14 +13,54 @@ public record DataEntry(string Symbol, string Status, string Path);
 
 public class DataManager
 {
-    private readonly List<IDataProvider> _providers = new();
-    
-    public DataManager(ConfigManager config) { }
+    private readonly CacheManager _diskCache;
+    private readonly IMemoryCache _memoryCache;
+    private readonly IDataProvider _provider;
+
+    public DataManager(CacheManager diskCache, IMemoryCache memoryCache, IDataProvider provider)
+    {
+        _diskCache = diskCache;
+        _memoryCache = memoryCache;
+        _provider = provider;
+    }
+
+    public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
+    {
+        // 1. Memory Tier (RAM)
+        if (_memoryCache.TryGetValue(symbol, out List<Kline>? memData))
+        {
+            progress?.Report("Loaded from RAM.");
+            return memData!;
+        }
+
+        // 2. Disk Tier (Persistent JSON/Parquet)
+        var diskData = await _diskCache.LoadCacheAsync<List<Kline>>(symbol);
+        if (diskData != null)
+        {
+            progress?.Report("Loaded from Disk.");
+            _memoryCache.Set(symbol, diskData, TimeSpan.FromMinutes(10));
+            return diskData;
+        }
+
+        // 3. Network Tier (Provider)
+        progress?.Report("Cache miss. Fetching from Yahoo...");
+        var newData = await _provider.FetchAsync(symbol);
+
+        if (newData != null && newData.Count > 0)
+        {
+            progress?.Report("Saving data...");
+            _memoryCache.Set(symbol, newData, TimeSpan.FromMinutes(10));
+            await _diskCache.SaveCacheAsync(symbol, newData);
+        }
+
+        return newData ?? new List<Kline>();
+    }
 
     public List<DataEntry> GetAvailableData()
     {
         if (!Directory.Exists("data")) return new List<DataEntry>();
-        return Directory.GetFiles("data/", "*.csv").Select(f => new DataEntry(
-            Path.GetFileNameWithoutExtension(f), "Valid", f)).ToList();
+        return Directory.GetFiles("data/", "*.csv")
+            .Select(f => new DataEntry(Path.GetFileNameWithoutExtension(f), "Valid", f))
+            .ToList();
     }
 }

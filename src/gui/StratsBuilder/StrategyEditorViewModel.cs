@@ -1,23 +1,16 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using System.Threading.Tasks;
 
 namespace backs2.ViewModels;
 
 public partial class StrategyEditorViewModel : ObservableObject
 {
     private readonly StrategyManager _strategyManager;
-    private string _code = "public class MyStrategy { }";
 
-    // Manually defined property to avoid Source Generator issues
-    public string Code
-    {
-        get => _code;
-        set => SetProperty(ref _code, value);
-    }
+    [ObservableProperty]
+    private string _scriptSource = "// Use Engine.GetMetric(\"VWAP\").Calculate(Data) here";
 
     public StrategyEditorViewModel(StrategyManager strategyManager)
     {
@@ -25,10 +18,9 @@ public partial class StrategyEditorViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public async Task CompileCurrentStrategy()
+    public async Task RunStrategy()
     {
-        string filePath = $"strats/temp_{Guid.NewGuid()}.cs";
-        await File.WriteAllTextAsync(filePath, Code);
-        await _strategyManager.CompileStrategy(Code);
+        // In a real flow, we'd pull the actual data from DataManager here
+        await _strategyManager.RunBacktestAsync(ScriptSource, new System.Collections.Generic.List<Core.Models.Kline>());
     }
 }

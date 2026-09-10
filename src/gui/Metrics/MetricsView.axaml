@@ -1,0 +1,10 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:backs2.ViewModels"
+             x:Class="backs2.Views.MetricsView"
+             x:DataType="vm:MetricsViewModel">
+    <StackPanel Margin="20">
+        <TextBlock Text="Available Metrics" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
+        <ListBox ItemsSource="{Binding AvailableMetrics}" />
+    </StackPanel>
+</UserControl>
