@@ -6,9 +6,12 @@
     - `Microsoft.Extensions.Caching.Memory` (RAM Caching)
     - `CommunityToolkit.Mvvm` (UI Logic)
     - `Microsoft.CodeAnalysis.CSharp.Scripting` (Dynamic Strategy Execution)
+    - `Microsoft.Extensions.Http.Resilience` (Policy-based network safety)
 - Architecture: 
     - `src/core/`: Managers, Metrics, Models, Providers.
     - `src/gui/`: ViewModels, Views (organized by feature module).
+    - Providers: Multi-provider support using `AddKeyedTransient`.
+    - Resilience: Automatic retries for network-bound operations via `IHttpClientFactory`.
 - Crucial Rules:
     - Never modify `MainWindow.axaml` namespace without updating `views` xmlns.
     - All ViewModels must be `partial class` inheriting from `ObservableObject`.

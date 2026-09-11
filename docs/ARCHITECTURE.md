@@ -4,13 +4,14 @@
 - DI Container: `Microsoft.Extensions.DependencyInjection` managed in `App.axaml.cs`.
 - Service Lifecycle: 
     - Singletons: `LogManager`, `ConfigManager`, `DataManager`, `StrategyManager`, `MetricRegistry`, `CacheManager`.
-    - Transients: All ViewModels.
+    - Transients/Keyed: `IDataProvider` implementations (resolved via `[FromKeyedServices]`).
 - Enforcement: No static global variables allowed. All dependencies are resolved via constructor injection.
 
 ## 2. Data Pipeline (3-Tier)
 1. **Memory Tier (`IMemoryCache`):** RAM-based fast lookup for immediate data access.
 2. **Persistence Tier (`CacheManager`):** Async JSON/Parquet storage at `data/cache/`.
-3. **Network Tier (`IDataProvider`):** Abstracted interface (e.g., `YahooProvider`) for external API fetching.
+3. **Network Tier (`IDataProvider`):** Abstracted interface with automatic resilience.
+   - Resilience: All providers use a named `"ResilientClient"` (configured via `AddStandardResilienceHandler`) for auto-retries and timeouts based on `ConfigManager` settings.
 - Flow: `IDataProvider` -> `DataManager` -> `CacheManager` -> `IMemoryCache` -> `StrategyManager`.
 
 ## 3. Metrics Engine
@@ -23,7 +24,11 @@
 - Execution: `StrategyManager` uses `SemaphoreSlim` to throttle concurrent backtests to protect memory and CPU.
 - Script Context: Strategies have access to `ScriptGlobals` (containing `Engine` and `Data`).
 
-## 5. GUI (MVVM Toolkit)
+## 5. Configuration & Settings
+- Centralized: `ConfigManager` handles `settings.json`.
+- Settings Model: All global engine variables (Retries, Timeouts, Keys) are stored in `AppSettings` within `ConfigManager`.
+
+## 6. GUI (MVVM Toolkit)
 - Pattern: Avalonia View (AXAML) + partial ViewModel (C#).
 - MVVM Toolkit: `ObservableObject` base class, `[ObservableProperty]`, `[RelayCommand]`.
 - Navigation: `MainWindow` acts as the host with a `TabControl`.
