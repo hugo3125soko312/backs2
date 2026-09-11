@@ -8,10 +8,16 @@ namespace backs2.Core.Providers;
 
 public class YahooProvider : IDataProvider
 {
-    private static readonly HttpClient _httpClient = new HttpClient();
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly LogManager _logger;
 
-    // Required by IDataProvider interface
     public string Name => "Yahoo";
+
+    public YahooProvider(IHttpClientFactory httpClientFactory, LogManager logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
 
     public async Task<List<Kline>> FetchAsync(string symbol)
     {
@@ -19,13 +25,15 @@ public class YahooProvider : IDataProvider
         
         try
         {
-            var response = await _httpClient.GetStringAsync(url);
+            var client = _httpClientFactory.CreateClient("ResilientClient");
+            var response = await client.GetStringAsync(url);
+            
             // Parsing logic will go here later
             return new List<Kline>(); 
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // LogManager should be injected here later if needed
+            _logger.Error($"YahooProvider: Failed to fetch {symbol}: {ex.Message}");
             return new List<Kline>();
         }
     }

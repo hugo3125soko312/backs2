@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using backs2.Core;
 
 namespace backs2.Core;
 
@@ -10,9 +9,12 @@ public class AppSettings
     public int MaxThreads { get; set; } = 5;
     public string YahooApiKey { get; set; } = "";
     
-    // Added Resilience Settings
+    // Resilience Settings
     public int MaxRetries { get; set; } = 3;
     public int TimeoutSeconds { get; set; } = 30;
+
+    // Provider Routing
+    public string ActiveProviderKey { get; set; } = "Yahoo";
 }
 
 public class ConfigManager 
@@ -25,13 +27,23 @@ public class ConfigManager
     public void LoadConfig() 
     {
         if (File.Exists(_configPath)) 
+        {
             Settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_configPath)) ?? new();
+        }
+        else
+        {
+            // Auto-generate default config if missing
+            SaveConfig();
+        }
     }
 
     public void SaveConfig() 
     {
         // Ensure directory exists
-        Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+        var directory = Path.GetDirectoryName(_configPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+            
         File.WriteAllText(_configPath, JsonSerializer.Serialize(Settings, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

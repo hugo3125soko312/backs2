@@ -1,0 +1,7 @@
+{
+  "MaxThreads": 5,
+  "YahooApiKey": "",
+  "MaxRetries": 3,
+  "TimeoutSeconds": 30,
+  "ActiveProviderKey": "Yahoo"
+}

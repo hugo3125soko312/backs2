@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Caching.Memory; // Required
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using backs2.Core.Models;
 using backs2.Core.Providers;
 
@@ -15,13 +16,22 @@ public class DataManager
 {
     private readonly CacheManager _diskCache;
     private readonly IMemoryCache _memoryCache;
-    private readonly IDataProvider _provider;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ConfigManager _config;
 
-    public DataManager(CacheManager diskCache, IMemoryCache memoryCache, IDataProvider provider)
+    public DataManager(CacheManager diskCache, IMemoryCache memoryCache, IServiceProvider serviceProvider, ConfigManager config)
     {
         _diskCache = diskCache;
         _memoryCache = memoryCache;
-        _provider = provider;
+        _serviceProvider = serviceProvider;
+        _config = config;
+    }
+
+    private IDataProvider GetActiveProvider()
+    {
+        // Resolve the key from settings (defaulting to "Yahoo")
+        var providerKey = _config.Settings?.ActiveProviderKey ?? "Yahoo"; 
+        return _serviceProvider.GetRequiredKeyedService<IDataProvider>(providerKey);
     }
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
@@ -42,9 +52,11 @@ public class DataManager
             return diskData;
         }
 
-        // 3. Network Tier (Provider)
-        progress?.Report("Cache miss. Fetching from Yahoo...");
-        var newData = await _provider.FetchAsync(symbol);
+        // 3. Network Tier (Dynamic Provider)
+        var provider = GetActiveProvider();
+        progress?.Report($"Cache miss. Fetching from {provider.Name}...");
+        
+        var newData = await provider.FetchAsync(symbol);
 
         if (newData != null && newData.Count > 0)
         {
