@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using backs2.Core.Metrics;
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.Linq; // Added for .ToList()
 
 namespace backs2.ViewModels;
 
@@ -9,11 +10,12 @@ public partial class MetricsViewModel : ObservableObject
     private readonly MetricRegistry _registry;
 
     [ObservableProperty]
-    private ObservableCollection<string> _availableMetrics;
+    private List<string> _availableMetrics = new();
 
     public MetricsViewModel(MetricRegistry registry)
     {
         _registry = registry;
-        AvailableMetrics = new ObservableCollection<string>(_registry.GetAvailableMetrics());
+        // Updated to use the existing GetAvailableMetrics() method from MetricRegistry
+        AvailableMetrics = _registry.GetAvailableMetrics().ToList();
     }
 }

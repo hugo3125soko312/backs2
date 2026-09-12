@@ -1,5 +1,24 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="backs2.Views.ConfigView">
-    <TextBlock Text="ConfigView Content" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+             xmlns:vm="using:backs2.ViewModels"
+             x:Class="backs2.Views.ConfigView"
+             x:DataType="vm:ConfigViewModel">
+    
+    <StackPanel Margin="20" Spacing="10">
+        <TextBlock Text="Engine Settings" FontSize="18" FontWeight="Bold"/>
+        
+        <Label Content="Active Provider (Yahoo/Massive)"/>
+        <TextBox Text="{Binding ActiveProviderKey}"/>
+        
+        <Label Content="API Key"/>
+        <TextBox Text="{Binding YahooApiKey}"/>
+        
+        <Label Content="Max Retries"/>
+        <NumericUpDown Value="{Binding MaxRetries}"/>
+        
+        <Label Content="Timeout (Seconds)"/>
+        <NumericUpDown Value="{Binding TimeoutSeconds}"/>
+        
+        <Button Content="Save Settings" Command="{Binding SaveCommand}" Margin="0,10,0,0"/>
+    </StackPanel>
 </UserControl>

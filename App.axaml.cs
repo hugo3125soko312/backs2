@@ -54,6 +54,7 @@ public partial class App : Application
         services.AddTransient<MetricsViewModel>();
         services.AddTransient<StrategyEditorViewModel>();
         services.AddTransient<StratsViewModel>();
+        services.AddTransient<ConfigViewModel>();
 
         // HttpClient Resilience
         services.AddHttpClient("ResilientClient")
