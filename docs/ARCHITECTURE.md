@@ -28,8 +28,11 @@
 - Centralized: `ConfigManager` handles `settings.json`.
 - Settings Model: All global engine variables (Retries, Timeouts, Keys) are stored in `AppSettings` within `ConfigManager`.
 
-## 6. GUI (MVVM Toolkit)
-- Pattern: Avalonia View (AXAML) + partial ViewModel (C#).
-- MVVM Toolkit: `ObservableObject` base class, `[ObservableProperty]`, `[RelayCommand]`.
-- Navigation: `MainWindow` acts as the host with a `TabControl`.
-- Async UI: All heavy operations (I/O, backtests) use `Task.Run` and `IProgress<string>` for non-blocking status updates.
+## 6. GUI (MVVM Toolkit) - Refined
+- **Dependency Injection:** ViewModels are resolved via the DI container in the View constructor. 
+    - Pattern: `DataContext = app.Services.GetRequiredService<TViewModel>();`
+- **Source Generation:** All ViewModels must use `CommunityToolkit.Mvvm` attributes (`[ObservableProperty]`, `[RelayCommand]`).
+- **XAML Bindings:** 
+    - `x:DataType` must be set on all View/UserControl roots.
+    - If `AXSG0111` errors appear, perform a `dotnet clean && dotnet build` to allow the Source Generator to populate properties.
+- **Metrics/Core Registry Integration:** GUI components interacting with the engine must resolve dependencies (like `MetricRegistry`) through the constructor and use public API methods (e.g., `GetAvailableMetrics()`) rather than direct field access.
