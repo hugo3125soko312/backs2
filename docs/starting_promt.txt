@@ -1,5 +1,5 @@
 I am working on the 'backs2' trading engine.
 I am providing you with my full project context, architecture rules, and file tree.
 Please read this context.
-All future code must adhere to the docs/ARCHITECTURE.md and docs/RULES.md provided here.
+All future code must adhere to the rules provided here (docs/AGENT_RULES.md, RULES.md, PROJECT_CONTEXT.md, ARCHITECTURE.md).
 Do you understand the architecture?

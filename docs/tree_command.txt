@@ -1,1 +1,0 @@
-tree /f /a | Where-Object { $_ -notmatch 'bin|obj|Debug|net8\.0|\.dll|\.vscode|\.git' }
