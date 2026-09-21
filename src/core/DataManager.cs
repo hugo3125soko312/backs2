@@ -36,13 +36,16 @@ public class DataManager
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
     {
-        if (_memoryCache.TryGetValue(symbol, out List<Kline>? memData))
+        if (_memoryCache.TryGetValue(symbol, out List<Kline>? memData) && memData != null)
         {
+            _logger.Info($"DataManager: RAM hit for {symbol} ({memData.Count} bars)");
             progress?.Report("Loaded from RAM.");
-            return memData!;
+            return memData;
         }
 
-        var diskData = await _diskCache.LoadCacheAsync<List<Kline>>(symbol);
+        _logger.Info($"DataManager: RAM miss for {symbol}");
+
+        var diskData = await _diskCache.LoadCacheAsync(symbol);
         if (diskData != null && diskData.Count > 0)
         {
             progress?.Report("Loaded from Disk.");
@@ -100,7 +103,6 @@ public class DataManager
         return new List<Kline>();
     }
 
-    // CSV datasets in data/ (legacy / manual imports)
     public List<DataEntry> GetAvailableData()
     {
         if (!Directory.Exists("data")) return new List<DataEntry>();
@@ -109,7 +111,6 @@ public class DataManager
             .ToList();
     }
 
-    // Cached symbols written by CacheManager under data/cache/
     public List<string> GetCachedSymbols()
     {
         const string cacheDir = "data/cache";

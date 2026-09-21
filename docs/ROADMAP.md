@@ -56,11 +56,12 @@
 - [x] Display capped at 2000 lines to bound memory.
 - [x] Rotation investigation closed: previous "one log file" behavior was Serilog rolling-day design; now replaced with per-run naming, which is the desired semantics.
 
-## Phase 10: View & Shell Wiring [PLANNED]
-- [ ] Wire `ChartView.axaml.cs` to its ViewModel via DI (currently unset, no `DataContext`).
-- [ ] Wire `DataView.axaml.cs` to its ViewModel via DI (currently unset).
-- [ ] Confirm every tab's `.axaml.cs` follows the `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern.
-- [ ] Ensure `ChartView` / `DataView` have ViewModels registered in `App.axaml.cs`.
+## Phase 10: View & Shell Wiring [COMPLETED]
+- [x] `ChartView.axaml.cs` wired to `ChartViewModel` via DI (`app.Services.GetRequiredService<ChartViewModel>()`).
+- [x] `DataView.axaml.cs` wired to `DataViewModel` via DI.
+- [x] Created minimal `src/gui/Chart/ChartViewModel.cs` — placeholder with `StatusText` and `DataManager` injected for future work.
+- [x] Registered `ChartViewModel` and `DataViewModel` in `App.axaml.cs` → `ConfigureServices`.
+- [x] Verified every tab's `.axaml.cs` follows the `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern.
 
 ## Phase 10.5: Cache Performance [PLANNED]
 
