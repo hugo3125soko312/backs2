@@ -3,6 +3,7 @@
   "MaxRetries": 3,
   "TimeoutSeconds": 30,
   "ProviderOrder": [
-    "Massive"
+    "Massive",
+    "Yahoo"
   ]
 }

@@ -36,14 +36,12 @@ public class DataManager
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
     {
-        // 1. Memory Tier (RAM)
         if (_memoryCache.TryGetValue(symbol, out List<Kline>? memData))
         {
             progress?.Report("Loaded from RAM.");
             return memData!;
         }
 
-        // 2. Disk Tier (Persistent JSON/Parquet)
         var diskData = await _diskCache.LoadCacheAsync<List<Kline>>(symbol);
         if (diskData != null && diskData.Count > 0)
         {
@@ -52,7 +50,6 @@ public class DataManager
             return diskData;
         }
 
-        // 3. Network Tier — walk ProviderOrder, first non-empty wins
         var order = _config.Settings.ProviderOrder ?? new List<string>();
         if (order.Count == 0)
         {
@@ -103,11 +100,26 @@ public class DataManager
         return new List<Kline>();
     }
 
+    // CSV datasets in data/ (legacy / manual imports)
     public List<DataEntry> GetAvailableData()
     {
         if (!Directory.Exists("data")) return new List<DataEntry>();
         return Directory.GetFiles("data/", "*.csv")
             .Select(f => new DataEntry(Path.GetFileNameWithoutExtension(f), "Valid", f))
             .ToList();
+    }
+
+    // Cached symbols written by CacheManager under data/cache/
+    public List<string> GetCachedSymbols()
+    {
+        const string cacheDir = "data/cache";
+        if (!Directory.Exists(cacheDir)) return new List<string>();
+
+        return Directory.GetFiles(cacheDir)
+            .Select(Path.GetFileNameWithoutExtension)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList()!;
     }
 }

@@ -21,3 +21,11 @@
 - **Execution Protocol:** If an action requires terminal interaction, propose the exact PowerShell command, wait for the user to execute it and provide the output, then analyze the results before proceeding.
 - **Build staleness:** Avalonia + CommunityToolkit source-generator errors (`AXSG0111`, phantom CS1061 on generated members) are resolved by wiping `obj/` and `bin/` and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
 - **Diagnosis first:** When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes.
+
+## Requesting Files from the User
+- Never say "I need file X" or "please provide file X" in prose.
+- Instead, provide a single `Get-Content ... | Set-Clipboard` command listing every file needed in one line.
+- The user will run the command and paste the clipboard contents back.
+- Format:
+  ```powershell
+  Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipboard

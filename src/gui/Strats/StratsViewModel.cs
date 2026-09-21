@@ -17,9 +17,13 @@ public partial class StratsViewModel : ObservableObject
     private readonly DataManager _data;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
+    public ObservableCollection<string> AvailableSymbols { get; } = new();
 
     [ObservableProperty]
     private StrategyDescriptor? _selectedStrategy;
+
+    [ObservableProperty]
+    private string _selectedSymbol = "";
 
     [ObservableProperty]
     private string _sourcePreview = "";
@@ -47,6 +51,7 @@ public partial class StratsViewModel : ObservableObject
 
         _catalog.Changed += OnCatalogChanged;
         SyncCatalog(_catalog.Current);
+        RefreshSymbols();
     }
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
@@ -56,7 +61,6 @@ public partial class StratsViewModel : ObservableObject
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
     {
-        // Preserve selection if the same path still exists.
         var selectedPath = SelectedStrategy?.Path;
 
         Strategies.Clear();
@@ -103,11 +107,32 @@ public partial class StratsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void RefreshSymbols()
+    {
+        var previous = SelectedSymbol;
+
+        AvailableSymbols.Clear();
+        foreach (var s in _data.GetCachedSymbols())
+            AvailableSymbols.Add(s);
+
+        if (!string.IsNullOrWhiteSpace(previous))
+            SelectedSymbol = previous;
+        else if (AvailableSymbols.Count > 0)
+            SelectedSymbol = AvailableSymbols[0];
+    }
+
+    [RelayCommand]
     private async Task RunSelectedAsync()
     {
         if (SelectedStrategy == null)
         {
             StatusText = "No strategy selected.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedSymbol))
+        {
+            StatusText = "No symbol selected.";
             return;
         }
 
@@ -119,19 +144,22 @@ public partial class StratsViewModel : ObservableObject
 
             var progress = new Progress<string>(s => StatusText = s);
 
-            var data = await _data.GetSymbolDataAsync("XAUUSD", progress);
+            var data = await _data.GetSymbolDataAsync(SelectedSymbol, progress);
             if (data == null || data.Count == 0)
             {
-                StatusText = "No data available.";
+                StatusText = $"No data available for {SelectedSymbol}.";
                 return;
             }
 
-            StatusText = $"Running {SelectedStrategy.Name}...";
+            StatusText = $"Running {SelectedStrategy.Name} on {SelectedSymbol}...";
             var result = await _strat.RunBacktestFromFileAsync(SelectedStrategy.Path, data);
 
             StatusText = result.Success
-                ? $"OK  {SelectedStrategy.Name}  ({result.Duration.TotalMilliseconds:F0} ms)"
+                ? $"OK  {SelectedStrategy.Name}  {SelectedSymbol}  ({result.Duration.TotalMilliseconds:F0} ms)"
                 : $"FAIL  {SelectedStrategy.Name}  {result.Error}";
+
+            // Refresh the cache list — a fresh fetch may have written a new file.
+            RefreshSymbols();
         }
         catch (Exception ex)
         {

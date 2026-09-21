@@ -34,16 +34,27 @@
 - [x] Config tab: provider order editor (add / remove / move up / move down).
 - [x] Verify end-to-end: `XAUUSD` → 312 bars → `HelloVwap` strategy executes.
 
-## Phase 8: Strategy UX & Data Selection [PLANNED]
-- [ ] Strategies tab: replace hard-coded `XAUUSD` in `StratsViewModel.RunSelectedAsync` with a user-selectable ticker (dropdown or text input bound to a new `[ObservableProperty] string _selectedSymbol`).
-- [ ] Add a symbol picker sourced from `DataManager.GetAvailableData()` plus a free-text entry.
-- [ ] Display run results (Sharpe, WinRate) in the Strategies tab — the properties already exist but are never populated.
+## Phase 8: Strategy UX & Data Selection [COMPLETED]
+- [x] Strategies tab: replaced hard-coded `XAUUSD` in `StratsViewModel.RunSelectedAsync` with user-selectable symbol.
+- [x] Symbol picker: `ComboBox` (from `DataManager.GetCachedSymbols()`) + `TextBox` (free-text) bound to `SelectedSymbol`.
+- [x] Added `DataManager.GetCachedSymbols()` — scans `data/cache/` for cached symbols.
+- [x] Added `RefreshSymbolsCommand` (⟳ button) to rescan cached symbols on demand.
+- [x] Symbols list auto-refreshes after a successful run, so newly fetched tickers appear.
+- [x] Verified end-to-end: `XAUUSD` and `EURUSD` both run `HelloVwap` successfully.
+- [ ] Display run results (Sharpe, WinRate) — **deferred to Phase 11A** (`BacktestResult` model). Properties remain on `StratsViewModel` as placeholders.
 
-## Phase 9: Logs & Observability [PLANNED]
-- [ ] Logs tab: switch from 2 s polling to a live tail driven by `FileSystemWatcher` on the log file.
-- [ ] Logs tab: initial population on first open (currently only fills after the first timer tick).
-- [ ] Investigate log file rotation: every session only ever shows one `runtime*.log` file. Verify Serilog's `RollingInterval.Day` is actually producing daily files; check `logs/` after several days and confirm old files persist.
-- [ ] Add a "copy all" / "clear view" button to the Logs tab.
+## Phase 9: Logs & Observability [COMPLETED]
+- [x] Logs tab: switched from 2 s polling to event-driven updates via `LogManager.Logged`.
+- [x] Instant display: `LogManager` raises `Logged` in-process on every `Info` / `Error`; `LogsViewModel` subscribes and posts to the UI thread.
+- [x] Initial population: `LogManager` keeps a 1000-entry in-memory ring buffer; `LogsViewModel` seeds from `GetRecentEntries()` on construction.
+- [x] Per-run log files: `logs/runtime-{yyyyMMdd-HHmmss}.log` — one file per app launch, no daily rotation.
+- [x] File writes are async (`flushToDiskInterval: 500 ms`); UI is not blocked by disk I/O.
+- [x] Read/write safety: `FileShare.ReadWrite | FileShare.Delete` on `GetLatestLogs` reads, so Serilog's writer is never blocked.
+- [x] "Copy All" button copies current `LogText` to the system clipboard.
+- [x] "Clear View" button blanks the in-memory buffer only — does not delete any file.
+- [x] "Refresh from File" button reloads from the current run's log file.
+- [x] Display capped at 2000 lines to bound memory.
+- [x] Rotation investigation closed: previous "one log file" behavior was Serilog rolling-day design; now replaced with per-run naming, which is the desired semantics.
 
 ## Phase 10: View & Shell Wiring [PLANNED]
 - [ ] Wire `ChartView.axaml.cs` to its ViewModel via DI (currently unset, no `DataContext`).
