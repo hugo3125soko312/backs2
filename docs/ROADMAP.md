@@ -51,9 +51,79 @@
 - [ ] Confirm every tab's `.axaml.cs` follows the `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern.
 - [ ] Ensure `ChartView` / `DataView` have ViewModels registered in `App.axaml.cs`.
 
-## Phase 11: Hardening & Housekeeping [PLANNED]
-- [ ] Reduce build warnings to zero (`dotnet build 2>&1 | Select-String warning`).
-- [ ] Decide on `data/` git policy — currently untracked, contains cache + strategies + downloads.
-- [ ] Audit `YahooProvider` for rate limiting (recent log shows a 429 for `BTCUSD`). Consider a per-provider throttle or backoff policy.
-- [ ] Add a unit test project covering: symbol resolution per provider, `DataManager` fallback ordering, `StrategyCatalogService` scan/changed events.
-- [ ] `docs/`: add a `docs/STRATEGIES.md` authoring guide for writing strategies against `ScriptGlobals`.
+## Phase 10.5: Cache Performance [PLANNED]
+
+Priority: before Phase 11 (Monte Carlo). Monte Carlo runs repeated backtests over the same cached series; if a single load is slow, N simulations become unusable.
+
+- [ ] Profile `CacheManager.LoadCacheAsync` — confirm whether the delay is disk I/O, JSON deserialization, or a fall-through to the network tier on every call.
+- [ ] Add `System.Text.Json` source generation (`[JsonSerializable]` + `JsonSerializerContext`) for `List<Kline>` to eliminate reflection-based serialization.
+- [ ] Consider a compact cache format: serialize `Kline` as a flat 6-element array `[t,o,h,l,c,v]` with `t` as `long` (Unix ms), matching Massive's wire format. Cuts file size ~40% and parse time proportionally.
+- [ ] Verify the memory tier (`IMemoryCache`) is actually populated after the first disk load — log a hit/miss line so we can see it in `runtime.log`.
+- [ ] Ensure `CacheManager` uses `FileStream` with `FileOptions.SequentialScan` for reads (helps large JSON).
+- [ ] Optional: switch to a binary format (Parquet, MessagePack, or `BinaryReader`/`BinaryWriter`) for the cache. JSON is human-readable but is the slowest option.
+- [ ] Add a benchmark: serialize/deserialize 10k synthetic `Kline` records, print elapsed ms. Keep this as a test method in `CacheManager` for regression testing.
+
+
+## Phase 11: Monte Carlo & Performance Analytics [PLANNED]
+
+Target: reproduce the TradingView / Fractalyst-style statistics panel — In-Sample Analysis, Monte Carlo Analysis, Out-of-Sample Analysis, plus full Performance / Trade / Risk metrics.
+
+### Phase 11A — Backtest Result Model
+- [ ] `BacktestResult` record: equity curve, trade list, per-trade PnL, holding durations, win/loss counts.
+- [ ] `Trade` record: entry time, exit time, entry price, exit price, direction, size, PnL, PnL%, MAE, MFE.
+- [ ] `StrategyManager.RunBacktestFromFileAsync` returns a populated `BacktestResult` (via `ScriptGlobals.Result`). Scripts declare a strategy type or register trades explicitly.
+
+### Phase 11B — In-Sample Metrics
+- [ ] CAGR (Compound Annual Growth Rate).
+- [ ] Expectancy (average PnL per trade in currency and %).
+- [ ] Max Drawdown (absolute and %).
+- [ ] Sortino ratio.
+- [ ] Net Profit, Profit Factor, Payoff ratio.
+- [ ] Sample Size (trade count).
+- [ ] Avg Duration, Max Consecutive Wins (Max CW), Max Consecutive Losses (Max CL).
+- [ ] Win rate, loss rate, breakeven rate.
+- [ ] Frequency (trades per week/month), Exposure (% time in market).
+- [ ] Sharpe ratio, Sortino ratio.
+- [ ] MAR, RoR, R², CVaR, p-value.
+- [ ] Alpha, Beta (vs Buy & Hold).
+- [ ] Compounding, Avg Win, Avg Trade, Avg Loss.
+- [ ] Rolling Expectancy, Avg Win Duration (Avg W Dur), Avg Loss Duration (Avg L Dur).
+- [ ] Max Equity (Max Eq), Min Equity (Min Eq), Rolling Sortino.
+- [ ] Current Drawdown (Curr DD), DAR, Kurtosis, Skewness, VaR, Ulcer index.
+
+### Phase 11C — Monte Carlo Simulation
+- [ ] Bootstrap resampling of trade sequence (with and without replacement).
+- [ ] Randomized trade ordering (shuffle).
+- [ ] Optional: randomized entry/exit jitter.
+- [ ] Configurable iteration count (default 1000).
+- [ ] Output distribution per metric (CAGR, Expectancy, Max DD, Sortino).
+- [ ] Report: Best / Median / Worst / Mean / StdDev per metric.
+- [ ] Confidence intervals (5% / 95%).
+- [ ] Histogram rendering (optional phase 11E).
+
+### Phase 11D — Out-of-Sample Analysis
+- [ ] Split the data: In-Sample vs Out-of-Sample windows (ratio configurable, default 70/30).
+- [ ] Run identical metrics on both windows.
+- [ ] Report side-by-side comparison.
+- [ ] Walk-forward analysis (rolling window) — optional sub-phase.
+
+### Phase 11E — GUI
+- [ ] New **Analytics** tab (or a pane inside Strategies).
+- [ ] Table matching the TradingView layout: three-column header (In-Sample / Monte Carlo / Out-of-Sample).
+- [ ] Row labels from Phase 11B/11C.
+- [ ] Color-coded cells (green positive, red negative) matching the reference.
+- [ ] Export results to CSV / JSON for external review.
+
+### Phase 11F — Strategy Authoring Contract
+- [ ] Define how a strategy declares trades. Options:
+  - **A)** Strategy returns a `List<Trade>` explicitly.
+  - **B)** `ScriptGlobals` exposes `Enter(side, price)`, `Exit(price)`, `Size`, etc. Engine tracks positions.
+  - **C)** Strategy returns a signal series (long/short/flat per bar); engine derives trades.
+- [ ] Decision needed before Phase 11A is implemented.
+
+### Dependencies
+- Depends on Phase 8 (symbol selection) — Monte Carlo runs require a chosen instrument and date range.
+- Depends on Phase 10 (ChartView wiring) if histograms/equity curves are to be plotted.
+- Package candidates: `MathNet.Numerics` (statistics), `ScottPlot.Avalonia` (already present, for histograms/equity).
+
+## Phase 12: Hardening & Housekeeping [PLANNED]
