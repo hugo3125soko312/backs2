@@ -119,7 +119,7 @@ public partial class StratsViewModel : ObservableObject
 
             var progress = new Progress<string>(s => StatusText = s);
 
-            var data = await _data.GetSymbolDataAsync("BTCUSD", progress);
+            var data = await _data.GetSymbolDataAsync("XAUUSD", progress);
             if (data == null || data.Count == 0)
             {
                 StatusText = "No data available.";

@@ -1,68 +1,138 @@
-// File: src/core/Providers/MassiveProvider.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
-using System.Threading.Tasks;
 using System.Text.Json;
-using backs2.Core;
+using System.Threading.Tasks;
 using backs2.Core.Models;
 
-namespace backs2.Core.Providers
+namespace backs2.Core.Providers;
+
+public class MassiveProvider : IDataProvider
 {
-    public class MassiveProvider : IDataProvider
+    private const string BaseUrl = "https://api.massive.com";
+    private const int DefaultLookbackDays = 365;
+
+    private static readonly HashSet<string> FatalStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ConfigManager _config;
-        private readonly LogManager _logger;
+        "NOT_AUTHORIZED",
+        "ERROR",
+        "NOT_FOUND"
+    };
 
-        public string Name => "Massive.com";
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ConfigManager _config;
+    private readonly LogManager _logger;
 
-        // We inject IHttpClientFactory to retrieve the "ResilientClient" 
-        // configured in App.axaml.cs
-        public MassiveProvider(IHttpClientFactory httpClientFactory, ConfigManager config, LogManager logger)
+    public string Name => "Massive";
+
+    public MassiveProvider(IHttpClientFactory httpClientFactory, ConfigManager config, LogManager logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _config = config;
+        _logger = logger;
+    }
+
+    public async Task<List<Kline>> FetchAsync(string symbol)
+    {
+        var apiKey = _config.MassiveApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _httpClientFactory = httpClientFactory;
-            _config = config;
-            _logger = logger;
+            _logger.Error("MassiveProvider: MASSIVE_PROVIDER_API_KEY missing in .env");
+            return new List<Kline>();
         }
 
-        public async Task<List<Kline>> FetchAsync(string symbol)
+        var resolved = ResolveSymbol(symbol);
+        var to = DateTime.UtcNow.Date;
+        var from = to.AddDays(-DefaultLookbackDays);
+
+        var url = $"{BaseUrl}/v2/aggs/ticker/{Uri.EscapeDataString(resolved)}/range/1/day/" +
+                  $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}" +
+                  $"?adjusted=true&sort=asc&limit=50000&apiKey={Uri.EscapeDataString(apiKey)}";
+
+        try
         {
-            string apiKey = _config.Settings?.YahooApiKey ?? string.Empty;
+            var client = _httpClientFactory.CreateClient("ResilientClient");
+            var response = await client.GetAsync(url);
 
-            if (string.IsNullOrWhiteSpace(apiKey))
+            if (!response.IsSuccessStatusCode)
             {
-                _logger.Error("MassiveProvider: API key missing in settings.");
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.Error($"MassiveProvider: HTTP {(int)response.StatusCode} for {resolved} — {Truncate(body, 200)}");
                 return new List<Kline>();
             }
 
-            try
-            {
-                // Retrieve the ResilientClient that handles retries automatically
-                var client = _httpClientFactory.CreateClient("ResilientClient");
-                
-                var requestUrl = $"https://api.massive.com/v1/market-data?symbol={symbol}&key={apiKey}";
-                var response = await client.GetAsync(requestUrl);
-                
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.Error($"MassiveProvider: API Error {response.StatusCode} for {symbol}");
-                    return new List<Kline>();
-                }
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+            var root = doc.RootElement;
 
-                using var content = await response.Content.ReadAsStreamAsync();
-                var result = await JsonSerializer.DeserializeAsync<List<Kline>>(content);
-                
-                _logger.Info($"MassiveProvider: Fetched data for {symbol}");
-                return result ?? new List<Kline>();
-            }
-            catch (Exception ex)
+            string? status = null;
+            if (root.TryGetProperty("status", out var statusEl) && statusEl.ValueKind == JsonValueKind.String)
+                status = statusEl.GetString();
+
+            // OK and DELAYED both carry usable results. Only fatal statuses abort.
+            if (status != null && FatalStatuses.Contains(status))
             {
-                // This catch block will trigger only if the resilience policies 
-                // (max retries) are exhausted.
-                _logger.Error($"MassiveProvider: Exception after retries - {ex.Message}");
+                var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "unknown";
+                _logger.Error($"MassiveProvider: status '{status}' for {resolved} — {msg}");
                 return new List<Kline>();
             }
+
+            if (!root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+            {
+                _logger.Info($"MassiveProvider: no results for {resolved} (status '{status ?? "none"}')");
+                return new List<Kline>();
+            }
+
+            var klines = new List<Kline>(results.GetArrayLength());
+
+            foreach (var bar in results.EnumerateArray())
+            {
+                if (!bar.TryGetProperty("t", out var t)) continue;
+                if (!bar.TryGetProperty("o", out var o)) continue;
+                if (!bar.TryGetProperty("h", out var h)) continue;
+                if (!bar.TryGetProperty("l", out var l)) continue;
+                if (!bar.TryGetProperty("c", out var c)) continue;
+
+                var vol = bar.TryGetProperty("v", out var v) && v.ValueKind == JsonValueKind.Number
+                    ? (long)v.GetDouble()
+                    : 0L;
+
+                klines.Add(new Kline(
+                    DateTimeOffset.FromUnixTimeMilliseconds(t.GetInt64()).UtcDateTime,
+                    o.GetDouble(),
+                    h.GetDouble(),
+                    l.GetDouble(),
+                    c.GetDouble(),
+                    vol));
+            }
+
+            var delayNote = string.Equals(status, "DELAYED", StringComparison.OrdinalIgnoreCase) ? " (delayed)" : "";
+            _logger.Info($"MassiveProvider: {resolved} → {klines.Count} bars{delayNote}");
+            return klines;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"MassiveProvider: {symbol} ({resolved}) failed — {ex.Message}");
+            return new List<Kline>();
         }
     }
+
+    private static string ResolveSymbol(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol)) return symbol;
+        symbol = symbol.Trim().ToUpperInvariant();
+
+        if (symbol.Length > 2 && symbol[1] == ':') return symbol;
+
+        if (symbol.EndsWith("=X")) symbol = symbol[..^2];
+
+        if (symbol.Length == 6 && symbol.All(char.IsLetter))
+            return "C:" + symbol;
+
+        return symbol;
+    }
+
+    private static string Truncate(string s, int max)
+        => string.IsNullOrEmpty(s) || s.Length <= max ? s : s[..max] + "…";
 }

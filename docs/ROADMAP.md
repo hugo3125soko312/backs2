@@ -21,3 +21,6 @@
 - [ ] Wire `ChartView` / `DataView` code-behinds to their ViewModels via DI (currently unset).
 - [ ] Reduce build warnings to zero.
 - [ ] Decide on `data/` git policy (currently untracked).
+- [ ] Fix printing logs in the "Logs" tab (currently only shows lines on manual refresh; needs live tail + initial population on first open).
+- [ ] Investigate log file rotation appearance: every session only ever seems to show one `runtime*.log` file — either Serilog is rewriting the same file (misconfigured rolling interval) or the older files are being cleaned. Verify `logs/` after several days.
+- [ ] Strategies tab: replace hard-coded `XAUUSD` in `StratsViewModel.RunSelectedAsync` with a user-selectable ticker (dropdown or text input bound to a new `[ObservableProperty] string _selectedSymbol`).
