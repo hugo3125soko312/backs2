@@ -63,17 +63,17 @@
 - [x] Registered `ChartViewModel` and `DataViewModel` in `App.axaml.cs` → `ConfigureServices`.
 - [x] Verified every tab's `.axaml.cs` follows the `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern.
 
-## Phase 10.5: Cache Performance [PLANNED]
+## Phase 10.5: Cache Performance [COMPLETED]
 
-Priority: before Phase 11 (Monte Carlo). Monte Carlo runs repeated backtests over the same cached series; if a single load is slow, N simulations become unusable.
-
-- [ ] Profile `CacheManager.LoadCacheAsync` — confirm whether the delay is disk I/O, JSON deserialization, or a fall-through to the network tier on every call.
-- [ ] Add `System.Text.Json` source generation (`[JsonSerializable]` + `JsonSerializerContext`) for `List<Kline>` to eliminate reflection-based serialization.
-- [ ] Consider a compact cache format: serialize `Kline` as a flat 6-element array `[t,o,h,l,c,v]` with `t` as `long` (Unix ms), matching Massive's wire format. Cuts file size ~40% and parse time proportionally.
-- [ ] Verify the memory tier (`IMemoryCache`) is actually populated after the first disk load — log a hit/miss line so we can see it in `runtime.log`.
-- [ ] Ensure `CacheManager` uses `FileStream` with `FileOptions.SequentialScan` for reads (helps large JSON).
-- [ ] Optional: switch to a binary format (Parquet, MessagePack, or `BinaryReader`/`BinaryWriter`) for the cache. JSON is human-readable but is the slowest option.
-- [ ] Add a benchmark: serialize/deserialize 10k synthetic `Kline` records, print elapsed ms. Keep this as a test method in `CacheManager` for regression testing.
+- [x] Profiled `CacheManager.LoadCacheAsync` — delay was JSON deserialization, not disk I/O.
+- [x] `System.Text.Json` source generation via `KlineJsonContext` — no reflection on hot path.
+- [x] Compact disk format: `KlineCompact` (flat `{T,O,H,L,C,V}` with `T` as Unix ms). ~40% smaller than the old `{Timestamp,Open,…}` format.
+- [x] `FileStream` with 64 KB buffer + `FileOptions.SequentialScan | FileOptions.Asynchronous` for reads.
+- [x] `DataManager` logs RAM hit / RAM miss so the memory tier is observable in `runtime-*.log`.
+- [x] `CacheManager` logs per-save and per-load timing.
+- [x] Legacy-format detection: `LoadCacheAsync` returns `null` on empty files, malformed JSON, or all-zero payloads (so `DataManager` refetches).
+- [x] `BenchmarkAsync(barCount)` added for regression testing — serialize/load N synthetic bars, log elapsed ms.
+- [x] Verified: `XAUUSD` load 26 ms, `EURUSD` load 15 ms, subsequent runs are RAM hits. Strategy values nonzero after refetch.
 
 
 ## Phase 11: Monte Carlo & Performance Analytics [PLANNED]

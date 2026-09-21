@@ -10,7 +10,12 @@ using backs2.Core.Providers;
 
 namespace backs2.Core;
 
-public record DataEntry(string Symbol, string Status, string Path);
+public record DataEntry(
+    string Symbol,
+    string Source,          // "Cache" or "CSV"
+    string Path,
+    long SizeBytes,
+    DateTime LastModifiedUtc);
 
 public class DataManager
 {
@@ -103,20 +108,55 @@ public class DataManager
         return new List<Kline>();
     }
 
+    // Full catalogue of on-disk datasets: JSON caches + CSV imports.
     public List<DataEntry> GetAvailableData()
     {
-        if (!Directory.Exists("data")) return new List<DataEntry>();
-        return Directory.GetFiles("data/", "*.csv")
-            .Select(f => new DataEntry(Path.GetFileNameWithoutExtension(f), "Valid", f))
+        var entries = new List<DataEntry>();
+
+        // 1. JSON caches under data/cache/
+        const string cacheDir = "data/cache";
+        if (Directory.Exists(cacheDir))
+        {
+            foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
+            {
+                var info = new FileInfo(file);
+                entries.Add(new DataEntry(
+                    Symbol: Path.GetFileNameWithoutExtension(info.Name),
+                    Source: "Cache",
+                    Path: info.FullName,
+                    SizeBytes: info.Length,
+                    LastModifiedUtc: info.LastWriteTimeUtc));
+            }
+        }
+
+        // 2. CSV imports directly under data/
+        if (Directory.Exists("data"))
+        {
+            foreach (var file in Directory.GetFiles("data", "*.csv"))
+            {
+                var info = new FileInfo(file);
+                entries.Add(new DataEntry(
+                    Symbol: Path.GetFileNameWithoutExtension(info.Name),
+                    Source: "CSV",
+                    Path: info.FullName,
+                    SizeBytes: info.Length,
+                    LastModifiedUtc: info.LastWriteTimeUtc));
+            }
+        }
+
+        return entries
+            .OrderBy(e => e.Source)
+            .ThenBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
+    // Just the cached symbol names — used by the Strategies tab picker.
     public List<string> GetCachedSymbols()
     {
         const string cacheDir = "data/cache";
         if (!Directory.Exists(cacheDir)) return new List<string>();
 
-        return Directory.GetFiles(cacheDir)
+        return Directory.GetFiles(cacheDir, "*.json")
             .Select(Path.GetFileNameWithoutExtension)
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
