@@ -75,6 +75,10 @@
 - [x] `BenchmarkAsync(barCount)` added for regression testing — serialize/load N synthetic bars, log elapsed ms.
 - [x] Verified: `XAUUSD` load 26 ms, `EURUSD` load 15 ms, subsequent runs are RAM hits. Strategy values nonzero after refetch.
 
+## Phase 10.6: Data Tab Polish [PLANNED]
+- [ ] Automatic size formatting: display sizes in B / KB / MB / GB dynamically based on magnitude (e.g. `12.4 KB` instead of `12680 B`). Implement as an `IValueConverter` (or a computed property on `DataEntry`) so the underlying byte count is preserved for sorting/filtering.
+- [ ] Size column sort and filter must continue to work on the raw `SizeBytes` value, not the formatted string.
+
 
 ## Phase 11: Monte Carlo & Performance Analytics [PLANNED]
 
