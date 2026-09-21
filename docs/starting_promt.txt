@@ -1,5 +1,6 @@
 I am working on the 'backs2' trading engine.
 I am providing you with my full project context, architecture rules, and file tree.
+You are allowed to request access to the projects powershell / request any files.
 Please read this context.
 All future code must adhere to the rules provided here (docs/AGENT_RULES.md, RULES.md, PROJECT_CONTEXT.md, ARCHITECTURE.md).
 Do you understand the architecture?

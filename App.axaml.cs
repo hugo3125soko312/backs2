@@ -41,28 +41,27 @@ public partial class App : Application
         // Caching
         services.AddMemoryCache();
         services.AddSingleton<CacheManager>();
-        
+
         // Core Services
         services.AddSingleton<ConfigManager>();
         services.AddSingleton<LogManager>();
         services.AddSingleton<DataManager>();
+        services.AddSingleton<MetricRegistry>();
         services.AddSingleton<StrategyManager>();
-        services.AddSingleton<MetricRegistry>(); 
-        
+        services.AddSingleton<StrategyCatalogService>();
+
         // ViewModels
         services.AddTransient<MainViewModel>();
         services.AddTransient<MetricsViewModel>();
-        services.AddTransient<StrategyEditorViewModel>();
         services.AddTransient<StratsViewModel>();
+        services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
 
         // HttpClient Resilience
         services.AddHttpClient("ResilientClient")
-            .AddStandardResilienceHandler(options => 
+            .AddStandardResilienceHandler(options =>
             {
-                // We resolve the settings manually here since the container isn't built yet
-                // In a production app, we would use a simpler config binding
-                options.Retry.MaxRetryAttempts = 3; 
+                options.Retry.MaxRetryAttempts = 3;
                 options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(30);
             });
 

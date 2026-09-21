@@ -1,5 +1,74 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="backs2.Views.StratsView">
-    <TextBlock Text="StratsView Content" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+             xmlns:vm="using:backs2.ViewModels"
+             xmlns:core="using:backs2.Core"
+             x:Class="backs2.Views.StratsView"
+             x:DataType="vm:StratsViewModel">
+
+    <Grid ColumnDefinitions="260,4,*" RowDefinitions="Auto,*,Auto">
+
+        <!-- Toolbar -->
+        <StackPanel Grid.Row="0" Grid.ColumnSpan="3"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Margin="8">
+            <Button Content="Refresh"
+                    Command="{Binding RefreshCatalogCommand}" />
+            <Button Content="Run Selected"
+                    Command="{Binding RunSelectedCommand}"
+                    IsEnabled="{Binding !IsBusy}" />
+        </StackPanel>
+
+        <!-- Strategy list (clickable, non-selectable text) -->
+        <ListBox Grid.Row="1" Grid.Column="0"
+                 ItemsSource="{Binding Strategies}"
+                 SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}"
+                 Margin="8,0,0,0">
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="core:StrategyDescriptor">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Name}"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Path}"
+                                   FontSize="10"
+                                   Opacity="0.6"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <GridSplitter Grid.Row="1" Grid.Column="1"
+                      Width="4"
+                      Background="Transparent"
+                      ResizeDirection="Columns" />
+
+        <!-- Source preview (selectable) -->
+        <Border Grid.Row="1" Grid.Column="2"
+                Margin="0,0,8,0"
+                BorderThickness="1"
+                BorderBrush="#333">
+            <ScrollViewer>
+                <TextBox Text="{Binding SourcePreview}"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas,Menlo,monospace"
+                         FontSize="12"
+                         Background="Transparent"
+                         BorderThickness="0" />
+            </ScrollViewer>
+        </Border>
+
+        <!-- Status line (selectable) -->
+        <TextBox Grid.Row="2" Grid.ColumnSpan="3"
+                 Text="{Binding StatusText}"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 Margin="8,4,8,8"
+                 FontSize="11"
+                 Opacity="0.8" />
+    </Grid>
 </UserControl>

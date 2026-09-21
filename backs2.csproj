@@ -27,4 +27,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Strategy .cs files live in data/strategies and are Roslyn-evaluated at runtime, not compiled into the app. -->
+    <Compile Remove="data\**\*.cs" />
+  </ItemGroup>
 </Project>

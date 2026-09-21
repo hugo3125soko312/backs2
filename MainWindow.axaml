@@ -18,7 +18,7 @@
     </Window.Styles>
 
     <DockPanel>
-        <!-- Status Bar: Dark background with White text for contrast -->
+        <!-- Status Bar -->
         <Border DockPanel.Dock="Bottom" Height="25" Background="#2D2D2D">
             <TextBlock Text="{Binding StatusText}" 
                        Foreground="White" 
@@ -27,11 +27,11 @@
                        Margin="10,0"/>
         </Border>
 
-        <TabControl>
+        <TabControl x:CompileBindings="False">
             <TabItem Header="Chart"><views:ChartView /></TabItem>
             <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>
-            <TabItem Header="Builder"><views:StrategyEditorView /></TabItem>
+            <TabItem Header="Strategies"><views:StratsView /></TabItem>
             <TabItem Header="Logs"><views:LogsView /></TabItem>
             <TabItem Header="Config"><views:ConfigView /></TabItem>
         </TabControl>
