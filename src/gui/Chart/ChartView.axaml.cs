@@ -1,7 +1,19 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.IO;
-using System.Net.Http;
-using Avalonia.Controls;  namespace backs2.Views;  public partial class ChartView : UserControl {     public ChartView()     {         InitializeComponent();     } }
+using Avalonia;
+using Avalonia.Controls;
+using backs2.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace backs2.Views;
+
+public partial class ChartView : UserControl
+{
+    public ChartView()
+    {
+        InitializeComponent();
+
+        if (Application.Current is App app)
+        {
+            DataContext = app.Services.GetRequiredService<ChartViewModel>();
+        }
+    }
+}

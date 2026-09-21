@@ -52,6 +52,8 @@ public partial class App : Application
 
         // ViewModels
         services.AddTransient<MainViewModel>();
+        services.AddTransient<ChartViewModel>();
+        services.AddTransient<DataViewModel>();
         services.AddTransient<MetricsViewModel>();
         services.AddTransient<StratsViewModel>();
         services.AddTransient<LogsViewModel>();
