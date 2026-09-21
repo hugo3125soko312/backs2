@@ -7,5 +7,8 @@ namespace backs2.Core.Providers;
 public interface IDataProvider
 {
     string Name { get; }
+
     Task<List<Kline>> FetchAsync(string symbol);
+
+    Task<List<Kline>> FetchAsync(string symbol, string timeframe);
 }

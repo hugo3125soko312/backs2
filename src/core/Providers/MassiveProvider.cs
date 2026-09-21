@@ -11,7 +11,6 @@ namespace backs2.Core.Providers;
 public class MassiveProvider : IDataProvider
 {
     private const string BaseUrl = "https://api.massive.com";
-    private const int DefaultLookbackDays = 365;
 
     private static readonly HashSet<string> FatalStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,7 +32,9 @@ public class MassiveProvider : IDataProvider
         _logger = logger;
     }
 
-    public async Task<List<Kline>> FetchAsync(string symbol)
+    public Task<List<Kline>> FetchAsync(string symbol) => FetchAsync(symbol, "1D");
+
+    public async Task<List<Kline>> FetchAsync(string symbol, string timeframe)
     {
         var apiKey = _config.MassiveApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -42,11 +43,19 @@ public class MassiveProvider : IDataProvider
             return new List<Kline>();
         }
 
+        var tf = TimeframeMap.ToMassive(timeframe);
+        if (tf == null)
+        {
+            _logger.Error($"MassiveProvider: unsupported timeframe '{timeframe}'");
+            return new List<Kline>();
+        }
+
         var resolved = ResolveSymbol(symbol);
         var to = DateTime.UtcNow.Date;
-        var from = to.AddDays(-DefaultLookbackDays);
+        var from = to.AddDays(-TimeframeMap.LookbackDays(timeframe));
 
-        var url = $"{BaseUrl}/v2/aggs/ticker/{Uri.EscapeDataString(resolved)}/range/1/day/" +
+        var url = $"{BaseUrl}/v2/aggs/ticker/{Uri.EscapeDataString(resolved)}/range/" +
+                  $"{tf.Value.Multiplier}/{tf.Value.Timespan}/" +
                   $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}" +
                   $"?adjusted=true&sort=asc&limit=50000&apiKey={Uri.EscapeDataString(apiKey)}";
 
@@ -58,7 +67,7 @@ public class MassiveProvider : IDataProvider
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.Error($"MassiveProvider: HTTP {(int)response.StatusCode} for {resolved} — {Truncate(body, 200)}");
+                _logger.Error($"MassiveProvider: HTTP {(int)response.StatusCode} for {resolved}@{timeframe} — {Truncate(body, 200)}");
                 return new List<Kline>();
             }
 
@@ -70,17 +79,16 @@ public class MassiveProvider : IDataProvider
             if (root.TryGetProperty("status", out var statusEl) && statusEl.ValueKind == JsonValueKind.String)
                 status = statusEl.GetString();
 
-            // OK and DELAYED both carry usable results. Only fatal statuses abort.
             if (status != null && FatalStatuses.Contains(status))
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "unknown";
-                _logger.Error($"MassiveProvider: status '{status}' for {resolved} — {msg}");
+                _logger.Error($"MassiveProvider: status '{status}' for {resolved}@{timeframe} — {msg}");
                 return new List<Kline>();
             }
 
             if (!root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
             {
-                _logger.Info($"MassiveProvider: no results for {resolved} (status '{status ?? "none"}')");
+                _logger.Info($"MassiveProvider: no results for {resolved}@{timeframe} (status '{status ?? "none"}')");
                 return new List<Kline>();
             }
 
@@ -100,20 +108,16 @@ public class MassiveProvider : IDataProvider
 
                 klines.Add(new Kline(
                     DateTimeOffset.FromUnixTimeMilliseconds(t.GetInt64()).UtcDateTime,
-                    o.GetDouble(),
-                    h.GetDouble(),
-                    l.GetDouble(),
-                    c.GetDouble(),
-                    vol));
+                    o.GetDouble(), h.GetDouble(), l.GetDouble(), c.GetDouble(), vol));
             }
 
             var delayNote = string.Equals(status, "DELAYED", StringComparison.OrdinalIgnoreCase) ? " (delayed)" : "";
-            _logger.Info($"MassiveProvider: {resolved} → {klines.Count} bars{delayNote}");
+            _logger.Info($"MassiveProvider: {resolved}@{timeframe} → {klines.Count} bars{delayNote}");
             return klines;
         }
         catch (Exception ex)
         {
-            _logger.Error($"MassiveProvider: {symbol} ({resolved}) failed — {ex.Message}");
+            _logger.Error($"MassiveProvider: {symbol}@{timeframe} ({resolved}) failed — {ex.Message}");
             return new List<Kline>();
         }
     }
@@ -124,11 +128,8 @@ public class MassiveProvider : IDataProvider
         symbol = symbol.Trim().ToUpperInvariant();
 
         if (symbol.Length > 2 && symbol[1] == ':') return symbol;
-
         if (symbol.EndsWith("=X")) symbol = symbol[..^2];
-
-        if (symbol.Length == 6 && symbol.All(char.IsLetter))
-            return "C:" + symbol;
+        if (symbol.Length == 6 && symbol.All(char.IsLetter)) return "C:" + symbol;
 
         return symbol;
     }

@@ -1,5 +1,70 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="backs2.Views.ChartView">
-    <TextBlock Text="ChartView Content" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+             xmlns:vm="using:backs2.ViewModels"
+             xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+             x:Class="backs2.Views.ChartView"
+             x:DataType="vm:ChartViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Border.chartFrame">
+            <Setter Property="Background" Value="#1E1E1E" />
+        </Style>
+        <Style Selector="Panel.chartHost">
+            <Setter Property="Background" Value="#1E1E1E" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Margin="8">
+            <TextBlock Text="Symbol:" VerticalAlignment="Center" />
+            <ComboBox Width="130"
+                      ItemsSource="{Binding AvailableSymbols}"
+                      SelectedItem="{Binding SelectedSymbol, Mode=TwoWay}" />
+            <TextBox Width="110"
+                     Watermark="or type…"
+                     Text="{Binding SelectedSymbol, Mode=TwoWay}" />
+            <Button Content="⟳"
+                    Command="{Binding RefreshSymbolsCommand}"
+                    ToolTip.Tip="Rescan cached symbols" />
+
+            <TextBlock Text="Timeframe:" VerticalAlignment="Center" Margin="12,0,0,0" />
+            <ComboBox Width="90"
+                      ItemsSource="{Binding AvailableTimeframes}"
+                      SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}" />
+
+            <Button Content="Load"
+                    Command="{Binding LoadCommand}"
+                    IsEnabled="{Binding !IsLoading}" />
+
+            <ProgressBar Width="140"
+                         IsIndeterminate="True"
+                         IsVisible="{Binding IsLoading}"
+                         VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Classes="chartFrame"
+                Margin="8,0,8,8"
+                BorderThickness="1"
+                BorderBrush="#333">
+            <Panel Classes="chartHost"
+                   ClipToBounds="True">
+                <Border Background="#1E1E1E" />
+                <sp:AvaPlot Name="PricePlot" />
+            </Panel>
+        </Border>
+
+        <TextBox Grid.Row="2"
+                 Text="{Binding StatusText}"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 Margin="8,0,8,8"
+                 FontSize="11"
+                 Opacity="0.8" />
+    </Grid>
 </UserControl>

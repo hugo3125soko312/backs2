@@ -15,7 +15,18 @@ public record DataEntry(
     string Source,          // "Cache" or "CSV"
     string Path,
     long SizeBytes,
-    DateTime LastModifiedUtc);
+    DateTime LastModifiedUtc)
+{
+    public string SizeDisplay => FormatSize(SizeBytes);
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024L * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}
 
 public class DataManager
 {
@@ -40,21 +51,29 @@ public class DataManager
     }
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
+        => await GetSymbolDataAsync(symbol, "1D", progress);
+
+    public async Task<List<Kline>> GetSymbolDataAsync(
+        string symbol,
+        string timeframe,
+        IProgress<string>? progress = null)
     {
-        if (_memoryCache.TryGetValue(symbol, out List<Kline>? memData) && memData != null)
+        var cacheKey = $"{symbol}@{timeframe}";
+
+        if (_memoryCache.TryGetValue(cacheKey, out List<Kline>? memData) && memData != null)
         {
-            _logger.Info($"DataManager: RAM hit for {symbol} ({memData.Count} bars)");
+            _logger.Info($"DataManager: RAM hit for {cacheKey} ({memData.Count} bars)");
             progress?.Report("Loaded from RAM.");
             return memData;
         }
 
-        _logger.Info($"DataManager: RAM miss for {symbol}");
+        _logger.Info($"DataManager: RAM miss for {cacheKey}");
 
-        var diskData = await _diskCache.LoadCacheAsync(symbol);
+        var diskData = await _diskCache.LoadCacheAsync(cacheKey);
         if (diskData != null && diskData.Count > 0)
         {
             progress?.Report("Loaded from Disk.");
-            _memoryCache.Set(symbol, diskData, TimeSpan.FromMinutes(10));
+            _memoryCache.Set(cacheKey, diskData, TimeSpan.FromMinutes(10));
             return diskData;
         }
 
@@ -79,11 +98,11 @@ public class DataManager
                 continue;
             }
 
-            progress?.Report($"Cache miss. Trying {provider.Name}...");
+            progress?.Report($"Trying {provider.Name}...");
             List<Kline> fetched;
             try
             {
-                fetched = await provider.FetchAsync(symbol);
+                fetched = await provider.FetchAsync(symbol, timeframe);
             }
             catch (Exception ex)
             {
@@ -95,12 +114,12 @@ public class DataManager
             if (fetched != null && fetched.Count > 0)
             {
                 progress?.Report($"{provider.Name} returned {fetched.Count} bars. Saving...");
-                _memoryCache.Set(symbol, fetched, TimeSpan.FromMinutes(10));
-                await _diskCache.SaveCacheAsync(symbol, fetched);
+                _memoryCache.Set(cacheKey, fetched, TimeSpan.FromMinutes(10));
+                await _diskCache.SaveCacheAsync(cacheKey, fetched);
                 return fetched;
             }
 
-            _logger.Info($"DataManager: {provider.Name} returned no data for {symbol}.");
+            _logger.Info($"DataManager: {provider.Name} returned no data for {cacheKey}.");
             progress?.Report($"{provider.Name} returned no data. Trying next...");
         }
 
@@ -108,12 +127,10 @@ public class DataManager
         return new List<Kline>();
     }
 
-    // Full catalogue of on-disk datasets: JSON caches + CSV imports.
     public List<DataEntry> GetAvailableData()
     {
         var entries = new List<DataEntry>();
 
-        // 1. JSON caches under data/cache/
         const string cacheDir = "data/cache";
         if (Directory.Exists(cacheDir))
         {
@@ -129,7 +146,6 @@ public class DataManager
             }
         }
 
-        // 2. CSV imports directly under data/
         if (Directory.Exists("data"))
         {
             foreach (var file in Directory.GetFiles("data", "*.csv"))
@@ -150,7 +166,6 @@ public class DataManager
             .ToList();
     }
 
-    // Just the cached symbol names — used by the Strategies tab picker.
     public List<string> GetCachedSymbols()
     {
         const string cacheDir = "data/cache";
@@ -159,8 +174,9 @@ public class DataManager
         return Directory.GetFiles(cacheDir, "*.json")
             .Select(Path.GetFileNameWithoutExtension)
             .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n!.Split('@')[0])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-            .ToList()!;
+            .ToList();
     }
 }

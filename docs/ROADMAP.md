@@ -79,6 +79,123 @@
 - [ ] Automatic size formatting: display sizes in B / KB / MB / GB dynamically based on magnitude (e.g. `12.4 KB` instead of `12680 B`). Implement as an `IValueConverter` (or a computed property on `DataEntry`) so the underlying byte count is preserved for sorting/filtering.
 - [ ] Size column sort and filter must continue to work on the raw `SizeBytes` value, not the formatted string.
 
+## Phase 10.7: Chart Tab [BLOCKED]
+
+Status: **BLOCKED — ScottPlot.Avalonia 5.0.51+ white-background regression.**
+
+### Blocking Issue
+`ScottPlot.Avalonia` 5.0.55 renders the chart with a white background regardless of any of the following:
+- `plot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E")`
+- `plot.DataBackground.Color = ScottPlot.Color.FromHex("#1E1E1E")`
+- `plot.SetStyle(new ScottPlot.PlotStyles.Dark())`
+- Dark `Border` behind the `AvaPlot` control
+- `plot.RenderManager.ClearCanvasBeforeEachRender = false`
+- `Dispatcher.UIThread.Post(() => PricePlot.Refresh(), DispatcherPriority.Background)`
+
+Root cause: ScottPlot.Avalonia introduced a `ClearCanvas` render action in 5.0.51 (when Multiplot became default). This action paints the entire control rectangle white before drawing the plot, overriding any plot-level background configuration. The `ClearCanvasBeforeEachRender = false` property does not suppress the clear in 5.0.55.
+
+Downgrading to `ScottPlot.Avalonia 5.0.50` was attempted and **also did not resolve the issue** in this project.
+
+### What Has Been Tried
+- [x] `FigureBackground.Color` / `DataBackground.Color` overrides — no effect.
+- [x] `SetStyle(new ScottPlot.PlotStyles.Dark())` — no effect.
+- [x] `SetStyle(...)` + explicit color overrides in correct order — no effect.
+- [x] Dark `Border` wrapper around `AvaPlot` — inner surface remains white.
+- [x] `Panel` host with a child dark `Border` under the `AvaPlot` — no effect.
+- [x] `plot.RenderManager.ClearCanvasBeforeEachRender = false` in constructor and in `RenderChart()` — no effect.
+- [x] Post-layout `Dispatcher.UIThread.Post(() => PricePlot.Refresh(), DispatcherPriority.Background)` — no effect.
+- [x] Downgrade to `ScottPlot.Avalonia 5.0.50` — no effect.
+
+### Files Currently in Place (chart tab half-built)
+- `src/gui/Chart/ChartViewModel.cs` — complete. Symbol picker, timeframe picker, `LoadCommand`, `Series`, `IsLoading`, `StatusText`.
+- `src/gui/Chart/ChartView.axaml` — complete layout: toolbar, `Border` frame (`#1E1E1E`), `Panel` host, `AvaPlot`, status line. White background persists.
+- `src/gui/Chart/ChartView.axaml.cs` — complete. `RenderChart()` builds `List<OHLC>`, calls `plot.Add.Candlestick(...)`, `candles.Sequential = true`, `plot.Axes.DateTimeTicksBottom()`, then refreshes.
+- `src/core/Providers/IDataProvider.cs` — `FetchAsync(symbol, timeframe)` overload added.
+- `src/core/Providers/TimeframeMap.cs` — created. Maps `1m/2m/3m/5m/15m/30m/45m/1h/2h/3h/4h/1D/1W` to Massive and Yahoo wire formats.
+- `src/core/Providers/MassiveProvider.cs` — timeframe-aware.
+- `src/core/Providers/YahooProvider.cs` — timeframe-aware.
+- `src/core/DataManager.cs` — `GetSymbolDataAsync(symbol, timeframe, progress)` added; cache key `{symbol}@{timeframe}`.
+- `src/core/Providers/BinanceProvider.cs` — deleted.
+- `backs2.csproj` — `ScottPlot.Avalonia` at `5.0.55`.
+
+### What is Functional
+- Symbol picker (from cache + free-text) — works.
+- Timeframe picker — works.
+- Load pipeline: `ChartViewModel.LoadAsync` → `DataManager.GetSymbolDataAsync(symbol, timeframe)` → provider fetch or cache hit → `Series` populated → status text updated.
+- Candle data is fetched and delivered to the `AvaPlot`. The chart renders candlesticks on a white background.
+
+### What is Broken
+- Chart canvas background cannot be made dark. Every known API and workaround has been tried. The white is baked into the `AvaPlot` control's render surface in 5.0.51+.
+
+### Paths Forward (pick one when resuming)
+- [ ] **Option A — Switch to a different charting library.** Evaluate `ScottPlot.Avalonia 5.0.x` alternatives:
+  - `LiveChartsCore.SkiaSharpView.Avalonia` — candlesticks (`CandlesticksSeries`), dark themes first-class.
+  - `Syncfusion.Avalonia.Charts` — candlesticks, dark themes, free community license.
+  - `OxyPlot.Avalonia` — `CandleStickSeries`, portable, theming straightforward.
+  - `Avalonia.Controls.Charts` — paid (Avalonia Accelerate), but native and complete.
+- [ ] **Option B — Build a custom control.** Render candlesticks directly via `Avalonia` `DrawingContext` (Skia), bypassing ScottPlot entirely. More code, full control over theming.
+- [ ] **Option C — File an issue upstream.** Post a minimal reproduction to ScottPlot's GitHub. If a fix lands, resume with ScottPlot.
+- [ ] **Option D — Accept the white background.** Leave ScottPlot as-is, style the rest of the tab so the contrast is intentional. Not recommended.
+
+### Downstream Impact
+- **Phase 10.8 (Metrics Library)** is not blocked. Metric computation does not depend on the chart rendering.
+- **Phase 11 (Monte Carlo)** expects to plot equity curves. If it uses the same charting stack, it inherits this block. Decide the charting stack before Phase 11 GUI work begins.
+- **Phase 12 (Hardening)** unaffected.
+
+### Phase 10.7A — Charting Foundation
+- [ ] Choose rendering library. `ScottPlot.Avalonia 5.0.15` is already referenced — start there.
+- [ ] `ChartViewModel`: `[ObservableProperty] List<Kline> Series`, `[ObservableProperty] string SelectedSymbol`, `[ObservableProperty] string SelectedTimeframe`.
+- [ ] Symbol picker: mirror the Strategies-tab pattern (ComboBox of cached symbols + free-text + refresh ⟳).
+- [ ] Data flow: `ChartViewModel` calls `DataManager.GetSymbolDataAsync(symbol)` and passes the resulting series to the chart control via a `[ObservableProperty]` binding.
+- [ ] Candlestick rendering: open/high/low/close per bar. If ScottPlot 5 lacks a native candlestick, render as OHLC bars or fall back to a line chart of `Close` in v1 and note the limitation.
+
+### Phase 10.7B — Volume
+- [ ] Add a volume subplot below the price panel.
+- [ ] Volume as histogram bars, colored by up/down close vs. previous close.
+- [ ] Shared X-axis between price and volume panels.
+
+### Phase 10.7C — Timeframe Switching
+- [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
+- [ ] **Data source decision:** Massive `/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}` supports intraday natively. Yahoo supports `interval=1m|5m|15m|1h|1d|1wk`. Decide whether to fetch per-timeframe from provider, or resample locally from the cached 1D series.
+  - Recommendation: **fetch per-timeframe from the provider**, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
+- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`. Bind an indeterminate or determinate `ProgressBar` that is visible only while switching. `DataManager`'s `IProgress<string>` gives us a signal we can turn into ticks.
+
+### Phase 10.7D — Crosshair & Readout
+- [ ] Mouse crosshair tracking on the price panel.
+- [ ] Readout box showing O/H/L/C/Volume/timestamp for the hovered bar.
+- [ ] Optional: snap crosshair to nearest bar.
+
+### Phase 10.7E — Polish
+- [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
+- [ ] Empty state: if no symbol selected or no data, show a friendly message instead of a blank canvas.
+- [ ] Error state: if provider fetch fails, show the fallback chain's progress messages in a status line.
+
+### Dependencies
+- Depends on Phase 10 (DI wiring) — done.
+- Depends on Phase 10.5 (cache performance) — done; chart fetches hit the same tiers.
+- Feeds into Phase 11 (Monte Carlo) — the Analytics tab will want to plot equity curves using the same ScottPlot plumbing.
+
+---
+
+## Phase 10.8: Metrics Library Expansion [PLANNED]
+
+Scope: grow `MetricRegistry` from its current 3 metrics (SessionHigh, VWAP, ZScore) into a broad library. Classify every metric by **lag** (leading / lagging / mixed) and **usage** (trend / momentum / volatility / volume / breadth). UI exposes filtering by these categories.
+
+### Phase 10.8A — Metric Taxonomy
+- [ ] Extend `IMetric` with metadata:
+  ```csharp
+  public enum MetricLag { Leading, Lagging, Mixed }
+  public enum MetricCategory { Trend, Momentum, Volatility, Volume, Support, Breadth, Statistical }
+
+  public interface IMetric
+  {
+      string Name { get; }
+      MetricLag Lag { get; }
+      MetricCategory Category { get; }
+      string Description { get; }
+      double Calculate(List<Kline> data);
+  }
+
 
 ## Phase 11: Monte Carlo & Performance Analytics [PLANNED]
 

@@ -116,7 +116,7 @@
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="core:DataEntry">
-                                <TextBlock Text="{Binding SizeBytes}" VerticalAlignment="Center" Margin="4,0" />
+                                <TextBlock Text="{Binding SizeDisplay}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
