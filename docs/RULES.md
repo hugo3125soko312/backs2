@@ -1,5 +1,5 @@
 # Development Rules
-- ALWAYS check namespace before writing code (e.g., `backs2.Core` for logic, `backs2.ViewModels` for UI).
+- ALWAYS check namespace before writing code (e.g. `backs2.Core` for logic, `backs2.ViewModels` for UI).
 - ViewModels: Must be `public partial class` and inherit from `ObservableObject`.
 - AXAML: Always ensure `x:Class="backs2.Views.YourView"` and include `x:DataType` for compiled bindings.
 - File limits: Keep path depth shallow.
@@ -9,3 +9,14 @@
     - All I/O must be non-blocking (Async/Await).
     - UI progress must be communicated via `IProgress<T>`.
     - Strictly typed bindings (`x:DataType`) are required for all AXAML files.
+- Strategies:
+    - Live in `data/strategies/`, one file per strategy, top-level statements.
+    - Available globals: `Engine` (`MetricRegistry`), `Data` (`List<Kline>`), `Log(string)`.
+    - Never place a strategy `.cs` outside `data/strategies/` — the csproj only excludes that path.
+    - Never add a strategy file to a `<Compile>` item. Strategies are Roslyn-evaluated, not compiled.
+- Selecting text in the UI:
+    - Use `TextBlock` for clickable list rows.
+    - Use read-only `TextBox` only where copy/paste is required (source preview, log output, status line).
+- Logs:
+    - Write via `LogManager.Info` / `LogManager.Error`.
+    - `logs/` is git-ignored; never commit log output.

@@ -1,5 +1,5 @@
 # Project: backs2 Trading Engine
-- GUI: Avalonia 11.0.2
+- GUI: Avalonia 11.0.11
 - Core: .NET 8.0, DI-based xManager Pattern
 - Core Dependencies: 
     - `Microsoft.Extensions.DependencyInjection` (DI Container)
@@ -12,9 +12,16 @@
     - `src/gui/`: ViewModels, Views (organized by feature module).
     - Providers: Multi-provider support using `AddKeyedTransient`.
     - Resilience: Automatic retries for network-bound operations via `IHttpClientFactory`.
+    - Strategies: Disk-streamed. `.cs` files live in `data/strategies/`. There is no in-app builder.
 - Crucial Rules:
     - Never modify `MainWindow.axaml` namespace without updating `views` xmlns.
     - All ViewModels must be `partial class` inheriting from `ObservableObject`.
     - New services must be registered in `App.axaml.cs` -> `ConfigureServices`.
     - Enforce "Async-First": Disk and Network I/O must use `Task`-based patterns.
     - DI: No `new` keywords for core services; always inject via constructor.
+    - Strategy files under `data/strategies/` must never be compiled into the app (`<Compile Remove="data\**\*.cs" />` in `backs2.csproj`).
+    - `logs/` is git-ignored; never commit log output.
+- Strategies:
+    - Files are top-level statements executed against `ScriptGlobals` (`Engine`, `Data`, `Log`).
+    - Compiled runners are cached by `(path, lastWriteUtc, size)`.
+    - The catalog auto-refreshes on file create / change / delete via `FileSystemWatcher`, debounced 250 ms.

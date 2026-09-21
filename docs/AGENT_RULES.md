@@ -6,9 +6,15 @@
 - Before suggesting a new package, verify it exists on public NuGet.
 - If modifying XAML, ensure namespaces (xmlns:views) match the folder structure.
 - Keep file paths flat to avoid Windows path length issues.
+- When a file is provided for replacement, respond with the entire file in a single code block — never a diff.
+- Never include thinking, rationale, or caveats in the code block. Rationale goes outside, after the block.
+- Strategy scripts live in `data/strategies/*.cs` and are never compiled into the assembly.
+  - `backs2.csproj` must retain `<Compile Remove="data\**\*.cs" />`.
+  - Script shape: top-level statements against `ScriptGlobals` (`Engine`, `Data`, `Log`).
 
 ## PowerShell & File System Protocol
 - You have access to PowerShell 7 environments. 
 - You may propose PowerShell 7 commands to perform diagnostic or file-system tasks.
 - **File Access Constraint:** Before reading, writing, or modifying any file, you must explicitly state the file path and request permission or wait for the user to confirm the operation.
 - **Execution Protocol:** If an action requires terminal interaction, propose the exact PowerShell command, wait for the user to execute it and provide the output, then analyze the results before proceeding.
+- **Build staleness:** Avalonia + CommunityToolkit source-generator errors (`AXSG0111`, phantom CS1061 on generated members) are resolved by wiping `obj/` and `bin/` and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
