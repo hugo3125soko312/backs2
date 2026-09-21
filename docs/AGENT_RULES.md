@@ -11,6 +11,8 @@
 - Strategy scripts live in `data/strategies/*.cs` and are never compiled into the assembly.
   - `backs2.csproj` must retain `<Compile Remove="data\**\*.cs" />`.
   - Script shape: top-level statements against `ScriptGlobals` (`Engine`, `Data`, `Log`).
+- API keys live in `.env` at the repo root, loaded by `ConfigManager`. Never propose hard-coding keys or writing them to `config/settings.json`.
+- Provider symbols are resolved inside each provider. Do not add symbol translation to `DataManager` or `IDataProvider`.
 
 ## PowerShell & File System Protocol
 - You have access to PowerShell 7 environments. 
@@ -18,3 +20,4 @@
 - **File Access Constraint:** Before reading, writing, or modifying any file, you must explicitly state the file path and request permission or wait for the user to confirm the operation.
 - **Execution Protocol:** If an action requires terminal interaction, propose the exact PowerShell command, wait for the user to execute it and provide the output, then analyze the results before proceeding.
 - **Build staleness:** Avalonia + CommunityToolkit source-generator errors (`AXSG0111`, phantom CS1061 on generated members) are resolved by wiping `obj/` and `bin/` and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
+- **Diagnosis first:** When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes.

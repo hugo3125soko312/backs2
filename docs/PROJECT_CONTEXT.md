@@ -10,9 +10,13 @@
 - Architecture: 
     - `src/core/`: Managers, Metrics, Models, Providers.
     - `src/gui/`: ViewModels, Views (organized by feature module).
-    - Providers: Multi-provider support using `AddKeyedTransient`.
+    - Providers: Multi-provider with ordered fallback using `AddKeyedTransient`.
     - Resilience: Automatic retries for network-bound operations via `IHttpClientFactory`.
     - Strategies: Disk-streamed. `.cs` files live in `data/strategies/`. There is no in-app builder.
+- Secrets:
+    - API keys live in `.env` at the repo root: `MASSIVE_PROVIDER_API_KEY`, `YAHOO_PROVIDER_API_KEY`.
+    - `ConfigManager` reads them at startup and exposes them as read-only properties. They are never written to `config/settings.json`.
+    - `.env` is git-ignored.
 - Crucial Rules:
     - Never modify `MainWindow.axaml` namespace without updating `views` xmlns.
     - All ViewModels must be `partial class` inheriting from `ObservableObject`.
@@ -20,7 +24,11 @@
     - Enforce "Async-First": Disk and Network I/O must use `Task`-based patterns.
     - DI: No `new` keywords for core services; always inject via constructor.
     - Strategy files under `data/strategies/` must never be compiled into the app (`<Compile Remove="data\**\*.cs" />` in `backs2.csproj`).
-    - `logs/` is git-ignored; never commit log output.
+    - `logs/` and `.env` are git-ignored; never commit secrets or log output.
+- Providers:
+    - `IDataProvider` contract is minimal: `Name` + `FetchAsync(symbol)`.
+    - Each provider resolves symbols on its own (`XAUUSD → C:XAUUSD` for Massive, `XAUUSD=X` for Yahoo).
+    - `DataManager` walks `AppSettings.ProviderOrder` and returns the first non-empty result.
 - Strategies:
     - Files are top-level statements executed against `ScriptGlobals` (`Engine`, `Data`, `Log`).
     - Compiled runners are cached by `(path, lastWriteUtc, size)`.

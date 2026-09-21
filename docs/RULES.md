@@ -9,6 +9,15 @@
     - All I/O must be non-blocking (Async/Await).
     - UI progress must be communicated via `IProgress<T>`.
     - Strictly typed bindings (`x:DataType`) are required for all AXAML files.
+- Secrets:
+    - Never hard-code API keys.
+    - Never write secrets to `config/settings.json` — that file is for non-secret engine state only.
+    - Read secrets from `ConfigManager.MassiveApiKey` / `ConfigManager.YahooApiKey`, which source them from `.env`.
+- Providers:
+    - New providers must implement `IDataProvider` and be registered as a **keyed transient** in `App.axaml.cs`.
+    - New providers must perform their own symbol resolution (user tickers → provider-specific format).
+    - New providers must return an empty `List<Kline>` on failure, never throw — `DataManager` uses empty as the signal to fall back.
+    - Provider `Name` is what the Config tab shows; keep it human-readable.
 - Strategies:
     - Live in `data/strategies/`, one file per strategy, top-level statements.
     - Available globals: `Engine` (`MetricRegistry`), `Data` (`List<Kline>`), `Log(string)`.
