@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
-             xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+             xmlns:oxy="clr-namespace:OxyPlot.Avalonia;assembly=OxyPlot.Avalonia"
              x:Class="backs2.Views.ChartView"
              x:DataType="vm:ChartViewModel">
 
@@ -54,7 +54,57 @@
             <Panel Classes="chartHost"
                    ClipToBounds="True">
                 <Border Background="#1E1E1E" />
-                <sp:AvaPlot Name="PricePlot" />
+                <oxy:PlotView Model="{Binding PlotModel}">
+                    <oxy:PlotView.DefaultTrackerTemplate>
+                        <ControlTemplate>
+                            <oxy:TrackerControl Position="{Binding Position}"
+                                                LineStroke="#888888"
+                                                Background="#2A2A2A">
+                                <oxy:TrackerControl.Content>
+                                    <TextBlock Text="{Binding Text}"
+                                               Foreground="White"
+                                               FontSize="11"
+                                               Margin="6,4" />
+                                </oxy:TrackerControl.Content>
+                            </oxy:TrackerControl>
+                        </ControlTemplate>
+                    </oxy:PlotView.DefaultTrackerTemplate>
+                    <oxy:PlotView.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Auto (fits data to screen)"
+                                      Command="{Binding AutoScaleCommand}" />
+                            <Separator />
+                            <MenuItem Header="Logarithmic"
+                                      Command="{Binding ToggleLogarithmicCommand}">
+                                <MenuItem.Icon>
+                                    <CheckBox IsChecked="{Binding IsLogarithmic}"
+                                              IsHitTestVisible="False" />
+                                </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="Percent"
+                                      Command="{Binding TogglePercentCommand}">
+                                <MenuItem.Icon>
+                                    <CheckBox IsChecked="{Binding IsPercent}"
+                                              IsHitTestVisible="False" />
+                                </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="Indexed to 100"
+                                      Command="{Binding ToggleIndexedCommand}">
+                                <MenuItem.Icon>
+                                    <CheckBox IsChecked="{Binding IsIndexedTo100}"
+                                              IsHitTestVisible="False" />
+                                </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="Invert scale"
+                                      Command="{Binding ToggleInvertCommand}">
+                                <MenuItem.Icon>
+                                    <CheckBox IsChecked="{Binding IsInverted}"
+                                              IsHitTestVisible="False" />
+                                </MenuItem.Icon>
+                            </MenuItem>
+                        </ContextMenu>
+                    </oxy:PlotView.ContextMenu>
+                </oxy:PlotView>
             </Panel>
         </Border>
 
