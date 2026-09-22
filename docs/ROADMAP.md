@@ -20,12 +20,12 @@ Chart tab is functional with OxyPlot.Avalonia 2.1.0-Avalonia11. Foundation (10.7
 - [ ] Optional: snap crosshair to nearest bar.
 - [ ] **Lock price to bar ratio** (deferred from 10.7A) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.
 
-### Phase 10.7E -- Polish [PENDING]
+### Phase 10.7E -- Polish [IN PROGRESS]
 - [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
 - [ ] Empty state: if no symbol selected or no data, show a friendly message instead of a blank canvas.
 - [ ] Error state: if provider fetch fails, show the fallback chain's progress messages in a status line.
 - [ ] **Selectable error texts.** Status line and error messages must use `SelectableTextBlock` instead of `TextBox` or `TextBlock`, so users can select and copy exception text.
-- [ ] **Data tab empty state bug.** DataGrid shows "2 of 2" in the infobar but no rows render. Investigate: (a) `DataGrid` inside a vertical `StackPanel` does not size correctly and renders zero rows; (b) missing `PropertyChanged` notification when the whole collection is replaced; (c) `DataContext` not assigned on the UserControl. Confirm root cause and fix.
+- [x] **Data tab empty state bug.** Resolved. Root cause: the `DataGrid` had no resolvable `ControlTheme` when hosted inside the `TabControl` — the application-level `StyleInclude` in `App.axaml` was present but not taking effect on the grid's own resource host. Fix: added a scoped `<UserControl.Styles>` `StyleInclude` for `avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml` inside `DataView.axaml`.
 
 ### Phase 10.7F -- SkiaSharp Render Path [BLOCKED]
 

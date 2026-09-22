@@ -5,6 +5,32 @@
              x:Class="backs2.Views.DataView"
              x:DataType="vm:DataViewModel">
 
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+
+        <!-- Filter-active: accent the TextBox border + text when it has content. -->
+        <Style Selector="TextBox.filtered">
+            <Setter Property="BorderBrush" Value="#4FC3F7" />
+            <Setter Property="Foreground" Value="#4FC3F7" />
+        </Style>
+
+        <!-- Sort glyph: accent color, small, tight. -->
+        <Style Selector="TextBlock.sortGlyph">
+            <Setter Property="Foreground" Value="#4FC3F7" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Header button content: label + glyph on one line. -->
+        <Style Selector="Button.sortHeader">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
+
     <Grid RowDefinitions="Auto,*,Auto">
 
         <!-- Toolbar -->
@@ -14,8 +40,6 @@
                     Margin="8">
             <Button Content="Refresh"
                     Command="{Binding RefreshDataCommand}" />
-            <Button Content="Clear Filters"
-                    Command="{Binding ClearFiltersCommand}" />
         </StackPanel>
 
         <!-- Datasheet: filters live inside the column headers -->
@@ -34,19 +58,25 @@
 
                 <DataGrid.Columns>
 
+                    <!-- ===== Symbol ===== -->
                     <DataGridTemplateColumn Header="Symbol" Width="180">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Content="Symbol ▲▼"
-                                            FontSize="11"
-                                            Padding="4,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
+                                    <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Symbol" />
-                                    <TextBox Text="{Binding DataContext.FilterSymbol,
+                                            CommandParameter="Symbol">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Symbol" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.SymbolSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSymbol,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterSymbol,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"
@@ -63,19 +93,25 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- ===== Source ===== -->
                     <DataGridTemplateColumn Header="Source" Width="100">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Content="Source ▲▼"
-                                            FontSize="11"
-                                            Padding="4,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
+                                    <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Source" />
-                                    <TextBox Text="{Binding DataContext.FilterSource,
+                                            CommandParameter="Source">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Source" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.SourceSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSource,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterSource,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"
@@ -92,19 +128,25 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- ===== Size ===== -->
                     <DataGridTemplateColumn Header="Size (bytes)" Width="120">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Content="Size ▲▼"
-                                            FontSize="11"
-                                            Padding="4,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
+                                    <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="SizeBytes" />
-                                    <TextBox Text="{Binding DataContext.FilterSize,
+                                            CommandParameter="SizeBytes">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Size" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.SizeSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSize,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterSize,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"
@@ -121,19 +163,25 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- ===== Last Modified ===== -->
                     <DataGridTemplateColumn Header="Last Modified" Width="160">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Content="Modified ▲▼"
-                                            FontSize="11"
-                                            Padding="4,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
+                                    <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="LastModifiedUtc" />
-                                    <TextBox Text="{Binding DataContext.FilterModified,
+                                            CommandParameter="LastModifiedUtc">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Modified" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.ModifiedSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterModified,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterModified,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"
@@ -152,19 +200,25 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- ===== Path ===== -->
                     <DataGridTemplateColumn Header="Path" Width="*">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Content="Path ▲▼"
-                                            FontSize="11"
-                                            Padding="4,0"
-                                            HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
+                                    <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Path" />
-                                    <TextBox Text="{Binding DataContext.FilterPath,
+                                            CommandParameter="Path">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Path" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.PathSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterPath,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterPath,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"

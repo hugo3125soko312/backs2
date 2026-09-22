@@ -29,6 +29,20 @@ public partial class DataViewModel : ObservableObject
     // Status bar.
     [ObservableProperty] private string _statusText = "";
 
+    // ---- Sort glyph indicators (one per column) ----
+    public string SymbolSortGlyph   => GlyphFor("Symbol");
+    public string SourceSortGlyph   => GlyphFor("Source");
+    public string SizeSortGlyph     => GlyphFor("SizeBytes");
+    public string ModifiedSortGlyph => GlyphFor("LastModifiedUtc");
+    public string PathSortGlyph     => GlyphFor("Path");
+
+    // ---- Filter-active indicators (one per column) ----
+    public bool HasFilterSymbol   => !string.IsNullOrWhiteSpace(FilterSymbol);
+    public bool HasFilterSource   => !string.IsNullOrWhiteSpace(FilterSource);
+    public bool HasFilterSize     => !string.IsNullOrWhiteSpace(FilterSize);
+    public bool HasFilterModified => !string.IsNullOrWhiteSpace(FilterModified);
+    public bool HasFilterPath     => !string.IsNullOrWhiteSpace(FilterPath);
+
     public DataViewModel(DataManager dataManager)
     {
         _dataManager = dataManager;
@@ -51,16 +65,6 @@ public partial class DataViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ClearFilters()
-    {
-        FilterSymbol = "";
-        FilterSource = "";
-        FilterSize = "";
-        FilterModified = "";
-        FilterPath = "";
-    }
-
-    [RelayCommand]
     private void SortBy(string? column)
     {
         if (string.IsNullOrWhiteSpace(column)) return;
@@ -76,11 +80,54 @@ public partial class DataViewModel : ObservableObject
         ApplyView();
     }
 
-    partial void OnFilterSymbolChanged(string value) => ApplyView();
-    partial void OnFilterSourceChanged(string value) => ApplyView();
-    partial void OnFilterSizeChanged(string value) => ApplyView();
-    partial void OnFilterModifiedChanged(string value) => ApplyView();
-    partial void OnFilterPathChanged(string value) => ApplyView();
+    partial void OnFilterSymbolChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterSymbol));
+        ApplyView();
+    }
+
+    partial void OnFilterSourceChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterSource));
+        ApplyView();
+    }
+
+    partial void OnFilterSizeChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterSize));
+        ApplyView();
+    }
+
+    partial void OnFilterModifiedChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterModified));
+        ApplyView();
+    }
+
+    partial void OnFilterPathChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterPath));
+        ApplyView();
+    }
+
+    partial void OnSortColumnChanged(string value) => RaiseSortGlyphs();
+    partial void OnSortAscendingChanged(bool value) => RaiseSortGlyphs();
+
+    private void RaiseSortGlyphs()
+    {
+        OnPropertyChanged(nameof(SymbolSortGlyph));
+        OnPropertyChanged(nameof(SourceSortGlyph));
+        OnPropertyChanged(nameof(SizeSortGlyph));
+        OnPropertyChanged(nameof(ModifiedSortGlyph));
+        OnPropertyChanged(nameof(PathSortGlyph));
+    }
+
+    private string GlyphFor(string column)
+    {
+        if (!string.Equals(SortColumn, column, StringComparison.OrdinalIgnoreCase))
+            return "";
+        return SortAscending ? "▲" : "▼";
+    }
 
     private void ApplyView()
     {

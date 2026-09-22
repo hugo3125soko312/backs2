@@ -83,6 +83,13 @@ Completed phases, frozen at the state they shipped in. Active work lives in `doc
 - [x] DataView.axaml Size column binds to SizeDisplay.
 - [x] Size sort and filter continue to operate on the raw SizeBytes value.
 
+## Phase 10.6.1: Data Tab Sort & Filter Indicators [COMPLETED]
+- [x] Single sort glyph per column header, blank when the column is not the active sort.
+- [x] `▲` / `▼` accent-colored when the column is the active sort.
+- [x] Filter `TextBox` border + foreground turn accent (`#4FC3F7`) when the filter is non-empty.
+- [x] `DataViewModel`: added five `*SortGlyph` and five `HasFilter*` computed properties.
+- [x] Removed the "Clear Filters" toolbar button; filters self-clear per-column by deleting the text.
+
 ## Phase 10.7A: Charting Foundation [COMPLETED]
 - [x] Charting library selected: OxyPlot.Avalonia 2.1.0-Avalonia11 (after ScottPlot.Avalonia white-background regression).
 - [x] Removed `ScottPlot.Avalonia 5.0.55`; added `OxyPlot.Avalonia 2.1.0-Avalonia11`.
