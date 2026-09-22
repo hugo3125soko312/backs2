@@ -1,31 +1,42 @@
 # Development Rules
-- ALWAYS check namespace before writing code (e.g. `backs2.Core` for logic, `backs2.ViewModels` for UI).
-- ViewModels: Must be `public partial class` and inherit from `ObservableObject`.
-- AXAML: Always ensure `x:Class="backs2.Views.YourView"` and include `x:DataType` for compiled bindings.
-- File limits: Keep path depth shallow.
-- Style: High-Performance C# (minimal allocations, `List<T>` over LINQ in hot paths).
+- ALWAYS check namespace before writing code (backs2.Core for logic, backs2.ViewModels for UI).
+- ViewModels: public partial class inheriting ObservableObject.
+- AXAML: always set x:Class="backs2.Views.YourView" and x:DataType for compiled bindings.
+- Keep file paths shallow.
+- Style: High-Performance C# — minimal allocations, List<T> over LINQ in hot paths.
 - Architecture:
-    - No static global variables (Enforce xManager/DI pattern).
-    - All I/O must be non-blocking (Async/Await).
-    - UI progress must be communicated via `IProgress<T>`.
-    - Strictly typed bindings (`x:DataType`) are required for all AXAML files.
+    - No static global variables. Enforce xManager/DI.
+    - All I/O non-blocking (Async/Await).
+    - UI progress via IProgress<T>.
+    - Strictly typed bindings required for all AXAML.
 - Secrets:
     - Never hard-code API keys.
-    - Never write secrets to `config/settings.json` — that file is for non-secret engine state only.
-    - Read secrets from `ConfigManager.MassiveApiKey` / `ConfigManager.YahooApiKey`, which source them from `.env`.
+    - Never write secrets to config/settings.json.
+    - Read from ConfigManager.MassiveApiKey / ConfigManager.YahooApiKey, sourced from .env.
 - Providers:
-    - New providers must implement `IDataProvider` and be registered as a **keyed transient** in `App.axaml.cs`.
-    - New providers must perform their own symbol resolution (user tickers → provider-specific format).
-    - New providers must return an empty `List<Kline>` on failure, never throw — `DataManager` uses empty as the signal to fall back.
-    - Provider `Name` is what the Config tab shows; keep it human-readable.
+    - Implement IDataProvider; register as keyed transient in App.axaml.cs.
+    - Do symbol resolution inside the provider. Do not add symbol translation to DataManager or IDataProvider.
+    - Do timeframe wire-format mapping inside TimeframeMap, not inside individual providers.
+    - Return an empty List<Kline> on failure; never throw — DataManager uses empty as the signal to fall back.
+    - Name is human-readable and shown in the Config tab.
+- Caching:
+    - Disk format is KlineCompact[], serialized via KlineJsonContext.
+    - Never add a new cache format without a schema/version detection path in LoadCacheAsync.
+    - Cache keys are symbol@timeframe.
 - Strategies:
-    - Live in `data/strategies/`, one file per strategy, top-level statements.
-    - Available globals: `Engine` (`MetricRegistry`), `Data` (`List<Kline>`), `Log(string)`.
-    - Never place a strategy `.cs` outside `data/strategies/` — the csproj only excludes that path.
-    - Never add a strategy file to a `<Compile>` item. Strategies are Roslyn-evaluated, not compiled.
+    - Live in data/strategies/, one file per strategy, top-level statements.
+    - Globals: Engine (MetricRegistry), Data (List<Kline>), Log(string).
+    - Never place a strategy .cs outside data/strategies/.
+    - Never add a strategy file to a Compile item. Strategies are Roslyn-evaluated, not compiled.
+- XAML binding inside templates:
+    - Use Binding DataContext.Prop with RelativeSource AncestorType=UserControl.
+    - Do not use $parent[UserControl].((vm:Type)DataContext).Prop — fails at runtime inside templates.
 - Selecting text in the UI:
-    - Use `TextBlock` for clickable list rows.
-    - Use read-only `TextBox` only where copy/paste is required (source preview, log output, status line).
+    - TextBlock for clickable list rows.
+    - Read-only TextBox only where copy/paste is required (source preview, log output, status line).
 - Logs:
-    - Write via `LogManager.Info` / `LogManager.Error`.
-    - `logs/` is git-ignored; never commit log output.
+    - Write via LogManager.Info / LogManager.Error.
+    - logs/ is git-ignored. One log file per app run: runtime-{timestamp}.log.
+- Charting:
+    - ScottPlot.Avalonia 5.0.55 is referenced but currently blocked — see docs/ROADMAP.md Phase 10.7.
+    - Do not add new charting dependencies without first resolving Phase 10.7.
