@@ -1,4 +1,5 @@
 /bin
 /obj
 /.env
+data/cache
 logs/

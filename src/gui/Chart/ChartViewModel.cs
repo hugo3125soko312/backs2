@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -17,6 +18,16 @@ public partial class ChartViewModel : ObservableObject
 {
     private readonly DataManager _data;
     private Axis? _priceAxis;
+    private Axis? _volumeAxis;
+
+    // TradingView-style split: ~80% price, ~20% volume, small gap between.
+    private const double PriceStart = 0.22;
+    private const double PriceEnd = 1.00;
+    private const double VolumeStart = 0.00;
+    private const double VolumeEnd = 0.18;
+
+    private static readonly OxyColor UpColor = OxyColor.Parse("#26A69A");
+    private static readonly OxyColor DownColor = OxyColor.Parse("#EF5350");
 
     public ObservableCollection<string> AvailableSymbols { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } =
@@ -152,26 +163,30 @@ public partial class ChartViewModel : ObservableObject
 
         if (wantLog != isLog)
         {
+            string key = _priceAxis.Key ?? "Price";
             PlotModel.Axes.Remove(_priceAxis);
-            _priceAxis = BuildPriceAxis();
+            _priceAxis = BuildPriceAxis(key);
             PlotModel.Axes.Add(_priceAxis);
         }
 
-        _priceAxis.StartPosition = IsInverted ? 1 : 0;
-        _priceAxis.EndPosition = IsInverted ? 0 : 1;
+        _priceAxis.StartPosition = IsInverted ? PriceEnd : PriceStart;
+        _priceAxis.EndPosition = IsInverted ? PriceStart : PriceEnd;
 
         RebuildSeriesOnly();
         PlotModel.InvalidatePlot(true);
     }
 
-    private Axis BuildPriceAxis()
+    private Axis BuildPriceAxis(string key)
     {
         Axis axis;
         if (IsLogarithmic)
         {
             axis = new LogarithmicAxis
             {
+                Key = key,
                 Position = AxisPosition.Right,
+                StartPosition = PriceStart,
+                EndPosition = PriceEnd,
                 TicklineColor = OxyColor.Parse("#555555"),
                 MajorGridlineStyle = LineStyle.None,
                 MinorGridlineStyle = LineStyle.None,
@@ -182,7 +197,10 @@ public partial class ChartViewModel : ObservableObject
         {
             axis = new LinearAxis
             {
+                Key = key,
                 Position = AxisPosition.Right,
+                StartPosition = PriceStart,
+                EndPosition = PriceEnd,
                 TicklineColor = OxyColor.Parse("#555555"),
                 MajorGridlineStyle = LineStyle.None,
                 MinorGridlineStyle = LineStyle.None,
@@ -192,19 +210,51 @@ public partial class ChartViewModel : ObservableObject
         return axis;
     }
 
+    private Axis BuildVolumeAxis()
+    {
+        return new LinearAxis
+        {
+            Key = "Volume",
+            Position = AxisPosition.Right,
+            StartPosition = VolumeStart,
+            EndPosition = VolumeEnd,
+            Minimum = 0,
+            TicklineColor = OxyColor.Parse("#555555"),
+            MajorGridlineStyle = LineStyle.None,
+            MinorGridlineStyle = LineStyle.None,
+            TextColor = OxyColor.Parse("#888888"),
+            FontSize = 10,
+            LabelFormatter = FormatVolume
+        };
+    }
+
+    private static string FormatVolume(double value)
+    {
+        if (value <= 0) return "0";
+
+        double abs = Math.Abs(value);
+        if (abs >= 1_000_000_000_000d) return (value / 1_000_000_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "T";
+        if (abs >= 1_000_000_000d)     return (value / 1_000_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "B";
+        if (abs >= 1_000_000d)         return (value / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M";
+        if (abs >= 1_000d)             return (value / 1_000d).ToString("0.#", CultureInfo.InvariantCulture) + "K";
+        return value.ToString("0", CultureInfo.InvariantCulture);
+    }
+
     private void RebuildSeriesOnly()
     {
         if (PlotModel == null) return;
 
         for (int i = PlotModel.Series.Count - 1; i >= 0; i--)
         {
-            if (PlotModel.Series[i] is CandleStickSeries)
+            if (PlotModel.Series[i] is CandleStickSeries || PlotModel.Series[i] is LinearBarSeries)
                 PlotModel.Series.RemoveAt(i);
         }
 
         if (Series == null || Series.Count == 0) return;
 
         PlotModel.Series.Add(BuildCandleSeries());
+        foreach (var s in BuildVolumeSeries())
+            PlotModel.Series.Add(s);
     }
 
     private void RebuildPlotModel()
@@ -231,11 +281,18 @@ public partial class ChartViewModel : ObservableObject
         };
         model.Axes.Add(dateAxis);
 
-        _priceAxis = BuildPriceAxis();
+        _priceAxis = BuildPriceAxis("Price");
         model.Axes.Add(_priceAxis);
 
+        _volumeAxis = BuildVolumeAxis();
+        model.Axes.Add(_volumeAxis);
+
         if (Series != null && Series.Count > 0)
+        {
             model.Series.Add(BuildCandleSeries());
+            foreach (var s in BuildVolumeSeries())
+                model.Series.Add(s);
+        }
 
         PlotModel = model;
     }
@@ -244,8 +301,9 @@ public partial class ChartViewModel : ObservableObject
     {
         var series = new CandleStickSeries
         {
-            IncreasingColor = OxyColors.Green,
-            DecreasingColor = OxyColors.Red,
+            YAxisKey = "Price",
+            IncreasingColor = UpColor,
+            DecreasingColor = DownColor,
             TrackerFormatString =
                 "High: {3:0.00}\nLow: {4:0.00}\nOpen: {5:0.00}\nClose: {6:0.00}\nDate: {2:yyyy-MM-dd}",
             DataFieldX = "X",
@@ -255,7 +313,6 @@ public partial class ChartViewModel : ObservableObject
             DataFieldClose = "Close"
         };
 
-        // Determine the transform base: first close of the series.
         double baseClose = Series.Count > 0 ? Series[0].Close : 1.0;
         if (baseClose == 0) baseClose = 1.0;
 
@@ -263,12 +320,10 @@ public partial class ChartViewModel : ObservableObject
         for (int i = 0; i < Series.Count; i++)
         {
             var k = Series[i];
-
             double o = k.Open, h = k.High, l = k.Low, c = k.Close;
 
             if (IsPercent)
             {
-                // Percent change relative to the first close.
                 o = (k.Open / baseClose - 1.0) * 100.0;
                 h = (k.High / baseClose - 1.0) * 100.0;
                 l = (k.Low / baseClose - 1.0) * 100.0;
@@ -276,7 +331,6 @@ public partial class ChartViewModel : ObservableObject
             }
             else if (IsIndexedTo100)
             {
-                // Rebase first close to 100.
                 double scale = 100.0 / baseClose;
                 o = k.Open * scale;
                 h = k.High * scale;
@@ -297,6 +351,55 @@ public partial class ChartViewModel : ObservableObject
         return series;
     }
 
+    private List<Series> BuildVolumeSeries()
+    {
+        // LinearBarSeries is used in place of RectangleBarSeries because
+        // RectangleBarSeries.UpdateData() throws NotImplementedException in
+        // the OxyPlot.Avalonia 2.1.0 build. Per-bar coloring is achieved by
+        // splitting bars into an up-series and a down-series, each with a
+        // single fill color.
+        var upSeries = new LinearBarSeries
+        {
+            YAxisKey = "Volume",
+            FillColor = UpColor,
+            StrokeColor = UpColor,
+            BarWidth = 0.7,
+            TrackerFormatString = "{0}\nVolume: {2:0,0}"
+        };
+
+        var downSeries = new LinearBarSeries
+        {
+            YAxisKey = "Volume",
+            FillColor = DownColor,
+            StrokeColor = DownColor,
+            BarWidth = 0.7,
+            TrackerFormatString = "{0}\nVolume: {2:0,0}"
+        };
+
+        var upItems = new List<VolumeBar>(Series.Count);
+        var downItems = new List<VolumeBar>(Series.Count);
+
+        for (int i = 0; i < Series.Count; i++)
+        {
+            var k = Series[i];
+            var bar = new VolumeBar
+            {
+                X = DateTimeAxis.ToDouble(k.Timestamp),
+                Volume = k.Volume
+            };
+
+            if (k.Close >= k.Open)
+                upItems.Add(bar);
+            else
+                downItems.Add(bar);
+        }
+
+        upSeries.ItemsSource = upItems;
+        downSeries.ItemsSource = downItems;
+
+        return new List<Series> { upSeries, downSeries };
+    }
+
     private sealed class OhlcItem
     {
         public double X { get; set; }
@@ -304,5 +407,11 @@ public partial class ChartViewModel : ObservableObject
         public double High { get; set; }
         public double Low { get; set; }
         public double Close { get; set; }
+    }
+
+    private sealed class VolumeBar
+    {
+        public double X { get; set; }
+        public double Volume { get; set; }
     }
 }

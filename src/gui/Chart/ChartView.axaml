@@ -50,11 +50,13 @@
                 Classes="chartFrame"
                 Margin="8,0,8,8"
                 BorderThickness="1"
-                BorderBrush="#333">
+                BorderBrush="#333"
+                UseLayoutRounding="True">
             <Panel Classes="chartHost"
                    ClipToBounds="True">
                 <Border Background="#1E1E1E" />
-                <oxy:PlotView Model="{Binding PlotModel}">
+                <oxy:PlotView Model="{Binding PlotModel}"
+                              UseLayoutRounding="True">
                     <oxy:PlotView.DefaultTrackerTemplate>
                         <ControlTemplate>
                             <oxy:TrackerControl Position="{Binding Position}"

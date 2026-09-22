@@ -109,10 +109,13 @@ The ScottPlot.Avalonia white-background regression was resolved by switching the
 - [x] Data flow: `ChartViewModel` calls `DataManager.GetSymbolDataAsync(symbol, timeframe)` and rebuilds `PlotModel` on `OnSeriesChanged`.
 - [x] Candlestick rendering: open/high/low/close per bar via `CandleStickSeries`.
 
-### Phase 10.7B -- Volume [PENDING]
-- [ ] Add a volume subplot below the price panel.
-- [ ] Volume as histogram bars, colored by up/down close vs. previous close.
-- [ ] Shared X-axis between price and volume panels.
+### Phase 10.7B -- Volume [COMPLETED]
+- [x] Volume subplot added below the price panel (price 0.22-1.00, volume 0.00-0.18 in `PlotModel` panel fractions).
+- [x] Volume bars colored by candle direction: green (`#26A69A`) when `Close >= Open`, red (`#EF5350`) otherwise.
+- [x] Shared X-axis between price and volume panels via a single bottom `DateTimeAxis`.
+- [x] TradingView-style abbreviated volume labels on the right (`1.2K` / `1.2M` / `1.2B` / `1.2T`) via `LabelFormatter`.
+- [x] **Known workaround:** `RectangleBarSeries.UpdateData()` throws `NotImplementedException` in OxyPlot.Avalonia 2.1.0 when the series is reset from populated to empty. Replaced with two `LinearBarSeries` (one per color) to avoid this code path.
+- [ ] **Known issue (Phase 10.7E):** Candlestick bodies render with jagged/aliased edges. Suspected DPI-related but reproduces on multiple monitors and does not resolve after monitor switch, so it is not a DPI problem per se.
 
 ### Phase 10.7C -- Timeframe Switching [PENDING]
 - [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
@@ -130,6 +133,14 @@ The ScottPlot.Avalonia white-background regression was resolved by switching the
 - [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
 - [ ] Empty state: if no symbol selected or no data, show a friendly message instead of a blank canvas.
 - [ ] Error state: if provider fetch fails, show the fallback chain's progress messages in a status line.
+- [ ] **Selectable error texts.** Status line and error messages must use `SelectableTextBlock` instead of `TextBox` or `TextBlock`, so users can select and copy exception text.
+- [ ] **Data tab empty state bug.** DataGrid shows "2 of 2" in the infobar but no rows render. Investigate: (a) `DataGrid` inside a vertical `StackPanel` does not size correctly and renders zero rows; (b) missing `PropertyChanged` notification when the whole collection is replaced; (c) `DataContext` not assigned on the UserControl. Confirm root cause and fix.
+- [ ] **Candlestick body rendering is not sharp.** Candle bodies and wicks render with jagged/aliased edges against the dark background. Tested on two monitors with different DPI: the issue persists on both and does not resolve after moving the window between them, so it is not a standard per-monitor DPI scaling problem. Candidate causes to investigate:
+  - `PlotModel` renderer anti-aliasing settings (`PlotModel.Renderer` / `PlotView` render options).
+  - `CandleStickSeries.StrokeThickness` too thin (1.0) against a dark background at typical candle widths.
+  - Skia/Avalonia bitmap scaling: the `PlotView` may render at logical pixels and be scaled up by the compositor. Check `RenderOptions.BitmapInterpolationMode` on the `PlotView` and whether the render surface matches the physical pixel size.
+  - Integer alignment: candle X positions derived from `DateTimeAxis.ToDouble` do not snap to integer pixel boundaries, causing sub-pixel rendering that manifests as a soft/aliased edge.
+  - OxyPlot.Avalonia renderer wiring: the 2.1.0-Avalonia11 package may not use the SkiaSharp renderer by default; confirm which renderer is active and whether a `SkiaRenderContext` with proper anti-aliasing is in use.
 
 ### Dependencies
 - Depends on Phase 10 (DI wiring) -- done.
