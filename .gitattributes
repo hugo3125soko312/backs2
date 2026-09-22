@@ -1,0 +1,16 @@
+# Normalize line endings
+* text=auto
+
+# Force CRLF on Windows-first file types
+*.cs    text eol=crlf
+*.axaml text eol=crlf
+*.csproj text eol=crlf
+*.ps1   text eol=crlf
+*.md    text eol=crlf
+*.json  text eol=crlf
+*.txt   text eol=crlf
+
+# Do not touch these
+*.png   binary
+*.jpg   binary
+*.ico   binary
