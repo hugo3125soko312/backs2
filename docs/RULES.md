@@ -40,3 +40,35 @@
 - Charting:
     - ScottPlot.Avalonia 5.0.55 is referenced but currently blocked — see docs/ROADMAP.md Phase 10.7.
     - Do not add new charting dependencies without first resolving Phase 10.7.
+
+## Commit Convention
+When a phase is completed, ship a commit with the message format:
+
+    <type>(<scope>): <summary>
+
+    - <bullet 1>
+    - <bullet 2>
+    ...
+
+Types:
+- feat      new functionality
+- fix       bug fix
+- perf      performance work
+- docs      documentation only
+- refactor  internal restructuring, no behavior change
+- chore     build, deps, config, non-code
+- wip       work in progress, not yet complete (used for blocked phases)
+
+Scope:
+- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui.
+
+Summary: one line, imperative mood, no trailing period. Under 72 characters.
+
+Body: optional bullets listing the concrete changes. Include phase references when applicable, e.g. "(Phase 10.5)".
+
+After the commit, print the last three log lines to confirm:
+
+    git log --oneline -3
+    git status
+
+The working tree must be clean. If git status shows untracked or modified files, either stage them or add them to .gitignore before finalizing.

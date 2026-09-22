@@ -16,6 +16,23 @@
 - Inside XAML templates, use Binding DataContext.Prop with RelativeSource AncestorType=UserControl. Do not use $parent[UserControl].((vm:Type)DataContext).Prop.
 - When a build error list contains a mix of real C# errors (CS####) and “Compiled binding path … is invalid” errors, treat the CS errors as the real cause. The binding errors are cascades from the compiler bailing on the first hard error. Fix the CS errors first, then re-evaluate.
 
+## Phase Completion Protocol
+Every time a phase in docs/ROADMAP.md is completed, the response must end with a commit block:
+
+1. A single PowerShell command staging all phase changes:
+       git add -A
+
+2. A commit with the project's message convention:
+       git commit -m "<type>(<scope>): <summary>" -m "- <bullet>" -m "- <bullet>"
+
+3. A verification command:
+       git log --oneline -3
+       git status
+
+4. A one-line note confirming what the commit covers.
+
+Do not commit for partial phases. Do not commit while the build is failing. Do not commit when the working tree contains files outside the current phase's scope — stage explicitly if needed.
+
 ## Requesting Files from the User
 - Never say "I need file X" or "please provide file X" in prose.
 - Provide a single Get-Content ... | Set-Clipboard command listing every file needed, on one line.
