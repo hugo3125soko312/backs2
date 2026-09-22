@@ -1,3 +1,5 @@
+ONLY SPEAK IN ENGLISH
+
 # Development Rules
 - ALWAYS check namespace before writing code (backs2.Core for logic, backs2.ViewModels for UI).
 - ViewModels: public partial class inheriting ObservableObject.
