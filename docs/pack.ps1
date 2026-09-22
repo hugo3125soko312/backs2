@@ -25,9 +25,13 @@ try {
     [void]$sb.AppendLine((Get-Content 'docs\starting_promt.txt' -Raw))
     [void]$sb.AppendLine()
 
-    # --- 2. All docs (everything under docs/ except the pack script itself) ---
+    # --- 2. All docs (everything under docs/ except pack.ps1 and starting_promt.txt) ---
     $docs = Get-ChildItem -Path 'docs' -Recurse -File |
-        Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' -and $_.Name -ne 'pack.ps1' }
+        Where-Object {
+            $_.FullName -notmatch '\\(bin|obj)\\' -and
+            $_.Name -ne 'pack.ps1' -and
+            $_.Name -ne 'starting_promt.txt'
+        }
 
     foreach ($doc in $docs) {
         $rel = Resolve-Path -Relative $doc.FullName
