@@ -41,7 +41,10 @@
                     IsEnabled="{Binding !IsLoading}" />
 
             <ProgressBar Width="140"
-                         IsIndeterminate="True"
+                         Minimum="0"
+                         Maximum="100"
+                         Value="{Binding LoadingProgress}"
+                         IsIndeterminate="{Binding !IsProgressDeterminate}"
                          IsVisible="{Binding IsLoading}"
                          VerticalAlignment="Center" />
         </StackPanel>

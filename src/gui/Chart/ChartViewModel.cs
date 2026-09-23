@@ -24,6 +24,8 @@ public partial class ChartViewModel : ObservableObject
     [ObservableProperty] private string _selectedTimeframe = "1D";
     [ObservableProperty] private string _statusText = "Chart ready.";
     [ObservableProperty] private bool _isLoading;
+    [ObservableProperty] private bool _isProgressDeterminate;
+    [ObservableProperty] private double _loadingProgress;
     [ObservableProperty] private List<Kline> _series = new();
     [ObservableProperty] private PlotModel? _plotModel;
 
@@ -53,6 +55,11 @@ public partial class ChartViewModel : ObservableObject
             SelectedSymbol = AvailableSymbols[0];
     }
 
+    partial void OnSelectedTimeframeChanged(string value)
+    {
+        _ = LoadAsync();
+    }
+
     [RelayCommand]
     private async Task LoadAsync()
     {
@@ -67,8 +74,16 @@ public partial class ChartViewModel : ObservableObject
         try
         {
             IsLoading = true;
+            IsProgressDeterminate = false;
+            LoadingProgress = 0;
 
-            var progress = new Progress<string>(s => StatusText = s);
+            var progress = new Progress<DataProgress>(p =>
+            {
+                StatusText = p.Message;
+                IsProgressDeterminate = p.IsDeterminate;
+                LoadingProgress = p.Percent;
+            });
+
             var data = await _data.GetSymbolDataAsync(SelectedSymbol, SelectedTimeframe, progress);
 
             if (data == null || data.Count == 0)
