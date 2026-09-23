@@ -8,11 +8,6 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 Chart tab is functional with OxyPlot.Avalonia 2.1.0-Avalonia11. Foundation (10.7A) and volume (10.7B) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
 
-### Phase 10.7C -- Timeframe Switching [PENDING]
-- [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
-- [ ] **Data source decision:** Massive `/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}` supports intraday natively. Yahoo supports `interval=1m|5m|15m|1h|1d|1wk`. Decide whether to fetch per-timeframe from provider, or resample locally from the cached 1D series.
-  - Recommendation: **fetch per-timeframe from the provider**, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
-- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`. Bind an indeterminate or determinate `ProgressBar` that is visible only while switching. `DataManager`'s `IProgress<string>` gives us a signal we can turn into ticks.
 
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
 - [ ] Mouse crosshair tracking on the price panel.
