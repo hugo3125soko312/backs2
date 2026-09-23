@@ -28,6 +28,11 @@ public record DataEntry(
     }
 }
 
+public readonly record struct DataProgress(
+    string Message,
+    bool IsDeterminate,
+    double Percent);
+
 public class DataManager
 {
     private readonly CacheManager _diskCache;
@@ -58,12 +63,24 @@ public class DataManager
         string timeframe,
         IProgress<string>? progress = null)
     {
+        var adapter = progress == null
+            ? null
+            : new Progress<DataProgress>(p => progress.Report(p.Message));
+
+        return await GetSymbolDataAsync(symbol, timeframe, adapter);
+    }
+
+    public async Task<List<Kline>> GetSymbolDataAsync(
+        string symbol,
+        string timeframe,
+        IProgress<DataProgress>? progress)
+    {
         var cacheKey = $"{symbol}@{timeframe}";
 
         if (_memoryCache.TryGetValue(cacheKey, out List<Kline>? memData) && memData != null)
         {
             _logger.Info($"DataManager: RAM hit for {cacheKey} ({memData.Count} bars)");
-            progress?.Report("Loaded from RAM.");
+            progress?.Report(new DataProgress("Loaded from RAM.", false, 100));
             return memData;
         }
 
@@ -72,7 +89,7 @@ public class DataManager
         var diskData = await _diskCache.LoadCacheAsync(cacheKey);
         if (diskData != null && diskData.Count > 0)
         {
-            progress?.Report("Loaded from Disk.");
+            progress?.Report(new DataProgress("Loaded from Disk.", false, 100));
             _memoryCache.Set(cacheKey, diskData, TimeSpan.FromMinutes(10));
             return diskData;
         }
@@ -80,12 +97,18 @@ public class DataManager
         var order = _config.Settings.ProviderOrder ?? new List<string>();
         if (order.Count == 0)
         {
-            progress?.Report("No providers configured.");
+            progress?.Report(new DataProgress("No providers configured.", false, 0));
             return new List<Kline>();
         }
 
+        int total = order.Count;
+        int index = 0;
+
         foreach (var key in order)
         {
+            index++;
+            double pct = (double)index / total * 100.0;
+
             IDataProvider provider;
             try
             {
@@ -94,11 +117,11 @@ public class DataManager
             catch (Exception ex)
             {
                 _logger.Error($"DataManager: provider '{key}' not registered — {ex.Message}");
-                progress?.Report($"Provider '{key}' not registered.");
+                progress?.Report(new DataProgress($"Provider '{key}' not registered.", true, pct));
                 continue;
             }
 
-            progress?.Report($"Trying {provider.Name}...");
+            progress?.Report(new DataProgress($"Trying {provider.Name}...", true, pct));
             List<Kline> fetched;
             try
             {
@@ -107,23 +130,23 @@ public class DataManager
             catch (Exception ex)
             {
                 _logger.Error($"DataManager: {provider.Name} threw — {ex.Message}");
-                progress?.Report($"{provider.Name} failed. Trying next...");
+                progress?.Report(new DataProgress($"{provider.Name} failed. Trying next...", true, pct));
                 continue;
             }
 
             if (fetched != null && fetched.Count > 0)
             {
-                progress?.Report($"{provider.Name} returned {fetched.Count} bars. Saving...");
+                progress?.Report(new DataProgress($"{provider.Name} returned {fetched.Count} bars. Saving...", true, 100));
                 _memoryCache.Set(cacheKey, fetched, TimeSpan.FromMinutes(10));
                 await _diskCache.SaveCacheAsync(cacheKey, fetched);
                 return fetched;
             }
 
             _logger.Info($"DataManager: {provider.Name} returned no data for {cacheKey}.");
-            progress?.Report($"{provider.Name} returned no data. Trying next...");
+            progress?.Report(new DataProgress($"{provider.Name} returned no data. Trying next...", true, pct));
         }
 
-        progress?.Report("All providers exhausted — no data.");
+        progress?.Report(new DataProgress("All providers exhausted — no data.", false, 0));
         return new List<Kline>();
     }
 
