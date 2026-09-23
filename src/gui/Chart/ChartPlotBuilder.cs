@@ -17,9 +17,17 @@ internal sealed class ChartPlotBuilder
     private const double VolumeStart = 0.00;
     private const double VolumeEnd = 0.18;
 
+    // Dirty tracking: only invalidate the plot when a crosshair line
+    // coordinate actually changes.
+    private const double Epsilon = 1e-9;
+
     private Axis? _priceAxis;
     private LineAnnotation? _verticalLine;
     private LineAnnotation? _horizontalLine;
+
+    private double _lastVX = double.NaN;
+    private double _lastHY = double.NaN;
+    private bool _crosshairVisible;
 
     public PlotModel Model { get; private set; } = new();
 
@@ -40,6 +48,11 @@ internal sealed class ChartPlotBuilder
         }
 
         AddCrosshair(model);
+
+        _lastVX = double.NaN;
+        _lastHY = double.NaN;
+        _crosshairVisible = false;
+
         Model = model;
     }
 
@@ -92,22 +105,44 @@ internal sealed class ChartPlotBuilder
         Model.InvalidatePlot(false);
     }
 
-    public void MoveCrosshair(double dataX, double dataY)
+    public void MoveCrosshair(double dataX, double dataY, bool barChanged)
     {
         if (_verticalLine == null || _horizontalLine == null) return;
 
-        _verticalLine.X = dataX;
-        _horizontalLine.Y = dataY;
+        bool vChanged = barChanged || !NearlyEqual(_lastVX, dataX);
+        bool hChanged = !NearlyEqual(_lastHY, dataY);
+
+        if (!vChanged && !hChanged && _crosshairVisible) return;
+
+        if (vChanged) _verticalLine.X = dataX;
+        if (hChanged) _horizontalLine.Y = dataY;
+
+        _lastVX = dataX;
+        _lastHY = dataY;
+        _crosshairVisible = true;
 
         Model.InvalidatePlot(false);
     }
 
     public void HideCrosshair()
     {
+        if (!_crosshairVisible) return;
+
         if (_verticalLine != null) _verticalLine.X = double.NaN;
         if (_horizontalLine != null) _horizontalLine.Y = double.NaN;
 
+        _lastVX = double.NaN;
+        _lastHY = double.NaN;
+        _crosshairVisible = false;
+
         Model.InvalidatePlot(false);
+    }
+
+    private static bool NearlyEqual(double a, double b)
+    {
+        if (double.IsNaN(a) && double.IsNaN(b)) return true;
+        if (double.IsNaN(a) || double.IsNaN(b)) return false;
+        return System.Math.Abs(a - b) < Epsilon;
     }
 
     private void AddCrosshair(PlotModel model)

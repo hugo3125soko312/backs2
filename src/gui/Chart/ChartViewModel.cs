@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -15,6 +16,15 @@ public partial class ChartViewModel : ObservableObject
 {
     private readonly DataManager _data;
     private readonly ChartPlotBuilder _builder = new();
+
+    // Crosshair throttle state. Pointer events can arrive faster than the
+    // display can render; we coalesce them to ~60fps and skip work entirely
+    // when the snapped bar has not changed.
+    private const double FrameBudgetMs = 16.0;
+    private readonly Stopwatch _crosshairClock = Stopwatch.StartNew();
+    private int _lastSnappedIndex = -1;
+    private double _lastCrosshairY = double.NaN;
+    private long _lastRenderMs = -1000;
 
     public ObservableCollection<string> AvailableSymbols { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } =
@@ -127,7 +137,7 @@ public partial class ChartViewModel : ObservableObject
 
     partial void OnSeriesChanged(List<Kline> value)
     {
-        HasCrosshair = false;
+        ResetCrosshairState();
         RebuildPlotModel();
     }
 
@@ -196,32 +206,51 @@ public partial class ChartViewModel : ObservableObject
     {
         if (Series.Count == 0)
         {
-            HasCrosshair = false;
+            ClearCrosshair();
             return;
         }
 
         int idx = NearestIndex(dataX);
         if (idx < 0)
         {
-            HasCrosshair = false;
+            ClearCrosshair();
             return;
         }
 
-        var k = Series[idx];
-        double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
-        double change = k.Close - prevClose;
+        bool barChanged = idx != _lastSnappedIndex;
 
-        ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
-        ReadoutOpen = k.Open.ToString("0.#####");
-        ReadoutHigh = k.High.ToString("0.#####");
-        ReadoutLow = k.Low.ToString("0.#####");
-        ReadoutClose = k.Close.ToString("0.#####");
-        ReadoutVolume = k.Volume.ToString("0");
-        ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
+        if (barChanged)
+        {
+            var k = Series[idx];
+            double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
+            double change = k.Close - prevClose;
 
-        HasCrosshair = true;
+            ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
+            ReadoutOpen = k.Open.ToString("0.#####");
+            ReadoutHigh = k.High.ToString("0.#####");
+            ReadoutLow = k.Low.ToString("0.#####");
+            ReadoutClose = k.Close.ToString("0.#####");
+            ReadoutVolume = k.Volume.ToString("0");
+            ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
 
-        _builder.MoveCrosshair(dataX, dataY);
+            _lastSnappedIndex = idx;
+            HasCrosshair = true;
+        }
+
+        // Frame budget: skip the redraw if we rendered within the last frame.
+        long nowMs = _crosshairClock.ElapsedMilliseconds;
+        bool renderAllowed = nowMs - _lastRenderMs >= FrameBudgetMs || barChanged;
+
+        if (!renderAllowed)
+        {
+            _lastCrosshairY = dataY;
+            return;
+        }
+
+        _lastRenderMs = nowMs;
+        _lastCrosshairY = dataY;
+
+        _builder.MoveCrosshair(dataX, dataY, barChanged);
     }
 
     public void ClearCrosshair()
@@ -230,6 +259,13 @@ public partial class ChartViewModel : ObservableObject
 
         HasCrosshair = false;
         _builder.HideCrosshair();
+        ResetCrosshairState();
+    }
+
+    private void ResetCrosshairState()
+    {
+        _lastSnappedIndex = -1;
+        _lastCrosshairY = double.NaN;
     }
 
     private int NearestIndex(double dataX)

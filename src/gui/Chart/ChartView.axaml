@@ -27,6 +27,10 @@
             <Setter Property="Foreground" Value="White" />
             <Setter Property="FontSize" Value="11" />
         </Style>
+        <Style Selector="Rectangle.crosshair">
+            <Setter Property="Fill" Value="#888888" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*,Auto">
@@ -73,6 +77,7 @@
             <Panel Classes="chartHost"
                    ClipToBounds="True">
                 <Border Background="#1E1E1E" />
+
                 <oxy:PlotView x:Name="Plot"
                               Model="{Binding PlotModel}"
                               UseLayoutRounding="True">
@@ -126,6 +131,28 @@
                         </ContextMenu>
                     </oxy:PlotView.ContextMenu>
                 </oxy:PlotView>
+
+                <Rectangle x:Name="CrosshairV"
+                           Classes="crosshair"
+                           Width="1"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Stretch"
+                           IsVisible="{Binding HasCrosshair}">
+                    <Rectangle.RenderTransform>
+                        <TranslateTransform X="-9999" />
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+
+                <Rectangle x:Name="CrosshairH"
+                           Classes="crosshair"
+                           Height="1"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Top"
+                           IsVisible="{Binding HasCrosshair}">
+                    <Rectangle.RenderTransform>
+                        <TranslateTransform Y="-9999" />
+                    </Rectangle.RenderTransform>
+                </Rectangle>
 
                 <Border Classes="readout"
                         HorizontalAlignment="Left"
