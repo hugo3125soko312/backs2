@@ -33,6 +33,7 @@
     - Each provider resolves symbols on its own (XAUUSD -> C:XAUUSD for Massive, XAUUSD=X for Yahoo).
     - Timeframe wire-format mapping lives in TimeframeMap.
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.
+    - `DataManager` reports structured progress via `DataProgress(Message, IsDeterminate, Percent)`. RAM/disk hits are indeterminate; the provider chain is determinate. The `IProgress<string>` overload is retained as an adapter for `StratsViewModel`.
 - Strategies:
     - Top-level statements against ScriptGlobals (Engine, Data, Log).
     - Compiled runners cached by (path, lastWriteUtc, size).
