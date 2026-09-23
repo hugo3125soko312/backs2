@@ -8,19 +8,13 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 Chart tab is functional with OxyPlot.Avalonia 2.1.0-Avalonia11. Foundation (10.7A) and volume (10.7B) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
 
-
-### Phase 10.7D -- Crosshair & Readout [PENDING]
-- [ ] Mouse crosshair tracking on the price panel.
-- [ ] Readout box showing O/H/L/C/Volume/timestamp for the hovered bar.
-- [ ] Optional: snap crosshair to nearest bar.
-- [ ] **Lock price to bar ratio** (deferred from 10.7A) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.
-
 ### Phase 10.7E -- Polish [IN PROGRESS]
 - [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
 - [ ] Empty state: if no symbol selected or no data, show a friendly message instead of a blank canvas.
 - [ ] Error state: if provider fetch fails, show the fallback chain's progress messages in a status line.
 - [ ] **Selectable error texts.** Status line and error messages must use `SelectableTextBlock` instead of `TextBox` or `TextBlock`, so users can select and copy exception text.
 - [x] **Data tab empty state bug.** Resolved. Root cause: the `DataGrid` had no resolvable `ControlTheme` when hosted inside the `TabControl` — the application-level `StyleInclude` in `App.axaml` was present but not taking effect on the grid's own resource host. Fix: added a scoped `<UserControl.Styles>` `StyleInclude` for `avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml` inside `DataView.axaml`.
+- [ ] **Lock price to bar ratio** (deferred from 10.7A, re-deferred from 10.7D) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.
 
 ### Phase 10.7F -- SkiaSharp Render Path [BLOCKED]
 

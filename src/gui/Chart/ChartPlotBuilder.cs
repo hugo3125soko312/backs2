@@ -1,13 +1,14 @@
 using System.Collections.Generic;
 using backs2.Core.Models;
 using OxyPlot;
+using OxyPlot.Annotations;
 using OxyPlot.Axes;
 using OxyPlot.Series;
 
 namespace backs2.ViewModels;
 
 // Owns the PlotModel. The ViewModel feeds it data + scale state; it owns
-// every OxyPlot-specific decision (axes, series, transforms).
+// every OxyPlot-specific decision (axes, series, transforms, crosshair).
 internal sealed class ChartPlotBuilder
 {
     // TradingView-style split: ~80% price, ~20% volume, small gap between.
@@ -17,6 +18,8 @@ internal sealed class ChartPlotBuilder
     private const double VolumeEnd = 0.18;
 
     private Axis? _priceAxis;
+    private LineAnnotation? _verticalLine;
+    private LineAnnotation? _horizontalLine;
 
     public PlotModel Model { get; private set; } = new();
 
@@ -36,6 +39,7 @@ internal sealed class ChartPlotBuilder
                 model.Series.Add(s);
         }
 
+        AddCrosshair(model);
         Model = model;
     }
 
@@ -86,5 +90,49 @@ internal sealed class ChartPlotBuilder
         }
         Model.ResetAllAxes();
         Model.InvalidatePlot(false);
+    }
+
+    public void MoveCrosshair(double dataX, double dataY)
+    {
+        if (_verticalLine == null || _horizontalLine == null) return;
+
+        _verticalLine.X = dataX;
+        _horizontalLine.Y = dataY;
+
+        Model.InvalidatePlot(false);
+    }
+
+    public void HideCrosshair()
+    {
+        if (_verticalLine != null) _verticalLine.X = double.NaN;
+        if (_horizontalLine != null) _horizontalLine.Y = double.NaN;
+
+        Model.InvalidatePlot(false);
+    }
+
+    private void AddCrosshair(PlotModel model)
+    {
+        _verticalLine = new LineAnnotation
+        {
+            Type = LineAnnotationType.Vertical,
+            Color = OxyColor.Parse("#888888"),
+            StrokeThickness = 1,
+            LineStyle = LineStyle.Solid,
+            X = double.NaN,
+            YAxisKey = "Price"
+        };
+
+        _horizontalLine = new LineAnnotation
+        {
+            Type = LineAnnotationType.Horizontal,
+            Color = OxyColor.Parse("#888888"),
+            StrokeThickness = 1,
+            LineStyle = LineStyle.Solid,
+            Y = double.NaN,
+            YAxisKey = "Price"
+        };
+
+        model.Annotations.Add(_verticalLine);
+        model.Annotations.Add(_horizontalLine);
     }
 }

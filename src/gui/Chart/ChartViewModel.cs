@@ -23,8 +23,15 @@ public partial class ChartViewModel : ObservableObject
     [ObservableProperty] private string _selectedSymbol = "";
     [ObservableProperty] private string _selectedTimeframe = "1D";
     [ObservableProperty] private string _statusText = "Chart ready.";
-    [ObservableProperty] private bool _isLoading;
-    [ObservableProperty] private bool _isProgressDeterminate;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNotLoading))]
+    private bool _isLoading;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsProgressIndeterminate))]
+    private bool _isProgressDeterminate;
+
     [ObservableProperty] private double _loadingProgress;
     [ObservableProperty] private List<Kline> _series = new();
     [ObservableProperty] private PlotModel? _plotModel;
@@ -33,6 +40,18 @@ public partial class ChartViewModel : ObservableObject
     [ObservableProperty] private bool _isPercent;
     [ObservableProperty] private bool _isIndexedTo100;
     [ObservableProperty] private bool _isInverted;
+
+    [ObservableProperty] private bool _hasCrosshair;
+    [ObservableProperty] private string _readoutTime = "";
+    [ObservableProperty] private string _readoutOpen = "";
+    [ObservableProperty] private string _readoutHigh = "";
+    [ObservableProperty] private string _readoutLow = "";
+    [ObservableProperty] private string _readoutClose = "";
+    [ObservableProperty] private string _readoutVolume = "";
+    [ObservableProperty] private string _readoutChange = "";
+
+    public bool IsNotLoading => !IsLoading;
+    public bool IsProgressIndeterminate => !IsProgressDeterminate;
 
     public ChartViewModel(DataManager data)
     {
@@ -108,6 +127,7 @@ public partial class ChartViewModel : ObservableObject
 
     partial void OnSeriesChanged(List<Kline> value)
     {
+        HasCrosshair = false;
         RebuildPlotModel();
     }
 
@@ -169,5 +189,68 @@ public partial class ChartViewModel : ObservableObject
     {
         _builder.Rebuild(Series, ScaleState);
         PlotModel = _builder.Model;
+    }
+
+    // Called from the view's pointer handler. Coordinates arrive in data space.
+    public void UpdateCrosshair(double dataX, double dataY)
+    {
+        if (Series.Count == 0)
+        {
+            HasCrosshair = false;
+            return;
+        }
+
+        int idx = NearestIndex(dataX);
+        if (idx < 0)
+        {
+            HasCrosshair = false;
+            return;
+        }
+
+        var k = Series[idx];
+        double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
+        double change = k.Close - prevClose;
+
+        ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
+        ReadoutOpen = k.Open.ToString("0.#####");
+        ReadoutHigh = k.High.ToString("0.#####");
+        ReadoutLow = k.Low.ToString("0.#####");
+        ReadoutClose = k.Close.ToString("0.#####");
+        ReadoutVolume = k.Volume.ToString("0");
+        ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
+
+        HasCrosshair = true;
+
+        _builder.MoveCrosshair(dataX, dataY);
+    }
+
+    public void ClearCrosshair()
+    {
+        if (!HasCrosshair) return;
+
+        HasCrosshair = false;
+        _builder.HideCrosshair();
+    }
+
+    private int NearestIndex(double dataX)
+    {
+        if (Series.Count == 0) return -1;
+
+        int lo = 0, hi = Series.Count - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            double midX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[mid].Timestamp);
+            if (midX < dataX) lo = mid + 1;
+            else hi = mid;
+        }
+
+        double loX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[lo].Timestamp);
+        if (lo > 0)
+        {
+            double prevX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[lo - 1].Timestamp);
+            if (Math.Abs(prevX - dataX) < Math.Abs(loX - dataX)) return lo - 1;
+        }
+        return lo;
     }
 }

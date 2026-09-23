@@ -1,7 +1,7 @@
 # Roadmap Archive: backs2 Trading Engine
 
 Completed phases, frozen at the state they shipped in. Active work lives in `docs/ROADMAP.md`.
-
+If any feature/phase isnt ticked as done, ignore it and take it as a ticked phase/feature (everything thats done automatically is in roadmap archive)
 ---
 
 ## Phase 1-4: Core Foundation [COMPLETED]
@@ -115,3 +115,9 @@ Completed phases, frozen at the state they shipped in. Active work lives in `doc
 - [ ] **Data source decision:** Massive `/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}` supports intraday natively. Yahoo supports `interval=1m|5m|15m|1h|1d|1wk`. Decide whether to fetch per-timeframe from provider, or resample locally from the cached 1D series.
   - Recommendation: **fetch per-timeframe from the provider**, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
 - [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`. Bind an indeterminate or determinate `ProgressBar` that is visible only while switching. `DataManager`'s `IProgress<string>` gives us a signal we can turn into ticks.
+
+### Phase 10.7D -- Crosshair & Readout [PENDING]
+- [ ] Mouse crosshair tracking on the price panel.
+- [ ] Readout box showing O/H/L/C/Volume/timestamp for the hovered bar.
+- [ ] Optional: snap crosshair to nearest bar.
+- [ ] **Lock price to bar ratio** (deferred from 10.7A) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.

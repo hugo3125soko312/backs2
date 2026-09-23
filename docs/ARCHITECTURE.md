@@ -16,7 +16,7 @@
 - Cache key: symbol@timeframe (e.g. XAUUSD@1D, EURUSD@1h).
 - Provider Fallback: The network tier walks AppSettings.ProviderOrder. First provider with a non-empty result wins. Failures and empty results fall through; errors never abort the chain.
 - Timeframe-aware: DataManager.GetSymbolDataAsync(symbol, timeframe, progress); a one-arg overload defaults to "1D".
-- Progress reporting: `DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>)` reports `DataProgress(Message, IsDeterminate, Percent)`. RAM/disk hits report `IsDeterminate=false` (instant). The network tier reports `IsDeterminate=true` with `Percent = attemptIndex / totalProviders * 100`. A legacy `IProgress<string>` overload adapts to the new contract for consumers that only need text (e.g. `StratsViewModel`).
+- Progress reporting: DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>) reports DataProgress(Message, IsDeterminate, Percent). RAM/disk hits report IsDeterminate=false (instant). The network tier reports IsDeterminate=true with Percent = attemptIndex / totalProviders * 100. A legacy IProgress<string> overload adapts to the new contract for consumers that only need text (e.g. StratsViewModel).
 
 ## 3. Metrics Engine
 - IMetric Interface: Base template for all mathematical indicators.
@@ -90,7 +90,7 @@
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 
 ## 9. Tabs
-- Chart — OxyPlot.Avalonia 2.1.0-Avalonia11 candlestick + volume, dark theme, custom tracker, scale context menu, timeframe switching (Phase 10.7C). Auto-loads on timeframe change; hybrid indeterminate/determinate progress bar. Remaining sub-phases (crosshair readout, polish, SkiaSharp render path) tracked in docs/ROADMAP.md Phase 10.7.
+- Chart — OxyPlot.Avalonia 2.1.0-Avalonia11 candlestick + volume, dark theme, custom tracker, scale context menu, timeframe switching (Phase 10.7C), crosshair + OHLCV readout with snap-to-nearest-bar (Phase 10.7D). Crosshair lines are LineAnnotation instances owned by ChartPlotBuilder; pointer handling lives in ChartView.axaml.cs and converts screen to data space via Axis.InverseTransform. Remaining sub-phases (polish, SkiaSharp render path) tracked in docs/ROADMAP.md Phase 10.7.
 - Metrics — metric catalog browser.
 - Data — Access-style datasheet. DataGrid with per-column filter rows embedded in the header, sort via header buttons, size formatting via DataEntry.SizeDisplay.
 - Strategies — disk-streamed catalog. Click a row to preview source, choose a symbol, "Run Selected".

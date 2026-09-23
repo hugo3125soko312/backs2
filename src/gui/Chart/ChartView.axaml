@@ -12,6 +12,21 @@
         <Style Selector="Panel.chartHost">
             <Setter Property="Background" Value="#1E1E1E" />
         </Style>
+        <Style Selector="Border.readout">
+            <Setter Property="Background" Value="#2A2A2A" />
+            <Setter Property="BorderBrush" Value="#444" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="CornerRadius" Value="3" />
+        </Style>
+        <Style Selector="TextBlock.readoutLabel">
+            <Setter Property="Foreground" Value="#888888" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+        <Style Selector="TextBlock.readoutValue">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*,Auto">
@@ -38,13 +53,13 @@
 
             <Button Content="Load"
                     Command="{Binding LoadCommand}"
-                    IsEnabled="{Binding !IsLoading}" />
+                    IsEnabled="{Binding IsNotLoading}" />
 
             <ProgressBar Width="140"
                          Minimum="0"
                          Maximum="100"
                          Value="{Binding LoadingProgress}"
-                         IsIndeterminate="{Binding !IsProgressDeterminate}"
+                         IsIndeterminate="{Binding IsProgressIndeterminate}"
                          IsVisible="{Binding IsLoading}"
                          VerticalAlignment="Center" />
         </StackPanel>
@@ -58,7 +73,8 @@
             <Panel Classes="chartHost"
                    ClipToBounds="True">
                 <Border Background="#1E1E1E" />
-                <oxy:PlotView Model="{Binding PlotModel}"
+                <oxy:PlotView x:Name="Plot"
+                              Model="{Binding PlotModel}"
                               UseLayoutRounding="True">
                     <oxy:PlotView.DefaultTrackerTemplate>
                         <ControlTemplate>
@@ -110,6 +126,34 @@
                         </ContextMenu>
                     </oxy:PlotView.ContextMenu>
                 </oxy:PlotView>
+
+                <Border Classes="readout"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Margin="8"
+                        IsVisible="{Binding HasCrosshair}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="readoutValue" Text="{Binding ReadoutTime}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Classes="readoutLabel" Text="O" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutOpen}" />
+                            <TextBlock Classes="readoutLabel" Text="H" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutHigh}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Classes="readoutLabel" Text="L" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutLow}" />
+                            <TextBlock Classes="readoutLabel" Text="C" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutClose}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Classes="readoutLabel" Text="Vol" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutVolume}" />
+                            <TextBlock Classes="readoutLabel" Text="Δ" />
+                            <TextBlock Classes="readoutValue" Text="{Binding ReadoutChange}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </Panel>
         </Border>
 
