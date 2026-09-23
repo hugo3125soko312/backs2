@@ -49,3 +49,17 @@ Do not commit for partial phases. Do not commit while the build is failing. Do n
 - Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running dotnet build --no-incremental. Do not propose code changes to those symptoms until a clean rebuild has been tried.
 - Diagnosis first: When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes.
 - Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes. Repeated speculative changes waste the user's time.
+
+## Phase Cleanup Definition
+
+"Phase cleanup" means, in this exact order:
+
+1. Stage and commit the completed phase's code changes using the standard commit block (see Phase Completion Protocol).
+2. After the commit, update the documentation to reflect the changed code:
+   - `docs/ROADMAP.md` — move the completed phase/sub-phase to `docs/ROADMAP_ARCHIVE.md`, mark it `[COMPLETED]`.
+   - `docs/ARCHITECTURE.md` — update any sections the phase changed (new services, new flows, new formats, new tabs).
+   - `docs/PROJECT_CONTEXT.md` — update dependencies, rules, or structure if the phase altered them.
+   - `docs/RULES.md` — update if the phase introduced or removed a development rule.
+3. Commit the documentation updates as a separate `docs(<scope>): ...` commit.
+
+Cleanup is not complete until both the code commit and the docs commit are in, and `git status` is clean.
