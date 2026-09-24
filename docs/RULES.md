@@ -40,8 +40,7 @@ ONLY SPEAK IN ENGLISH
     - Write via LogManager.Info / LogManager.Error.
     - logs/ is git-ignored. One log file per app run: runtime-{timestamp}.log.
 - Charting:
-    - ScottPlot.Avalonia 5.0.55 is referenced but currently blocked — see docs/ROADMAP.md Phase 10.7.
-    - Do not add new charting dependencies without first resolving Phase 10.7.
+    - ScottPlot.Avalonia 5.0.55 is the standard for hardware-accelerated SkiaSharp charting.
 
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:

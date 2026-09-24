@@ -8,7 +8,7 @@
     - Microsoft.CodeAnalysis.CSharp.Scripting 4.8.0
     - Microsoft.Extensions.Http.Resilience
     - Avalonia.Controls.DataGrid 11.0.11
-    - ScottPlot.Avalonia 5.0.55 (chart tab — currently blocked, see ROADMAP Phase 10.7)
+    - ScottPlot.Avalonia 5.0.55 (chart tab — SkiaSharp hardware accelerated)
 - Architecture:
     - src/core/: Managers, Metrics, Models, Providers.
     - src/gui/: ViewModels, Views (organized by feature module).

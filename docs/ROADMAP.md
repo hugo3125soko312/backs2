@@ -6,7 +6,18 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ## Phase 10.7: Chart Tab [IN PROGRESS]
 
-Chart tab is functional with OxyPlot.Avalonia 2.1.0-Avalonia11. Foundation (10.7A) and volume (10.7B) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
+Chart tab is functional with ScottPlot.Avalonia 5.0.55. Foundation (10.7A), volume (10.7B), and SkiaSharp Render Path (10.7F) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
+
+### Phase 10.7C -- Timeframe Switching [PENDING]
+- [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
+- [ ] **Data source decision:** Massive `/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}` supports intraday natively. Yahoo supports `interval=1m|5m|15m|1h|1d|1wk`. Decide whether to fetch per-timeframe from provider, or resample locally from the cached 1D series.
+  - Recommendation: **fetch per-timeframe from the provider**, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
+- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`. Bind an indeterminate or determinate `ProgressBar` that is visible only while switching. `DataManager`'s `IProgress<string>` gives us a signal we can turn into ticks.
+
+### Phase 10.7D -- Crosshair & Readout [PENDING]
+- [ ] Mouse crosshair tracking on the price panel.
+- [ ] Readout box showing O/H/L/C/Volume/timestamp for the hovered bar.
+- [ ] Optional: snap crosshair to nearest bar.
 
 ### Phase 10.7E -- Polish [IN PROGRESS]
 - [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
@@ -15,30 +26,6 @@ Chart tab is functional with OxyPlot.Avalonia 2.1.0-Avalonia11. Foundation (10.7
 - [ ] **Selectable error texts.** Status line and error messages must use `SelectableTextBlock` instead of `TextBox` or `TextBlock`, so users can select and copy exception text.
 - [x] **Data tab empty state bug.** Resolved. Root cause: the `DataGrid` had no resolvable `ControlTheme` when hosted inside the `TabControl` — the application-level `StyleInclude` in `App.axaml` was present but not taking effect on the grid's own resource host. Fix: added a scoped `<UserControl.Styles>` `StyleInclude` for `avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml` inside `DataView.axaml`.
 - [ ] **Lock price to bar ratio** (deferred from 10.7A, re-deferred from 10.7D) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.
-
-### Phase 10.7F -- SkiaSharp Render Path [BLOCKED]
-
-Status: **BLOCKED — no released NuGet package for the SkiaSharp PlotView.**
-
-### Problem
-Candlestick bodies and wicks render with soft/aliased edges against the dark background. Tested on two monitors with different DPI: the issue persists on both and does not resolve after moving the window between them, so it is not a per-monitor DPI scaling problem. The pan/zoom interaction is also slower than expected.
-
-### Root Cause
-The `OxyPlot.Avalonia 2.1.0-Avalonia11` package renders through Avalonia's generic `DrawingContext` (vector) pipeline, not the SkiaSharp renderer. Sub-pixel softness on 1-pixel lines is a known limitation of that path, and OxyPlot re-renders the entire plot model on every invalidation, which drives the pan performance cost.
-
-### What Has Been Tried
-- [x] `RenderOptions.EdgeMode="Aliased"` on the `PlotView` -- sharpened candles but destroyed text anti-aliasing on every child primitive. Rejected.
-- [x] `UseLayoutRounding="True"` on the `Border` and `PlotView` -- fixed layout alignment, does not affect series rasterization.
-- [x] `TextOptions.TextRenderingMode` -- not resolvable in this Avalonia version; removed.
-- [x] `OxyPlotModule.EnsureLoaded()` -- not applicable; it is only needed for the SkiaSharp package, which is not installed.
-
-### Path Forward (pick one when resuming)
-- [ ] **Option A — Adopt the SkiaSharp PlotView from the open PR.** Copy the `PlotRenderer` and `PlotView` classes from https://github.com/oxyplot/oxyplot-avalonia/pull/71 into the project. The double-buffered variant is the one that keeps the UI responsive during pan. Substantial work; phase-sized.
-- [ ] **Option B — Wait for the upstream PR to merge.** Out of project control.
-- [ ] **Option C — Accept the soft candles.** Not recommended, but functionally defensible for a chart that is one of several tabs.
-
-### Dependencies
-- Feeds into Phase 11 (Monte Carlo) if equity curves are to be plotted with the same stack.
 
 ### Chart Tab — General Dependencies
 - Depends on Phase 10 (DI wiring) -- done.
@@ -127,7 +114,7 @@ Target: reproduce the TradingView / Fractalyst-style statistics panel -- In-Samp
 ### Dependencies
 - Depends on Phase 8 (symbol selection) -- Monte Carlo runs require a chosen instrument and date range.
 - Depends on Phase 10.7 chart stack if histograms/equity curves are to be plotted.
-- Package candidates: `MathNet.Numerics` (statistics), `OxyPlot.Avalonia` (already present, for histograms/equity).
+- Package candidates: `MathNet.Numerics` (statistics), `ScottPlot.Avalonia` (already present, for histograms/equity).
 
 ---
 

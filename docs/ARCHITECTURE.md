@@ -90,7 +90,7 @@
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 
 ## 9. Tabs
-- Chart — OxyPlot.Avalonia 2.1.0-Avalonia11 candlestick + volume, dark theme, custom tracker, scale context menu, timeframe switching (Phase 10.7C), crosshair + OHLCV readout (Phase 10.7D). Crosshair is drawn as Avalonia overlay Rectangles positioned via TranslateTransform, NOT as PlotModel annotations, so hover does not invalidate the plot. Pointer handling lives in ChartView.axaml.cs. KNOWN BLOCKER: pan/zoom and hover lag. Root cause is that this OxyPlot.Avalonia package renders through the generic DrawingContext pipeline and re-renders the entire PlotModel on every invalidation. The CreateRenderContext/XamlRenderContext override that fixes this is not present in this package build (CS0115), and no released NuGet package provides the SkiaSharp render path for Avalonia 11.0.11. See docs/ROADMAP.md Phase 10.7F.
+- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis, dark theme, scale context menu, timeframe switching (Phase 10.7C), crosshair + OHLCV readout (Phase 10.7D). Pan/zoom lag is resolved via SkiaSharp hardware-accelerated render path. Pointer handling lives in ChartView.axaml.cs.
 - Metrics — metric catalog browser.
 - Data — Access-style datasheet. DataGrid with per-column filter rows embedded in the header, sort via header buttons, size formatting via DataEntry.SizeDisplay.
 - Strategies — disk-streamed catalog. Click a row to preview source, choose a symbol, "Run Selected".
