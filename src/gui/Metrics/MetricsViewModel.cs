@@ -1,21 +1,47 @@
+// src\gui\Metrics\MetricsViewModel.cs
+using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using backs2.Core.Metrics;
-using System.Collections.Generic;
-using System.Linq; // Added for .ToList()
 
 namespace backs2.ViewModels;
+
+public sealed record MetricInfo(
+    string Name,
+    string Lag,
+    string Category,
+    string Description);
 
 public partial class MetricsViewModel : ObservableObject
 {
     private readonly MetricRegistry _registry;
 
     [ObservableProperty]
-    private List<string> _availableMetrics = new();
+    private List<MetricInfo> _metrics = new();
 
     public MetricsViewModel(MetricRegistry registry)
     {
         _registry = registry;
-        // Updated to use the existing GetAvailableMetrics() method from MetricRegistry
-        AvailableMetrics = _registry.GetAvailableMetrics().ToList();
+        Reload();
+    }
+
+    private void Reload()
+    {
+        var list = new List<MetricInfo>();
+        foreach (var m in _registry.Metrics)
+        {
+            list.Add(new MetricInfo(
+                m.Name,
+                m.Lag.ToString(),
+                m.Category.ToString(),
+                m.Description));
+        }
+
+        list.Sort(static (a, b) =>
+        {
+            int c = string.CompareOrdinal(a.Category, b.Category);
+            return c != 0 ? c : string.CompareOrdinal(a.Name, b.Name);
+        });
+
+        Metrics = list;
     }
 }
