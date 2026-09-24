@@ -14,7 +14,9 @@ public class AppSettings
 
     public List<string> ProviderOrder { get; set; } = new() { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
 
-    public string ActiveAccountName { get; set; } = "";
+    public string ActiveAccountFirmFile { get; set; } = "";
+    public string ActiveAccountPlan { get; set; } = "";
+    public string ActiveAccountSize { get; set; } = "";
 }
 
 public class ConfigManager
@@ -92,8 +94,9 @@ public class ConfigManager
         if (Settings.ProviderOrder == null || Settings.ProviderOrder.Count == 0)
             Settings.ProviderOrder = new List<string> { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
 
-        if (Settings.ActiveAccountName == null)
-            Settings.ActiveAccountName = "";
+        Settings.ActiveAccountFirmFile ??= "";
+        Settings.ActiveAccountPlan ??= "";
+        Settings.ActiveAccountSize ??= "";
     }
 
     public void SaveConfig()

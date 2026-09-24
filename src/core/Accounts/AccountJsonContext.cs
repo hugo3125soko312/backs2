@@ -6,7 +6,7 @@ namespace backs2.Core.Accounts;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = true)]
-[JsonSerializable(typeof(AccountConfig))]
+[JsonSerializable(typeof(FirmConfig))]
 internal partial class AccountJsonContext : JsonSerializerContext
 {
 }

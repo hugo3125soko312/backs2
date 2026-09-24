@@ -182,3 +182,46 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `OverviewViewModel` registered as transient in `App.axaml.cs`.
 - [x] Overview tab inserted as first tab in MainWindow.axaml, before Runner.
 - [x] Verified: Runner run publishes into LastRunStore, Overview header populates with strategy name, symbol, trade count, duration, timestamp.
+
+## Phase 10.10A (v2): Firm-Level Account Model [COMPLETED]
+- [x] Replaced per-size JSON files with one JSON per firm.
+- [x] `FirmConfig` / `FirmPlan` / `PlanSize` records replace `AccountConfig`.
+- [x] `AccountJsonContext` now serializes `FirmConfig`.
+- [x] `AccountService` expands a firm JSON into N `AccountDescriptor` entries (one per plan+size).
+- [x] Firm JSON cache — parsed `FirmConfig` reused across descriptor expansion.
+- [x] `AppSettings.ActiveAccountFirmFile` / `ActiveAccountPlan` / `ActiveAccountSize` replace `ActiveAccountName`.
+- [x] `AccountService.ResolvePlanSize(descriptor)` returns the concrete `PlanSize`.
+- [x] `data/accounts/FTMO.account.json` — 2 plans × 5 sizes.
+- [x] `data/accounts/Maventrading.account.json` — 7 plans × 6 sizes.
+- [x] `data/accounts/_TEMPLATE.account.json` — schema reference with placeholders.
+
+## Phase 10.10B (v2): Accounts Tab [COMPLETED]
+- [x] `AccountViewModel` displays `Firm` (bold) + `Plan · Size` (subtitle) per row.
+- [x] Active banner shows `Firm · Plan · Size`.
+- [x] Detail pane renders resolved `PlanSize.Phases` as label/value rows, plus `DrawdownType` and consistency rule.
+- [x] Set Active persists the triple to `settings.json`.
+
+## Phase 10.11A: LastRunStore & OverviewData [COMPLETED]
+- [x] `src/core/Overview/OverviewData.cs` — record: StrategyName, StrategyPath, Symbol, Timeframe, RunUtc, Duration, Trades, SourceData, Error.
+- [x] `src/core/Overview/LastRunStore.cs` — singleton with `Current`, `Publish(data)`, `Changed` event.
+- [x] `RunnerViewModel` publishes into `LastRunStore` after every run.
+- [x] `OverviewViewModel` + `OverviewView.axaml` placeholder, first tab in MainWindow.axaml.
+- [x] Registered as singletons/transients in `App.axaml.cs`.
+- [x] Verified: Runner run populates Overview header with strategy + trade count.
+
+## Phase 10.11B: Monte Carlo Core [COMPLETED]
+- [x] `src/core/Overview/MonteCarloResult.cs` — 6 raw distributions (NetProfits, MaxDrawdowns, AnnualReturns, Sharpes, ProfitFactors, MaxConsecutiveLosses), metadata (Iterations, MeanBlockSize, StartingCapital, RuinThresholdPercent, BacktestYears), RiskOfRuin, and Mean/Median/StdDev/P05/P95 aggregates.
+- [x] `src/core/Overview/MonteCarloEngine.cs`:
+  - Stationary block bootstrap (geometric block-length distribution).
+  - `Random.Shared` for thread-safe parallel, per-iteration `new Random(seed + i)` when a seed is provided.
+  - `Parallel.For` with explicit `MaxDegreeOfParallelism = Environment.ProcessorCount`.
+  - Pre-allocated `double[]` result arrays. No `List<T>.Add`, no LINQ in hot loop.
+  - Per-simulation: net equity, max DD %, max CL, gross profit / loss, sum of returns and sum of squares.
+  - Sharpe computed from per-trade return statistics: `(mean/stdev) * sqrt(252)`.
+  - Annual Return: `(finalEquity/startingCapital)^(1/years) - 1` in percent.
+  - Profit Factor: `grossProfit / grossLoss`, capped at 999 when there are no losses.
+  - Risk of Ruin: fraction of simulations where final equity < `startingCapital * (1 - ruinThresholdPercent/100)`.
+  - `IProgress<int>` reports every `iterations / 20`.
+- [x] `AccountPhase.DrawdownType` — `"static"` / `"trailing-eod"` / `"trailing-intraday"`.
+- [x] `MonteCarloEngine` registered as singleton in `App.axaml.cs`.
+- [x] Not yet wired to a ViewModel — that is Phase 10.11C.

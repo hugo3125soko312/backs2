@@ -9,5 +9,6 @@ public sealed record AccountPhase(
     int? TradingPeriodDays,
     double? BestDayRulePercent,
     double? ProfitSplitPercent,
-    bool? Refundable
+    bool? Refundable,
+    string? DrawdownType
 );

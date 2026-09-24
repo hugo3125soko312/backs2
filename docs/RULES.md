@@ -49,11 +49,23 @@ ONLY SPEAK IN ENGLISH
     - Live in config/presets/{StrategyName}_{PresetName}.preset.json.
     - Manage exclusively through PresetService. Do not write preset files directly.
     - The filename is a lossy transport; the JSON payload is the source of truth for the preset name.
+- Accounts:
+    - One JSON per firm at data/accounts/{Firm}.account.json. Contains ALL plans and ALL sizes for that firm.
+    - Manage exclusively through AccountService. Do not read account JSONs directly in ViewModels.
+    - Active selection is a triple (ActiveAccountFirmFile, ActiveAccountPlan, ActiveAccountSize) stored in config/settings.json.
+    - Never split a firm across multiple files. Never rename account files outside the app.
+    - Use AccountService.ResolvePlanSize(descriptor) to read a specific size's phases and starting capital.
+    - `data/accounts/_TEMPLATE.account.json` is the schema reference. Do not delete it.
 - Runner:
     - Runner GUI lives in src/gui/Runner/.
     - Runner core types live in src/core/Runner/.
     - RunnerScriptGlobals is the script contract. Add new globals there, not in StrategyManager.
     - Parameter parsing never executes the strategy file; it only reads `// @param` lines up to the first non-comment line.
+- Overview & Monte Carlo:
+    - LastRunStore is the handoff point between Runner and every downstream consumer.
+    - MonteCarloEngine reads trades as IReadOnlyList<Trade>. It does not fetch data, does not resolve accounts, does not touch the UI. It is a pure function of (trades, duration, params, seed).
+    - Use Random.Shared in parallel loops. Do not add an RNG NuGet package.
+    - No allocations inside the Parallel.For loop. Pre-allocate result arrays, no List<T>.Add, no LINQ.
 - XAML binding inside templates:
     - Use Binding DataContext.Prop with RelativeSource AncestorType=UserControl.
     - Do not use $parent[UserControl].((vm:Type)DataContext).Prop — fails at runtime inside templates.
@@ -85,7 +97,7 @@ Types:
 - wip       work in progress, not yet complete (used for blocked phases)
 
 Scope:
-- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets.
+- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo.
 
 Summary: one line, imperative mood, no trailing period. Under 72 characters.
 

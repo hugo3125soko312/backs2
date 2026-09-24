@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -26,9 +24,6 @@ public partial class AccountViewModel : ObservableObject
     [ObservableProperty] private string _notes = "";
     [ObservableProperty] private bool _hasSelection;
 
-    private AccountConfig? _loadedConfig;
-    private string _loadedStem = "";
-
     public AccountViewModel(AccountService service)
     {
         _service = service;
@@ -39,45 +34,57 @@ public partial class AccountViewModel : ObservableObject
         _service.ActiveChanged += OnActiveChanged;
     }
 
-    private void OnActiveChanged(object? sender, AccountConfig? account)
+    private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
         Dispatcher.UIThread.Post(UpdateActiveBanner);
     }
 
     private void UpdateActiveBanner()
     {
-        ActiveAccountName = _service.Active?.Name ?? "(none)";
+        var a = _service.Active;
+        ActiveAccountName = a == null ? "(none)" : $"{a.Firm} · {a.Plan} · {a.Size}";
     }
 
     private void RefreshList()
     {
-        var previousStem = SelectedAccount?.FileStem;
+        var prevStem = SelectedAccount?.FileStem;
+        var prevPlan = SelectedAccount?.Plan;
+        var prevSize = SelectedAccount?.Size;
 
         Accounts.Clear();
         foreach (var d in _service.Descriptors)
             Accounts.Add(d);
 
-        if (previousStem != null)
+        if (prevStem != null && prevPlan != null && prevSize != null)
         {
             foreach (var d in Accounts)
             {
-                if (string.Equals(d.FileStem, previousStem, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(d.FileStem, prevStem, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(d.Plan, prevPlan, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(d.Size, prevSize, StringComparison.OrdinalIgnoreCase))
                 {
                     SelectedAccount = d;
-                    break;
+                    return;
                 }
             }
         }
-        else
-        {
-            var activeStem = _service.Active != null
-                ? Accounts.FirstOrDefault(a =>
-                    string.Equals(a.FileStem, _service.Active.Name.Replace(" ", "_"),
-                        StringComparison.OrdinalIgnoreCase))?.FileStem
-                : null;
 
-            SelectedAccount = Accounts.FirstOrDefault();
+        var active = _service.Active;
+        if (active != null)
+        {
+            foreach (var d in Accounts)
+            {
+                if (string.Equals(d.FileStem, active.FileStem, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(d.Plan, active.Plan, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(d.Size, active.Size, StringComparison.OrdinalIgnoreCase))
+                {
+                    SelectedAccount = d;
+                    return;
+                }
+            }
         }
+
+        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
     }
 
     partial void OnSelectedAccountChanged(AccountDescriptor? value)
@@ -89,40 +96,28 @@ public partial class AccountViewModel : ObservableObject
             DetailHeader = "Select an account";
             DetailSubHeader = "";
             Notes = "";
-            _loadedConfig = null;
-            _loadedStem = "";
             return;
         }
 
-        _ = LoadAccountAsync(value);
-    }
-
-    private System.Threading.Tasks.Task LoadAccountAsync(AccountDescriptor descriptor)
-    {
-        var config = _service.Load(descriptor);
-        if (config == null)
+        var planSize = _service.ResolvePlanSize(value);
+        if (planSize == null)
         {
             PhaseRules.Clear();
             HasSelection = false;
-            DetailHeader = descriptor.FileStem;
-            DetailSubHeader = "(failed to load)";
+            DetailHeader = $"{value.Firm} · {value.Plan} · {value.Size}";
+            DetailSubHeader = "(failed to resolve)";
             Notes = "";
-            StatusText = $"Failed to load {descriptor.FileStem}";
-            _loadedConfig = null;
-            _loadedStem = "";
-            return System.Threading.Tasks.Task.CompletedTask;
+            StatusText = $"Failed to resolve {value.Firm} {value.Plan} {value.Size}";
+            return;
         }
 
-        _loadedConfig = config;
-        _loadedStem = descriptor.FileStem;
-
-        DetailHeader = config.Name;
-        DetailSubHeader = $"{config.Firm} · {config.Plan} · {config.Currency} {config.StartingCapital:N0}";
-        Notes = config.Notes ?? "";
+        DetailHeader = $"{value.Firm} · {value.Plan} · {value.Size}";
+        DetailSubHeader = $"{value.Firm} · {value.Plan} · USD {planSize.StartingCapital:N0}";
+        Notes = planSize.Notes ?? "";
         HasSelection = true;
 
         PhaseRules.Clear();
-        foreach (var phase in config.Phases)
+        foreach (var phase in planSize.Phases)
         {
             PhaseRules.Add(new AccountRuleRow("— " + phase.PhaseName + " —", ""));
 
@@ -149,13 +144,15 @@ public partial class AccountViewModel : ObservableObject
 
             if (phase.Refundable.HasValue)
                 PhaseRules.Add(new AccountRuleRow("Refundable", phase.Refundable.Value ? "Yes" : "No"));
+
+            if (!string.IsNullOrWhiteSpace(phase.DrawdownType))
+                PhaseRules.Add(new AccountRuleRow("Drawdown Type", phase.DrawdownType));
         }
 
-        if (!string.IsNullOrWhiteSpace(config.ConsistencyScoreRule))
-            PhaseRules.Add(new AccountRuleRow("Consistency Score", config.ConsistencyScoreRule));
+        if (!string.IsNullOrWhiteSpace(planSize.ConsistencyScoreRule))
+            PhaseRules.Add(new AccountRuleRow("Consistency Score", planSize.ConsistencyScoreRule));
 
-        StatusText = $"Loaded {config.Name}";
-        return System.Threading.Tasks.Task.CompletedTask;
+        StatusText = $"Loaded {value.Firm} {value.Plan} {value.Size}";
     }
 
     [RelayCommand]
@@ -163,7 +160,7 @@ public partial class AccountViewModel : ObservableObject
     {
         _service.Refresh();
         RefreshList();
-        StatusText = $"Refreshed — {Accounts.Count} accounts.";
+        StatusText = $"Refreshed — {Accounts.Count} account entries.";
     }
 
     [RelayCommand]
@@ -176,7 +173,7 @@ public partial class AccountViewModel : ObservableObject
         }
 
         _service.SetActive(SelectedAccount);
-        StatusText = $"Active: {_loadedConfig?.Name ?? SelectedAccount.FileStem}";
+        StatusText = $"Active: {SelectedAccount.Firm} · {SelectedAccount.Plan} · {SelectedAccount.Size}";
     }
 
     [RelayCommand]

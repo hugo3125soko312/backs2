@@ -6,35 +6,33 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ## Phase 10.10: Account Configuration [COMPLETED]
 
-See `docs/ROADMAP_ARCHIVE.md` — 10.10A (Account Model & Service) and 10.10B (Accounts Tab GUI) shipped.
+See `docs/ROADMAP_ARCHIVE.md`. One JSON per firm, triple-based active selection.
 
 ## Phase 10.11: Monte Carlo [IN PROGRESS]
 
-Stationary block bootstrap over the last strategy run's trades. Consumes `LastRunStore` (shipped) and `AccountService.Active` (shipped).
-
 ### Phase 10.11A -- LastRunStore & OverviewData [COMPLETED]
-
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.11B -- Monte Carlo Core
-- [ ] `MonteCarloEngine` in `src/core/Overview/`.
-- [ ] Stationary block bootstrap: block length drawn from geometric distribution with mean `b`.
-- [ ] `Random.Shared` for thread-safe parallel simulation. No NuGet RNG package.
-- [ ] `Parallel.For` with pre-allocated `double[]` result arrays. No `List<T>.Add`, no LINQ in hot loop.
-- [ ] Per-simulation metrics: Net Profit, Max Drawdown %, Max Consecutive Losses.
-- [ ] Risk of Ruin: fraction of simulations where equity drops below `StartingCapital * (1 - MaxLossPercent/100)`. Reads MaxLossPercent from `AccountService.Active.Phases[last].MaxLossPercent`. Falls back to 50% if no active account.
-- [ ] Optional fixed seed for reproducibility.
-- [ ] `IProgress<int>` for UI progress.
-- [ ] `MonteCarloResult` record: `double[] NetProfits`, `double[] MaxDrawdowns`, `int[] MaxConsecutiveLosses`, `double RiskOfRuin`, percentile aggregates, metadata.
+### Phase 10.11B -- Monte Carlo Core [IN PROGRESS]
+- [x] `MonteCarloEngine` in `src/core/Overview/`.
+- [x] Stationary block bootstrap: block length drawn from geometric distribution with mean `b`.
+- [x] `Random.Shared` for thread-safe parallel simulation. No NuGet RNG package.
+- [x] `Parallel.For` with pre-allocated result arrays. No `List<T>.Add`, no LINQ in hot loop.
+- [x] Per-simulation metrics: Net Profit, Max Drawdown %, Max Consecutive Losses, Annual Return (CAGR), Sharpe, Profit Factor.
+- [x] Risk of Ruin: fraction of simulations where equity drops below `StartingCapital * (1 - MaxLossPercent/100)`.
+- [x] Optional fixed seed for reproducibility.
+- [x] `IProgress<int>` for UI progress.
+- [x] `MonteCarloResult` record with all distributions + Mean/P05/P95 aggregates.
+- [ ] Wire `MonteCarloViewModel` to read `LastRunStore.Current` and `AccountService.Active` (blocks 10.11C).
 
 ### Phase 10.11C -- Monte Carlo Tab GUI
 - [ ] New **Monte Carlo** tab in MainWindow.axaml, positioned between Runner and Metrics.
 - [ ] Toolbar: Iterations (default 1000), Mean Block Size (default 5), Ruin Threshold % (defaults to active account's funded MaxLossPercent), Progress Interval % (default 10), Run MC button, ProgressBar.
-- [ ] Left panel: Summary stats — Net Profit (Mean/Median/StdDev/p05/p95), Max Drawdown (same), Max Consecutive Losses, **Risk of Ruin** prominent.
+- [ ] Left panel: Summary stats — Net Profit / Max DD / Annual Return / Sharpe / Profit Factor (Mean/Median/StdDev/p05/p95 each), Max Consecutive Losses, **Risk of Ruin** prominent.
 - [ ] Right top: Equity curve plot (ScottPlot). Base + p05 + p95 + straw broom count (default 20, configurable).
 - [ ] Right bottom: Net Profit histogram with vertical lines at p05/p50/p95.
 - [ ] Active account name displayed in the toolbar.
-- [ ] Reads `LastRunStore.Current` trades + `AccountService.Active` rules.
+- [ ] `MonteCarloViewModel` reads `LastRunStore.Current` trades + `AccountService.Active` rules.
 
 ### Phase 10.11D -- Overview Tab (Full)
 - [ ] Full in-sample metrics table: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
@@ -45,7 +43,7 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Dependencies
 - 10.11A before 10.11B and 10.11C.
 - 10.11B before 10.11C.
-- 10.11C before 10.11D (Overview reads MC results).
+- 10.11C before 10.11D.
 
 ---
 
@@ -58,7 +56,7 @@ See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases (10.7A, 10.7B, 10.7F).
 - [ ] Fetch per-timeframe from provider, cache under `symbol@timeframe`.
 
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
-- [ ] Mouse crosshair tracking on the price panel.
+- [ ] Mouse crosshair tracking.
 - [ ] O/H/L/C/Volume/timestamp readout box.
 
 ### Phase 10.7E -- Polish [IN PROGRESS]
@@ -74,32 +72,20 @@ See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases (10.7A, 10.7B, 10.7F).
 
 ## Appendix A: Shipped Accounts
 
-### FTMO (USD) — 1-Step
-Sizes: 10K, 25K, 50K, 100K, 200K. Profit Target 10%, Max Daily Loss 3%, Max Loss 10%, Best Day Rule 50%, Profit Split 90%.
-Shipped: 100K. Add the remaining sizes via the Accounts tab.
+Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`. Contains every plan and every size.
 
-### FTMO (USD) — 2-Step
-Sizes: 10K, 25K, 50K, 100K, 200K. Phase 1 Target 10%, Phase 2 Target 5%, Max Daily Loss 5%, Max Loss 10%, Min Trading Days 4, Profit Split up to 90%.
-Shipped: 100K. Add the remaining sizes via the Accounts tab.
+### FTMO (2 plans)
+- **1-Step**: 10K, 25K, 50K, 100K, 200K. Profit Target 10%, Max Daily Loss 3%, Max Loss 10%, Best Day Rule 50%, Profit Split 90%, Trailing EOD drawdown.
+- **2-Step**: 10K, 25K, 50K, 100K, 200K. Phase 1 10%, Phase 2 5%, Max Daily Loss 5%, Max Loss 10%, Min 4 trading days, Profit Split 90%, Static drawdown.
 
-### Maventrading — Standard 1-Step
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Profit Target 8%, Max Loss 5%, Daily Loss 3%, Profit Split 80%, Consistency No.
+### Maventrading (7 plans)
+- **Standard 1-Step**: 2K, 5K, 10K, 20K, 50K, 100K. Target 8%, MaxLoss 5%, DailyLoss 3%, Split 80%.
+- **Standard 2-Step**: 2K, 5K, 10K, 20K, 50K, 100K. P1 8%, P2 5%, MaxLoss 8%, DailyLoss 4%, Split 80%.
+- **Standard 3-Step**: 2K, 5K, 10K, 20K, 50K, 100K. P1/P2/P3 3% each, MaxLoss 3%, DailyLoss 2%, Split 80%.
+- **Instant**: 2K, 5K, 10K, 20K, 50K, 100K. No target, MaxLoss 3%, DailyLoss 2%, Split 80%, Consistency Yes.
+- **Mini**: 2K, 5K, 10K, 20K, 50K, 100K. No target, MaxLoss 3%, DailyLoss 2%, Split 70%, Payout 24h, Consistency Yes.
+- **Omo 2-Step**: 2K, 5K, 10K, 20K, 50K, 100K. P1 6%, P2 8%, MaxLoss 8%, DailyLoss 4%, Split 80%.
+- **Buy Now Pay Later**: 2K, 5K, 10K, 20K, 50K, 100K. P1 4%, P1 MaxLoss 10%, Funded MaxLoss 8%, Funded DailyLoss 4%, Split 80%, Funded Consistency 20%.
 
-### Maventrading — Standard 2-Step
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 8%, Phase 2 Target 5%, Max Loss 8%, Daily Loss 4%, Profit Split 80%.
-Shipped: 50K. Add the remaining sizes via the Accounts tab.
-
-### Maventrading — Standard 3-Step
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1/2/3 Target 3% each, Max Loss 3%, Daily Loss 2%, Profit Split 80%.
-
-### Maventrading — Instant
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. No target, Max Loss 3%, Daily Loss 2%, Profit Split 80%, Consistency Yes.
-
-### Maventrading — Mini
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. No target, Max Loss 3%, Daily Loss 2%, Profit Split 70%, Payout 24h, Consistency Yes.
-
-### Maventrading — Omo 2-Step
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 6%, Phase 2 Target 8%, Max Loss 8%, Daily Loss 4%, Profit Split 80%.
-
-### Maventrading — Buy Now Pay Later
-Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 4%, Phase 1 Max Loss 10%, Funded Max Loss 8%, Funded Daily Loss 4%, Profit Split 80%, Funded Consistency 20%.
+### Template
+- `_TEMPLATE.account.json` — documents every field with placeholders. Copy to add a new firm. Rename to `.account.json.txt` to exclude from the scan.

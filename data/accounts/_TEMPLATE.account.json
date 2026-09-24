@@ -1,0 +1,78 @@
+{
+  "firm": "REPLACE_ME_FIRM_NAME",
+  "currency": "USD",
+  "notes": "TEMPLATE FILE. Copy this to create a new firm. Filename convention: {FirmName}.account.json (no spaces). Delete this template after copying, or leave it — AccountService parses it like any other firm.",
+
+  "plans": [
+    {
+      "plan": "REPLACE_ME_PLAN_NAME",
+      "sizes": [
+        {
+          "size": "REPLACE_ME_SIZE_LABEL",
+          "startingCapital": 12345,
+          "consistencyScoreRule": null,
+          "notes": "REPLACE_ME_NOTES_OR_NULL. Per-size override of the plan-level rule. Set to null to inherit.",
+
+          "phases": [
+            {
+              "phaseName": "Phase 1 - Challenge",
+              "profitTargetPercent": 8.0,
+              "maxLossPercent": 10.0,
+              "maxDailyLossPercent": 5.0,
+              "minTradingDays": 4,
+              "tradingPeriodDays": 30,
+              "bestDayRulePercent": 50.0,
+              "profitSplitPercent": null,
+              "refundable": null,
+              "drawdownType": "static"
+            },
+            {
+              "phaseName": "Phase 2 - Verification",
+              "profitTargetPercent": 5.0,
+              "maxLossPercent": 10.0,
+              "maxDailyLossPercent": 5.0,
+              "minTradingDays": 4,
+              "tradingPeriodDays": 30,
+              "bestDayRulePercent": null,
+              "profitSplitPercent": null,
+              "refundable": null,
+              "drawdownType": "static"
+            },
+            {
+              "phaseName": "Funded",
+              "profitTargetPercent": null,
+              "maxLossPercent": 10.0,
+              "maxDailyLossPercent": 5.0,
+              "minTradingDays": null,
+              "tradingPeriodDays": null,
+              "bestDayRulePercent": null,
+              "profitSplitPercent": 80.0,
+              "refundable": true,
+              "drawdownType": "static"
+            }
+          ]
+        },
+        {
+          "size": "REPLACE_ME_SECOND_SIZE",
+          "startingCapital": 67890,
+          "consistencyScoreRule": null,
+          "notes": null,
+          "phases": [
+            {
+              "phaseName": "REPLACE_ME_PHASE_NAME",
+              "profitTargetPercent": null,
+              "maxLossPercent": null,
+              "maxDailyLossPercent": null,
+              "minTradingDays": null,
+              "tradingPeriodDays": null,
+              "bestDayRulePercent": null,
+              "profitSplitPercent": null,
+              "refundable": null,
+              "drawdownType": "static"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

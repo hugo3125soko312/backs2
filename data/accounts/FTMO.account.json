@@ -1,0 +1,62 @@
+{
+  "firm": "FTMO",
+  "currency": "USD",
+  "notes": "FTMO prop firm accounts. Prices shown on product pages are not part of the engine.",
+  "plans": [
+    {
+      "plan": "1-Step",
+      "sizes": [
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": "Trailing EOD drawdown.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": null, "refundable": null, "drawdownType": "trailing-eod" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": 90.0, "refundable": null, "drawdownType": "trailing-eod" }
+        ]},
+        { "size": "25K",  "startingCapital": 25000,  "consistencyScoreRule": null, "notes": "Trailing EOD drawdown.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": null, "refundable": null, "drawdownType": "trailing-eod" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": 90.0, "refundable": null, "drawdownType": "trailing-eod" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": "Trailing EOD drawdown.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": null, "refundable": null, "drawdownType": "trailing-eod" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": 90.0, "refundable": null, "drawdownType": "trailing-eod" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": "Trailing EOD drawdown.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": null, "refundable": null, "drawdownType": "trailing-eod" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": 90.0, "refundable": null, "drawdownType": "trailing-eod" }
+        ]},
+        { "size": "200K", "startingCapital": 200000, "consistencyScoreRule": null, "notes": "Trailing EOD drawdown.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": null, "refundable": null, "drawdownType": "trailing-eod" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": 50.0, "profitSplitPercent": 90.0, "refundable": null, "drawdownType": "trailing-eod" }
+        ]}
+      ]
+    },
+    {
+      "plan": "2-Step",
+      "sizes": [
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": "Static drawdown. Min 4 trading days.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 90.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "25K",  "startingCapital": 25000,  "consistencyScoreRule": null, "notes": "Static drawdown. Min 4 trading days.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 90.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": "Static drawdown. Min 4 trading days.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 90.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": "Static drawdown. Min 4 trading days.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 90.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "200K", "startingCapital": 200000, "consistencyScoreRule": null, "notes": "Static drawdown. Min 4 trading days.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 10.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": 4, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 10.0, "maxDailyLossPercent": 5.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 90.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    }
+  ]
+}

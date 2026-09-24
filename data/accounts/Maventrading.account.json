@@ -1,0 +1,222 @@
+{
+  "firm": "Maventrading",
+  "currency": "USD",
+  "notes": "Maventrading prop firm accounts. Refundable on third withdrawal unless noted.",
+  "plans": [
+    {
+      "plan": "Standard 1-Step",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 5.0, "maxDailyLossPercent": 3.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Standard 2-Step",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 5.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Standard 3-Step",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": "Three verification phases.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 3 - Verification", "profitTargetPercent": 3.0, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Instant",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": "Yes", "notes": "No challenge phase.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": null, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Mini",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": "Yes", "notes": "Payout frequency 24 hours.", "phases": [
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 3.0, "maxDailyLossPercent": 2.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 70.0, "refundable": null, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Omo 2-Step",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": null, "notes": null, "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 6.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Phase 2 - Verification", "profitTargetPercent": 8.0, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    },
+    {
+      "plan": "Buy Now Pay Later",
+      "sizes": [
+        { "size": "2K",   "startingCapital": 2000,   "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "5K",   "startingCapital": 5000,   "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "10K",  "startingCapital": 10000,  "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "20K",  "startingCapital": 20000,  "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "50K",  "startingCapital": 50000,  "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]},
+        { "size": "100K", "startingCapital": 100000, "consistencyScoreRule": "20%", "notes": "Funded consistency score 20%.", "phases": [
+            { "phaseName": "Phase 1 - Challenge", "profitTargetPercent": 4.0, "maxLossPercent": 10.0, "maxDailyLossPercent": null, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": null, "refundable": null, "drawdownType": "static" },
+            { "phaseName": "Funded", "profitTargetPercent": null, "maxLossPercent": 8.0, "maxDailyLossPercent": 4.0, "minTradingDays": null, "tradingPeriodDays": null, "bestDayRulePercent": null, "profitSplitPercent": 80.0, "refundable": true, "drawdownType": "static" }
+        ]}
+      ]
+    }
+  ]
+}
