@@ -1,3 +1,4 @@
+<!-- docs\PROJECT_CONTEXT.md -->
 # Project: backs2 Trading Engine
 - GUI: Avalonia 11.0.11
 - Core: .NET 8.0, DI-based xManager Pattern
@@ -8,7 +9,8 @@
     - Microsoft.CodeAnalysis.CSharp.Scripting 4.8.0
     - Microsoft.Extensions.Http.Resilience
     - Avalonia.Controls.DataGrid 11.0.11
-    - ScottPlot.Avalonia 5.0.55
+    - Avalonia.Controls.ColorPicker 11.0.11
+    - ScottPlot.Avalonia 5.0.55 (chart tab — SkiaSharp hardware accelerated)
 - Architecture:
     - src/core/: Managers, Metrics, Models, Providers.
     - src/gui/: ViewModels, Views (organized by feature module).
@@ -16,8 +18,9 @@
     - Resilience: Automatic retries via IHttpClientFactory and "ResilientClient".
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder.
     - Caching: Compact KlineCompact[] JSON in data/cache/, source-generated serializer.
+    - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
-    - .env at repo root: MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, TWELVEDATA_API_KEY, TIINGO_API_KEY.
+    - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY.
     - ConfigManager reads them at startup, exposes them as read-only properties.
     - Never persisted to config/settings.json. .env is git-ignored.
 - Crucial Rules:
@@ -31,6 +34,7 @@
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".
-    - Each provider resolves symbols on its own.
+    - Automatically discovered by ConfigViewModel via reflection on IDataProvider.
+    - Each provider resolves symbols on its own (e.g., EUR/USD for Twelve Data).
     - Timeframe wire-format mapping lives in TimeframeMap.
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.

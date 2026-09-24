@@ -1,3 +1,4 @@
+<!-- docs\ARCHITECTURE.md -->
 # Architecture: backs2 Trading Engine
 
 ## 1. Core Services & Dependency Injection
@@ -39,9 +40,20 @@
   - Log(string) — delegates to LogManager.Info.
 - Build rule: backs2.csproj contains a Compile Remove for data\**\*.cs. Strategies are Roslyn-evaluated at runtime and must never be compiled into the assembly.
 
-## 5. Configuration & Settings
+## 5. Configuration & Auto-Generating UI
 - Settings File: ConfigManager handles config/settings.json — non-secret engine state (threading, resilience, provider order).
-- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (MassiveApiKey, YahooApiKey, TwelveDataApiKey, TiingoApiKey). Secrets are never persisted to settings.json.
+- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey). Secrets are never persisted to settings.json.
+- Dynamic Reflection Engine:
+  - ConfigViewModel reflects all public instance properties on AppSettings (excluding ProviderOrder) into SettingItem wrappers.
+  - Controls are rendered dynamically in ConfigView.axaml based on data type:
+    - int / double -> NumericUpDown (steppers with appropriate increments)
+    - bool -> ToggleSwitch
+    - string containing "Color" -> ColorPicker (ColorSpectrumShape="Ring")
+    - string -> TextBox
+  - Adding a new property to AppSettings automatically generates its UI control without modifying XAML or ViewModel code.
+- Dynamic Provider Discovery:
+  - ConfigViewModel uses reflection over IDataProvider to automatically discover all non-abstract provider classes in the assembly.
+  - Any new provider implementing IDataProvider is automatically listed in the "Available Providers" listbox for ordering.
 - Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (default: ["Twelve Data", "Tiingo", "Yahoo", "Massive"]). Edited via the Config tab. Consumed by DataManager.
 - Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W.
 
@@ -52,21 +64,20 @@
   - Task<List<Kline>> FetchAsync(string symbol, string timeframe)
 - Each provider is registered as a keyed transient in App.axaml.cs.
 - Symbol resolution is per-provider:
+    - Twelve Data: EURUSD -> EUR/USD, XAUUSD -> XAU/USD, AAPL -> AAPL
+    - Tiingo: Symbols pass through directly (e.g. AAPL, EURUSD)
     - Yahoo: XAUUSD -> XAUUSD=X, EURUSD -> EURUSD=X, AAPL -> AAPL
     - Massive: XAUUSD -> C:XAUUSD, EURUSD -> C:EURUSD, AAPL -> AAPL
-    - Twelve Data: EURUSD -> EUR/USD, XAUUSD -> XAU/USD, stocks pass through.
-    - Tiingo: Symbols pass through directly (e.g. AAPL, EURUSD).
 - Timeframe resolution is centralized in TimeframeMap:
     - ToTwelveData(tf) -> 1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 1day, 1week.
     - ToTiingo(tf) -> 1min, 2min, 3min, 5min, 15min, 30min, 45min, 1hour, 2hour, 3hour, 4hour, daily, weekly.
-    - ToMassive(tf) -> (multiplier, timespan). All canonical timeframes supported.
+    - ToMassive(tf) -> (multiplier, timespan).
     - ToYahoo(tf) -> interval string or null.
     - LookbackDays(tf) — per-timeframe fetch window.
-- Twelve Data provider:
-    - Endpoint: GET https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=5000&apikey={key}
-    - Handles status errors cleanly and reverses response order from newest-first to oldest-first.
-- Tiingo provider:
-    - Endpoints: GET https://api.tiingo.com/iex/{symbol}/prices (intraday) and GET https://api.tiingo.com/tiingo/daily/{symbol}/prices (daily/weekly).
+- Twelve Data provider: GET https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=5000&apikey={key}
+- Tiingo provider: GET https://api.tiingo.com/iex/{symbol}/prices (intraday) and GET https://api.tiingo.com/tiingo/daily/{symbol}/prices (EOD).
+- Massive provider: GET https://api.massive.com/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
+- Yahoo provider: GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}
 - Secrets: providers read keys from ConfigManager read-only properties sourced from .env — never from AppSettings.
 
 ## 7. Caching
@@ -81,6 +92,7 @@
 - Source Generation: All ViewModels use CommunityToolkit.Mvvm attributes ([ObservableProperty], [RelayCommand]).
 - XAML Bindings: x:DataType on every View/UserControl root.
 - DataGrid use: Avalonia.Controls.DataGrid 11.0.11.
+- ColorPicker use: Avalonia.Controls.ColorPicker 11.0.11 with `ColorSpectrumShape="Ring"`.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 
 ## 9. Tabs
@@ -89,7 +101,7 @@
 - Data — Access-style datasheet with column filters and sort indicators.
 - Strategies — disk-streamed catalog.
 - Logs — event-driven live log view.
-- Config — settings editor, provider order.
+- Config — auto-generated settings editor, dynamic provider discovery and ordering list.
 
 ## 10. Logging
 - LogManager writes via Serilog to logs/runtime-{yyyyMMdd-HHmmss}.log.

@@ -1,6 +1,8 @@
+<!-- src\gui\Config\ConfigView.axaml -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
+             xmlns:cp="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ColorPicker"
              x:Class="backs2.Views.ConfigView"
              x:DataType="vm:ConfigViewModel">
 
@@ -9,14 +11,35 @@
 
             <TextBlock Text="Engine Settings" FontSize="18" FontWeight="Bold"/>
 
-            <Label Content="Max Threads"/>
-            <NumericUpDown Value="{Binding MaxThreads}" Minimum="1" Maximum="64"/>
-
-            <Label Content="Max Retries"/>
-            <NumericUpDown Value="{Binding MaxRetries}" Minimum="0" Maximum="10"/>
-
-            <Label Content="Timeout (Seconds)"/>
-            <NumericUpDown Value="{Binding TimeoutSeconds}" Minimum="1" Maximum="300"/>
+            <ItemsControl ItemsSource="{Binding DynamicSettings}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SettingItem">
+                        <StackPanel Margin="0,0,0,12">
+                            <Label Content="{Binding DisplayName}" FontSize="12" Opacity="0.8"/>
+                            
+                            <NumericUpDown Value="{Binding IntValue}" 
+                                           IsVisible="{Binding IsInt}" 
+                                           Minimum="0" Maximum="9999" />
+                            
+                            <NumericUpDown Value="{Binding DoubleValue}" 
+                                           IsVisible="{Binding IsDouble}" 
+                                           Minimum="0" Maximum="9999" 
+                                           Increment="0.1" />
+                            
+                            <TextBox Text="{Binding StringValue}" 
+                                     IsVisible="{Binding IsString}" />
+                            
+                            <ToggleSwitch IsChecked="{Binding BoolValue}" 
+                                          IsVisible="{Binding IsBool}" />
+                            
+                            <cp:ColorPicker Color="{Binding ColorValue}" 
+                                            IsVisible="{Binding IsColor}" 
+                                            ColorSpectrumShape="Ring"
+                                            HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
             <TextBlock Text="Provider Order (first success wins)"
                        FontSize="14" FontWeight="SemiBold"

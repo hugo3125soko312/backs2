@@ -1,3 +1,4 @@
+<!-- docs\RULES.md -->
 ONLY SPEAK IN ENGLISH
 
 # Development Rules
@@ -11,12 +12,17 @@ ONLY SPEAK IN ENGLISH
     - All I/O non-blocking (Async/Await).
     - UI progress via IProgress<T>.
     - Strictly typed bindings required for all AXAML.
+- Settings & Dynamic UI:
+    - To add an engine setting, simply declare a public property on `AppSettings`.
+    - Supported types (`int`, `double`, `bool`, `string`, `Color`) auto-render into appropriate controls in Config tab (`NumericUpDown`, `ToggleSwitch`, `TextBox`, `ColorPicker Ring`).
+    - Do NOT hardcode XAML controls for `AppSettings` properties.
 - Secrets:
     - Never hard-code API keys.
     - Never write secrets to config/settings.json.
-    - Read from ConfigManager.MassiveApiKey / ConfigManager.YahooApiKey, sourced from .env.
+    - Read from ConfigManager read-only properties, sourced from .env.
 - Providers:
     - Implement IDataProvider; register as keyed transient in App.axaml.cs.
+    - Providers are automatically discovered by `ConfigViewModel` via assembly reflection.
     - Do symbol resolution inside the provider. Do not add symbol translation to DataManager or IDataProvider.
     - Do timeframe wire-format mapping inside TimeframeMap, not inside individual providers.
     - Return an empty List<Kline> on failure; never throw — DataManager uses empty as the signal to fall back.

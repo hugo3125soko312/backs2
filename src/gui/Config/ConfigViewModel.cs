@@ -1,39 +1,116 @@
+// src\gui\Config\ConfigViewModel.cs
+using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using backs2.Core.Providers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace backs2.ViewModels;
+
+public partial class SettingItem : ObservableObject
+{
+    public string DisplayName { get; }
+    public PropertyInfo Property { get; }
+
+    [ObservableProperty] private int _intValue;
+    [ObservableProperty] private double _doubleValue;
+    [ObservableProperty] private string _stringValue = "";
+    [ObservableProperty] private bool _boolValue;
+    [ObservableProperty] private Avalonia.Media.Color _colorValue;
+
+    public bool IsInt => Property.PropertyType == typeof(int);
+    public bool IsDouble => Property.PropertyType == typeof(double);
+    public bool IsBool => Property.PropertyType == typeof(bool);
+    public bool IsColor => Property.PropertyType == typeof(string) && Property.Name.Contains("Color", StringComparison.OrdinalIgnoreCase);
+    public bool IsString => Property.PropertyType == typeof(string) && !IsColor;
+
+    public SettingItem(PropertyInfo prop, object instance)
+    {
+        Property = prop;
+        // Turn "MaxThreads" into "Max Threads"
+        DisplayName = Regex.Replace(prop.Name, "([A-Z])", " $1").Trim();
+
+        var val = prop.GetValue(instance);
+        
+        if (IsInt) IntValue = (int)(val ?? 0);
+        else if (IsDouble) DoubleValue = (double)(val ?? 0.0);
+        else if (IsBool) BoolValue = (bool)(val ?? false);
+        else if (IsColor)
+        {
+            var s = (string)(val ?? "#FFFFFFFF");
+            if (Avalonia.Media.Color.TryParse(s, out var c)) ColorValue = c;
+        }
+        else if (IsString) StringValue = (string)(val ?? "");
+    }
+
+    public void Apply(object instance)
+    {
+        if (IsInt) Property.SetValue(instance, IntValue);
+        else if (IsDouble) Property.SetValue(instance, DoubleValue);
+        else if (IsBool) Property.SetValue(instance, BoolValue);
+        else if (IsColor) Property.SetValue(instance, ColorValue.ToString());
+        else if (IsString) Property.SetValue(instance, StringValue);
+    }
+}
 
 public partial class ConfigViewModel : ObservableObject
 {
     private readonly ConfigManager _config;
     private readonly LogManager _log;
 
+    public ObservableCollection<SettingItem> DynamicSettings { get; } = new();
     public ObservableCollection<string> ProviderOrder { get; } = new();
+    public ObservableCollection<string> AvailableProviders { get; } = new();
 
-    public ObservableCollection<string> AvailableProviders { get; } = new()
-    {
-        "Yahoo", "Massive"
-    };
-
-    [ObservableProperty] private int _maxThreads;
-    [ObservableProperty] private int _maxRetries;
-    [ObservableProperty] private int _timeoutSeconds;
     [ObservableProperty] private string _selectedAvailable = "";
     [ObservableProperty] private string? _selectedInOrder;
 
-    public ConfigViewModel(ConfigManager config, LogManager log)
+    public ConfigViewModel(ConfigManager config, LogManager log, IServiceProvider serviceProvider)
     {
         _config = config;
         _log = log;
 
-        MaxThreads = _config.Settings.MaxThreads;
-        MaxRetries = _config.Settings.MaxRetries;
-        TimeoutSeconds = _config.Settings.TimeoutSeconds;
+        // Automatically populate all settings except the ProviderOrder list
+        foreach (var prop in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (prop.Name == nameof(AppSettings.ProviderOrder)) continue;
+            DynamicSettings.Add(new SettingItem(prop, _config.Settings));
+        }
+
+        DiscoverProviders(serviceProvider);
 
         foreach (var p in _config.Settings.ProviderOrder)
             ProviderOrder.Add(p);
+    }
+
+    private void DiscoverProviders(IServiceProvider serviceProvider)
+    {
+        var providerTypes = typeof(IDataProvider).Assembly.GetTypes()
+            .Where(t => typeof(IDataProvider).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+
+        foreach (var type in providerTypes)
+        {
+            try
+            {
+                if (ActivatorUtilities.CreateInstance(serviceProvider, type) is IDataProvider provider)
+                {
+                    if (!string.IsNullOrEmpty(provider.Name) && !AvailableProviders.Contains(provider.Name))
+                    {
+                        AvailableProviders.Add(provider.Name);
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback for unresolvable provider types
+            }
+        }
     }
 
     [RelayCommand]
@@ -76,10 +153,12 @@ public partial class ConfigViewModel : ObservableObject
     [RelayCommand]
     private void Save()
     {
-        _config.Settings.MaxThreads = MaxThreads;
-        _config.Settings.MaxRetries = MaxRetries;
-        _config.Settings.TimeoutSeconds = TimeoutSeconds;
-        _config.Settings.ProviderOrder = new System.Collections.Generic.List<string>(ProviderOrder);
+        foreach (var setting in DynamicSettings)
+        {
+            setting.Apply(_config.Settings);
+        }
+
+        _config.Settings.ProviderOrder = new List<string>(ProviderOrder);
 
         _config.SaveConfig();
         _log.Info("ConfigManager: settings saved.");
