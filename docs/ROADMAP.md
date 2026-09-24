@@ -64,9 +64,46 @@ See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases (10.7A, 10.7B, 10.7F).
 - [ ] Empty state, error state, selectable error texts.
 - [ ] Lock price-to-bar ratio.
 
+## Phase 10.12: Tagged Logging Refactor [PLANNED]
+
+Replace the current message-prefix convention (`"Cache: loaded X"`, `"Strategy failed: ..."`) with first-class severity + subsystem tags. Serilog already supports this; the wrapper hides it. Goal: filterable, queryable logs without breaking the no-allocation-in-hot-paths rule.
+
+### Decisions locked (from planning)
+- `LogTag` is an enum, not a string. Compile-time safety beats flexibility for a fixed subsystem set.
+- One `Provider` tag, not `Provider:Tiingo`. Provider name travels as a structured field, not an enum value. New providers do not require enum edits.
+- Two overloads: `Info(tag, message)` and `Info(tag, message, params (string, object)[] fields)`.
+- Second Serilog sink writes `logs/runtime-{timestamp}.json` alongside the text log.
+- `Debug` level included, gated by a `LogLevel` filter.
+- `LogLevel` exposed as an `AppSettings` property, auto-rendered in the Config tab.
+
+### Phase 10.12A — LogManager API
+- [ ] `LogTag` enum: App, Cache, Data, Provider, Strategy, Runner, Account, MonteCarlo, Overview, Chart, Config, Metric.
+- [ ] `LogManager.Info(LogTag, string)`, `Warn`, `Error(LogTag, string, Exception? = null)`, `Debug`.
+- [ ] Structured-property overloads: `Info(LogTag, string, params (string, object)[] fields)`.
+- [ ] Serilog output template includes the tag: `[INF] [Cache] message`.
+- [ ] Second JSON sink configured for `logs/runtime-{timestamp}.json`.
+
+### Phase 10.12B — Call Site Migration
+- [ ] `src/core/DataManager.cs` — tag `Data`.
+- [ ] `src/core/CacheManager.cs` — tag `Cache`.
+- [ ] `src/core/StrategyManager.cs` — tag `Strategy`.
+- [ ] `src/core/Accounts/AccountService.cs` — tag `Account`.
+- [ ] `src/core/Providers/*.cs` — tag `Provider`, provider name as structured field.
+- [ ] `src/core/Overview/MonteCarloEngine.cs` — tag `MonteCarlo`.
+- [ ] Any other `_log.Info` / `_log.Error` call site.
+
+### Phase 10.12C — Config Integration
+- [ ] `AppSettings.LogLevel` property (string: `"Info"`, `"Warn"`, `"Error"`, `"Debug"`). Auto-renders as a TextBox in the Config tab.
+- [ ] Serilog `MinimumLevel` reads from `AppSettings.LogLevel` at startup.
+
+### Constraints
+- No allocation inside hot loops. Log once per completed operation, after timers stop, not inside read/write loops.
+- No new NuGet package. Serilog is already referenced.
+- File-per-run convention unchanged: `logs/runtime-{timestamp}.log` and `.json`.
+- `data/strategies/*.cs` scripts that call `Log(string)` continue to work — `RunnerScriptGlobals.Log` maps to `LogManager.Info(LogTag.Strategy, message)`.
+
 ---
 
-## Phase 12: Hardening & Housekeeping [PLANNED]
 
 ---
 
@@ -89,3 +126,4 @@ Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`. Contains every
 
 ### Template
 - `_TEMPLATE.account.json` — documents every field with placeholders. Copy to add a new firm. Rename to `.account.json.txt` to exclude from the scan.
+
