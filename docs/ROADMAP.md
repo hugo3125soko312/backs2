@@ -13,7 +13,7 @@ See `docs/ROADMAP_ARCHIVE.md`. One JSON per firm, triple-based active selection.
 ### Phase 10.11A -- LastRunStore & OverviewData [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.11B -- Monte Carlo Core [IN PROGRESS]
+### Phase 10.11B -- Monte Carlo Core [COMPLETED]
 - [x] `MonteCarloEngine` in `src/core/Overview/`.
 - [x] Stationary block bootstrap: block length drawn from geometric distribution with mean `b`.
 - [x] `Random.Shared` for thread-safe parallel simulation. No NuGet RNG package.
@@ -23,7 +23,6 @@ See `docs/ROADMAP_ARCHIVE.md`.
 - [x] Optional fixed seed for reproducibility.
 - [x] `IProgress<int>` for UI progress.
 - [x] `MonteCarloResult` record with all distributions + Mean/P05/P95 aggregates.
-- [ ] Wire `MonteCarloViewModel` to read `LastRunStore.Current` and `AccountService.Active` (blocks 10.11C).
 
 ### Phase 10.11C -- Monte Carlo Tab GUI
 - [ ] New **Monte Carlo** tab in MainWindow.axaml, positioned between Runner and Metrics.
@@ -63,6 +62,8 @@ See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases (10.7A, 10.7B, 10.7F).
 - [ ] Save/restore last symbol + timeframe.
 - [ ] Empty state, error state, selectable error texts.
 - [ ] Lock price-to-bar ratio.
+
+---
 
 ## Phase 10.12: Tagged Logging Refactor [PLANNED]
 
@@ -104,9 +105,6 @@ Replace the current message-prefix convention (`"Cache: loaded X"`, `"Strategy f
 
 ---
 
-
----
-
 ## Appendix A: Shipped Accounts
 
 Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`. Contains every plan and every size.
@@ -126,4 +124,3 @@ Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`. Contains every
 
 ### Template
 - `_TEMPLATE.account.json` — documents every field with placeholders. Copy to add a new firm. Rename to `.account.json.txt` to exclude from the scan.
-
