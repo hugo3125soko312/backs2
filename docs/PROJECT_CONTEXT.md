@@ -12,11 +12,15 @@
     - Avalonia.Controls.ColorPicker 11.0.11
     - ScottPlot.Avalonia 5.0.55 (chart tab — SkiaSharp hardware accelerated)
 - Architecture:
-    - src/core/: Managers, Metrics, Models, Providers.
+    - src/core/: Managers, Metrics, Models, Providers, Runner.
+    - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/gui/: ViewModels, Views (organized by feature module).
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Resilience: Automatic retries via IHttpClientFactory and "ResilientClient".
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder.
+    - Strategy parameters: declared with `// @param Name Type = Default [options: ...]` at the top of the file. Parsed, not compiled.
+    - Presets: JSON files at config/presets/{Strategy}_{Preset}.preset.json. Managed by PresetService.
+    - Trade recording: RunnerScriptGlobals.Trades (TradeRecorder). Strategy calls Enter/Exit.
     - Caching: Compact KlineCompact[] JSON in data/cache/, source-generated serializer.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
@@ -31,6 +35,9 @@
     - No new for core services; inject via constructor.
     - data/strategies/*.cs must never be compiled into the app (Compile Remove for data\**\*.cs in backs2.csproj).
     - logs/ and .env are git-ignored; never commit secrets or log output.
+    - Strategy parameters live in the source file as `// @param` lines, not in a separate manifest.
+    - Preset filenames encode the strategy name; do not rename presets outside the app.
+- Tabs: Runner, Metrics, Data, Chart, Logs, Config. (Overview tab planned.)
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".

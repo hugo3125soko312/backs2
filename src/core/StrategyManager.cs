@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using backs2.Core.Metrics;
 using backs2.Core.Models;
+using backs2.Core.Runner;
 
 namespace backs2.Core;
 
@@ -16,6 +17,7 @@ public sealed class StrategyRunResult
     public bool Success { get; init; }
     public string? Error { get; init; }
     public TimeSpan Duration { get; init; }
+    public IReadOnlyList<Trade> Trades { get; init; } = Array.Empty<Trade>();
 }
 
 public class StrategyManager
@@ -37,6 +39,7 @@ public class StrategyManager
     public async Task<StrategyRunResult> RunBacktestFromFileAsync(
         string path,
         List<Kline> data,
+        Dictionary<string, string>? parameters = null,
         CancellationToken ct = default)
     {
         var started = DateTime.UtcNow;
@@ -59,11 +62,15 @@ public class StrategyManager
 
             var runner = GetOrCreateRunner(path, info.LastWriteTimeUtc, info.Length, source);
 
-            var globals = new ScriptGlobals
+            var recorder = new TradeRecorder(data);
+
+            var globals = new RunnerScriptGlobals
             {
                 Engine = _registry,
                 Data = data,
-                Log = _log.Info
+                Log = _log.Info,
+                Trades = recorder,
+                Params = parameters ?? new Dictionary<string, string>()
             };
 
             await runner(globals).ConfigureAwait(false);
@@ -74,7 +81,8 @@ public class StrategyManager
             {
                 Path = path,
                 Success = true,
-                Duration = DateTime.UtcNow - started
+                Duration = DateTime.UtcNow - started,
+                Trades = recorder.Closed
             };
         }
         catch (Exception ex)
@@ -99,16 +107,20 @@ public class StrategyManager
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
-            var globals = new ScriptGlobals
+            var recorder = new TradeRecorder(data);
+
+            var globals = new RunnerScriptGlobals
             {
                 Engine = _registry,
                 Data = data,
-                Log = _log.Info
+                Log = _log.Info,
+                Trades = recorder,
+                Params = new Dictionary<string, string>()
             };
 
             var options = ScriptOptions.Default
                 .AddReferences(typeof(IMetric).Assembly)
-                .AddImports("backs2.Core.Metrics", "backs2.Core.Models");
+                .AddImports("backs2.Core.Metrics", "backs2.Core.Models", "backs2.Core.Runner");
 
             await CSharpScript.EvaluateAsync(script, options, globals).ConfigureAwait(false);
         }
@@ -133,23 +145,16 @@ public class StrategyManager
 
         var options = ScriptOptions.Default
             .AddReferences(typeof(IMetric).Assembly)
-            .AddImports("backs2.Core.Metrics", "backs2.Core.Models");
+            .AddImports("backs2.Core.Metrics", "backs2.Core.Models", "backs2.Core.Runner");
 
         var script = CSharpScript.Create<object?>(
             source,
             options,
-            typeof(ScriptGlobals));
+            typeof(RunnerScriptGlobals));
 
         var runner = script.CreateDelegate();
 
         _cache[path] = new CachedScript(lastWriteUtc, size, runner);
         return runner;
     }
-}
-
-public class ScriptGlobals
-{
-    public MetricRegistry Engine { get; set; } = null!;
-    public List<Kline> Data { get; set; } = null!;
-    public Action<string> Log { get; set; } = _ => { };
 }

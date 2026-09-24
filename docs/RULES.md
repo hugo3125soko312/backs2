@@ -21,6 +21,7 @@ ONLY SPEAK IN ENGLISH
     - To add an engine setting, simply declare a public property on `AppSettings`.
     - Supported types (`int`, `double`, `bool`, `string`, `Color`) auto-render into appropriate controls in Config tab (`NumericUpDown`, `ToggleSwitch`, `TextBox`, `ColorPicker Ring`).
     - Do NOT hardcode XAML controls for `AppSettings` properties.
+    - For non-secret on-disk state that is not an `AppSettings` property, resolve the config root via `ConfigManager.ConfigDirectory`. Do not hardcode `"config"` outside `ConfigManager`.
 - Secrets:
     - Never hard-code API keys.
     - Never write secrets to config/settings.json.
@@ -38,9 +39,21 @@ ONLY SPEAK IN ENGLISH
     - Cache keys are symbol@timeframe.
 - Strategies:
     - Live in data/strategies/, one file per strategy, top-level statements.
-    - Globals: Engine (MetricRegistry), Data (List<Kline>), Log(string).
+    - Globals: Engine (MetricRegistry), Data (List<Kline>), Log(string), Trades (TradeRecorder), Params (Dictionary<string,string>).
+    - Parameters declared at the top of the file with `// @param <Name> <Type> = <Default> [options: "A", "B"]`.
+    - Supported types: int, double, bool, string. `options:` is only valid on string params; it renders a ComboBox.
     - Never place a strategy .cs outside data/strategies/.
     - Never add a strategy file to a Compile item. Strategies are Roslyn-evaluated, not compiled.
+    - Trade recording: call `Trades.Advance(index)` before `Enter` / `Exit` so timestamps come from the correct Kline. Do not write trades to disk manually.
+- Presets:
+    - Live in config/presets/{StrategyName}_{PresetName}.preset.json.
+    - Manage exclusively through PresetService. Do not write preset files directly.
+    - The filename is a lossy transport; the JSON payload is the source of truth for the preset name.
+- Runner:
+    - Runner GUI lives in src/gui/Runner/.
+    - Runner core types live in src/core/Runner/.
+    - RunnerScriptGlobals is the script contract. Add new globals there, not in StrategyManager.
+    - Parameter parsing never executes the strategy file; it only reads `// @param` lines up to the first non-comment line.
 - XAML binding inside templates:
     - Use Binding DataContext.Prop with RelativeSource AncestorType=UserControl.
     - Do not use $parent[UserControl].((vm:Type)DataContext).Prop — fails at runtime inside templates.
@@ -72,7 +85,7 @@ Types:
 - wip       work in progress, not yet complete (used for blocked phases)
 
 Scope:
-- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui.
+- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets.
 
 Summary: one line, imperative mood, no trailing period. Under 72 characters.
 

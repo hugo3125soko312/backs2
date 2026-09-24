@@ -1,4 +1,4 @@
-// src\core\ConfigManager.cs
+// src/core/ConfigManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +24,9 @@ public class ConfigManager
     private readonly string _envPath = ".env";
 
     public AppSettings Settings { get; private set; } = new();
+
+    // Root directory for non-secret engine state (settings.json, presets/, etc.).
+    public string ConfigDirectory => "config";
 
     // Secrets loaded from .env — never persisted to settings.json
     public string MassiveApiKey { get; private set; } = "";

@@ -4,15 +4,64 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
+## Phase 10.9: Runner & Presets [COMPLETED]
+
+See `docs/ROADMAP_ARCHIVE.md`. The Strategies tab is gone; the Runner tab replaces it. Preset save/load, parameter parsing, and per-parameter dirty state all ship.
+
+## Phase 10.10: Overview Tab [IN PROGRESS]
+
+First tab from the left. Reads the last `StrategyRunResult` (via `RunnerViewModel.RunCompleted`) and displays performance analytics + Monte Carlo distributions.
+
+### Phase 10.10A -- Overview Data Model
+- [ ] `LastRunStore` singleton holding the most recent `StrategyRunResult` + the strategy name, symbol, and timeframe it was run against.
+- [ ] `RunnerViewModel.RunCompleted` writes into `LastRunStore`.
+- [ ] `OverviewViewModel` subscribes to a `LastRunStore.Changed` event.
+
+### Phase 10.10B -- In-Sample Metrics
+- [ ] CAGR, Expectancy, Max Drawdown (abs + %), Sortino, Net Profit, Profit Factor, Payoff Ratio.
+- [ ] Sample Size, Avg Duration, Max Consecutive Wins/Losses.
+- [ ] Win/Loss/Breakeven rate, Frequency, Exposure.
+- [ ] Sharpe, MAR, RoR, R2, CVaR, p-value, Alpha, Beta.
+- [ ] Compounding, Avg Win/Trade/Loss, Rolling Expectancy, Avg Win/Loss Duration.
+- [ ] Max/Min Equity, Rolling Sortino, Current Drawdown, DAR, Kurtosis, Skewness, VaR, Ulcer Index.
+
+### Phase 10.10C -- Monte Carlo Simulation
+- [ ] Bootstrap resampling of trade sequence (with and without replacement).
+- [ ] Randomized trade ordering (shuffle).
+- [ ] Optional: randomized entry/exit jitter.
+- [ ] Configurable iteration count (default 1000).
+- [ ] `Parallel.For` with `ThreadLocal<Random>`; no shared collection writes in the hot loop; `double[]` result arrays pre-allocated per iteration.
+- [ ] Per-metric distribution: Best / Median / Worst / Mean / StdDev.
+- [ ] Confidence intervals (5% / 95%).
+- [ ] Risk-of-Ruin: fraction of simulations where equity drops below a configurable threshold.
+
+### Phase 10.10D -- Out-of-Sample Analysis
+- [ ] 70/30 in-sample / out-of-sample split (configurable).
+- [ ] Run identical metrics on both windows.
+- [ ] Side-by-side comparison.
+
+### Phase 10.10E -- Overview GUI
+- [ ] New Overview tab, first from the left in MainWindow.axaml.
+- [ ] Equity curve (ScottPlot.Avalonia).
+- [ ] Monte Carlo histogram per metric.
+- [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample).
+- [ ] Color-coded cells.
+- [ ] Export results to CSV / JSON.
+
+### Dependencies
+- Depends on Phase 10.9 (Runner + TradeRecorder) — done.
+- Package candidates: `MathNet.Numerics` (statistics).
+
+---
+
 ## Phase 10.7: Chart Tab [IN PROGRESS]
 
-Chart tab is functional with ScottPlot.Avalonia 5.0.55. Foundation (10.7A), volume (10.7B), and SkiaSharp Render Path (10.7F) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
+Foundation (10.7A), volume (10.7B), and SkiaSharp Render Path (10.7F) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
 
 ### Phase 10.7C -- Timeframe Switching [PENDING]
 - [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
-- [ ] **Data source decision:** Massive `/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}` supports intraday natively. Yahoo supports `interval=1m|5m|15m|1h|1d|1wk`. Decide whether to fetch per-timeframe from provider, or resample locally from the cached 1D series.
-  - Recommendation: **fetch per-timeframe from the provider**, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
-- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`. Bind an indeterminate or determinate `ProgressBar` that is visible only while switching. `DataManager`'s `IProgress<string>` gives us a signal we can turn into ticks.
+- [ ] **Data source decision:** fetch per-timeframe from provider, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
+- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`.
 
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
 - [ ] Mouse crosshair tracking on the price panel.
@@ -20,85 +69,25 @@ Chart tab is functional with ScottPlot.Avalonia 5.0.55. Foundation (10.7A), volu
 - [ ] Optional: snap crosshair to nearest bar.
 
 ### Phase 10.7E -- Polish [IN PROGRESS]
-- [ ] Save/restore last-viewed symbol + timeframe between app runs (write to `config/settings.json` via `ConfigManager`).
-- [ ] Empty state: if no symbol selected or no data, show a friendly message instead of a blank canvas.
-- [ ] Error state: if provider fetch fails, show the fallback chain's progress messages in a status line.
-- [ ] **Selectable error texts.** Status line and error messages must use `SelectableTextBlock` instead of `TextBox` or `TextBlock`, so users can select and copy exception text.
-- [x] **Data tab empty state bug.** Resolved. Root cause: the `DataGrid` had no resolvable `ControlTheme` when hosted inside the `TabControl` — the application-level `StyleInclude` in `App.axaml` was present but not taking effect on the grid's own resource host. Fix: added a scoped `<UserControl.Styles>` `StyleInclude` for `avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml` inside `DataView.axaml`.
-- [ ] **Lock price to bar ratio** (deferred from 10.7A, re-deferred from 10.7D) -- enforce a fixed pixels-per-price-unit ratio during pan/zoom via custom pointer-event handling on `PlotController`.
+- [ ] Save/restore last-viewed symbol + timeframe between app runs.
+- [ ] Empty state: friendly message instead of a blank canvas.
+- [ ] Error state: fallback chain's progress messages in a status line.
+- [ ] Selectable error texts (`SelectableTextBlock`).
+- [x] **Data tab empty state bug.** Resolved via scoped `<UserControl.Styles>` `StyleInclude` in `DataView.axaml`.
+- [ ] **Lock price to bar ratio** (deferred from 10.7A, re-deferred from 10.7D).
 
 ### Chart Tab — General Dependencies
-- Depends on Phase 10 (DI wiring) -- done.
-- Depends on Phase 10.5 (cache performance) -- done; chart fetches hit the same tiers.
+- Depends on Phase 10 (DI wiring) — done.
+- Depends on Phase 10.5 (cache performance) — done.
 
 ---
 
 ## Phase 10.8: Metrics Library Expansion [COMPLETED]
 
-See `docs/ROADMAP_ARCHIVE.md` -- Phase 10.8A (Metric Taxonomy) and Phase 10.8B (Metric Suite Expansion) shipped. Further metric additions belong in a new sub-phase.
+See `docs/ROADMAP_ARCHIVE.md` — Phase 10.8A (Metric Taxonomy) and Phase 10.8B (Metric Suite Expansion) shipped.
 
-## Phase 11: Monte Carlo & Performance Analytics [PLANNED]
+## Phase 11: Monte Carlo & Performance Analytics [MERGED INTO 10.10]
 
-Target: reproduce the TradingView / Fractalyst-style statistics panel -- In-Sample Analysis, Monte Carlo Analysis, Out-of-Sample Analysis, plus full Performance / Trade / Risk metrics.
-
-### Phase 11A -- Backtest Result Model
-- [ ] `BacktestResult` record: equity curve, trade list, per-trade PnL, holding durations, win/loss counts.
-- [ ] `Trade` record: entry time, exit time, entry price, exit price, direction, size, PnL, PnL%, MAE, MFE.
-- [ ] `StrategyManager.RunBacktestFromFileAsync` returns a populated `BacktestResult` (via `ScriptGlobals.Result`). Scripts declare a strategy type or register trades explicitly.
-
-### Phase 11B -- In-Sample Metrics
-- [ ] CAGR (Compound Annual Growth Rate).
-- [ ] Expectancy (average PnL per trade in currency and %).
-- [ ] Max Drawdown (absolute and %).
-- [ ] Sortino ratio.
-- [ ] Net Profit, Profit Factor, Payoff ratio.
-- [ ] Sample Size (trade count).
-- [ ] Avg Duration, Max Consecutive Wins (Max CW), Max Consecutive Losses (Max CL).
-- [ ] Win rate, loss rate, breakeven rate.
-- [ ] Frequency (trades per week/month), Exposure (% time in market).
-- [ ] Sharpe ratio, Sortino ratio.
-- [ ] MAR, RoR, R2, CVaR, p-value.
-- [ ] Alpha, Beta (vs Buy & Hold).
-- [ ] Compounding, Avg Win, Avg Trade, Avg Loss.
-- [ ] Rolling Expectancy, Avg Win Duration (Avg W Dur), Avg Loss Duration (Avg L Dur).
-- [ ] Max Equity (Max Eq), Min Equity (Min Eq), Rolling Sortino.
-- [ ] Current Drawdown (Curr DD), DAR, Kurtosis, Skewness, VaR, Ulcer index.
-
-### Phase 11C -- Monte Carlo Simulation
-- [ ] Bootstrap resampling of trade sequence (with and without replacement).
-- [ ] Randomized trade ordering (shuffle).
-- [ ] Optional: randomized entry/exit jitter.
-- [ ] Configurable iteration count (default 1000).
-- [ ] Output distribution per metric (CAGR, Expectancy, Max DD, Sortino).
-- [ ] Report: Best / Median / Worst / Mean / StdDev per metric.
-- [ ] Confidence intervals (5% / 95%).
-- [ ] Histogram rendering (optional phase 11E).
-
-### Phase 11D -- Out-of-Sample Analysis
-- [ ] Split the data: In-Sample vs Out-of-Sample windows (ratio configurable, default 70/30).
-- [ ] Run identical metrics on both windows.
-- [ ] Report side-by-side comparison.
-- [ ] Walk-forward analysis (rolling window) -- optional sub-phase.
-
-### Phase 11E -- GUI
-- [ ] New **Analytics** tab (or a pane inside Strategies).
-- [ ] Table matching the TradingView layout: three-column header (In-Sample / Monte Carlo / Out-of-Sample).
-- [ ] Row labels from Phase 11B/11C.
-- [ ] Color-coded cells (green positive, red negative) matching the reference.
-- [ ] Export results to CSV / JSON for external review.
-
-### Phase 11F -- Strategy Authoring Contract
-- [ ] Define how a strategy declares trades. Options:
-  - **A)** Strategy returns a `List<Trade>` explicitly.
-  - **B)** `ScriptGlobals` exposes `Enter(side, price)`, `Exit(price)`, `Size`, etc. Engine tracks positions.
-  - **C)** Strategy returns a signal series (long/short/flat per bar); engine derives trades.
-- [ ] Decision needed before Phase 11A is implemented.
-
-### Dependencies
-- Depends on Phase 8 (symbol selection) -- Monte Carlo runs require a chosen instrument and date range.
-- Depends on Phase 10.7 chart stack if histograms/equity curves are to be plotted.
-- Package candidates: `MathNet.Numerics` (statistics), `ScottPlot.Avalonia` (already present, for histograms/equity).
-
----
+The work previously planned under Phase 11A-11F is now Phase 10.10A-10.10E, above, because the Overview tab is the delivery vehicle. Trade model + authoring contract shipped in Phase 10.9.
 
 ## Phase 12: Hardening & Housekeeping [PLANNED]

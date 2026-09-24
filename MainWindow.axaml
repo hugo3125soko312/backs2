@@ -8,7 +8,6 @@
         Width="1000" Height="600">
 
     <Window.Styles>
-        <!-- Slim Tab Style -->
         <Style Selector="TabItem">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -18,20 +17,19 @@
     </Window.Styles>
 
     <DockPanel>
-        <!-- Status Bar -->
         <Border DockPanel.Dock="Bottom" Height="25" Background="#2D2D2D">
-            <TextBlock Text="{Binding StatusText}" 
-                       Foreground="White" 
+            <TextBlock Text="{Binding StatusText}"
+                       Foreground="White"
                        FontSize="11"
-                       VerticalAlignment="Center" 
+                       VerticalAlignment="Center"
                        Margin="10,0"/>
         </Border>
 
         <TabControl x:CompileBindings="False">
-            <TabItem Header="Chart"><views:ChartView /></TabItem>
+            <TabItem Header="Runner"><views:RunnerView /></TabItem>
             <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>
-            <TabItem Header="Strategies"><views:StratsView /></TabItem>
+            <TabItem Header="Chart"><views:ChartView /></TabItem>
             <TabItem Header="Logs"><views:LogsView /></TabItem>
             <TabItem Header="Config"><views:ConfigView /></TabItem>
         </TabControl>

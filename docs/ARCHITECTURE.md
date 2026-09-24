@@ -4,7 +4,7 @@
 ## 1. Core Services & Dependency Injection
 - DI Container: Microsoft.Extensions.DependencyInjection, managed in App.axaml.cs.
 - Service Lifecycle:
-    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, MetricRegistry, CacheManager.
+    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager.
     - Transients/Keyed: IDataProvider implementations (resolved via GetRequiredKeyedService).
 - Enforcement: No static global variables. All dependencies resolved via constructor injection.
 
@@ -17,7 +17,7 @@
 - Cache key: symbol@timeframe (e.g. XAUUSD@1D, EURUSD@1h).
 - Provider Fallback: The network tier walks AppSettings.ProviderOrder. First provider with a non-empty result wins. Failures and empty results fall through; errors never abort the chain.
 - Timeframe-aware: DataManager.GetSymbolDataAsync(symbol, timeframe, progress); a one-arg overload defaults to "1D".
-- Progress reporting: DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>) reports DataProgress(Message, IsDeterminate, Percent). RAM/disk hits report IsDeterminate=false (instant). The network tier reports IsDeterminate=true with Percent = attemptIndex / totalProviders * 100. A legacy IProgress<string> overload adapts to the new contract for consumers that only need text (e.g. StratsViewModel).
+- Progress reporting: DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>) reports DataProgress(Message, IsDeterminate, Percent). RAM/disk hits report IsDeterminate=false (instant). The network tier reports IsDeterminate=true with Percent = attemptIndex / totalProviders * 100. A legacy IProgress<string> overload adapts to the new contract for consumers that only need text.
 
 ## 3. Metrics Engine
 - IMetric Interface: Contract for all mathematical indicators.
@@ -48,14 +48,18 @@
   - Auto-creates data/strategies/ if missing.
 - Execution: StrategyManager uses the Roslyn Scripting API. Compiled runners cached by (path, lastWriteUtc, size).
 - Concurrency: SemaphoreSlim(1,1) throttles backtests to one at a time.
-- Script Shape: Top-level statements running against ScriptGlobals:
+- Script Shape: Top-level statements running against RunnerScriptGlobals (src/core/Runner/RunnerScriptGlobals.cs):
   - Engine (MetricRegistry) — access metrics via Engine.GetMetric("VWAP").
   - Data (List<Kline>) — the loaded series.
   - Log(string) — delegates to LogManager.Info.
+  - Trades (TradeRecorder) — records trades via Enter(side, price) / Exit(price). The engine advances the cursor via Advance(index) so entry/exit timestamps come from the Kline at the current index.
+  - Params (Dictionary<string, string>) — the current Runner parameter values, keyed by declared name.
+- Strategy Parameters: `// @param <Name> <Type> = <Default> [options: "A", "B"]` lines at the top of the file. Parsed by StrategyParameterParser; not compiled, not executed. Supported types: int, double, bool, string.
 - Build rule: backs2.csproj contains a Compile Remove for data\**\*.cs. Strategies are Roslyn-evaluated at runtime and must never be compiled into the assembly.
 
 ## 5. Configuration & Auto-Generating UI
 - Settings File: ConfigManager handles config/settings.json — non-secret engine state (threading, resilience, provider order).
+- ConfigDirectory: ConfigManager exposes `public string ConfigDirectory => "config";` as the single source of truth for non-secret on-disk state. PresetService uses it to resolve `config/presets/`.
 - Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey). Secrets are never persisted to settings.json.
 - Dynamic Reflection Engine:
   - ConfigViewModel reflects all public instance properties on AppSettings (excluding ProviderOrder) into SettingItem wrappers.
@@ -69,7 +73,7 @@
   - ConfigViewModel uses reflection over IDataProvider to automatically discover all non-abstract provider classes in the assembly.
   - Any new provider implementing IDataProvider is automatically listed in the "Available Providers" listbox for ordering.
 - Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (default: ["Twelve Data", "Tiingo", "Yahoo", "Massive"]). Edited via the Config tab. Consumed by DataManager.
-- Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W.
+- Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 1h, 2h, 3h, 4h, 1D, 1W.
 
 ## 6. Providers (IDataProvider)
 - Contract:
@@ -108,14 +112,35 @@
 - DataGrid use: Avalonia.Controls.DataGrid 11.0.11.
 - ColorPicker use: Avalonia.Controls.ColorPicker 11.0.11 with `ColorSpectrumShape="Ring"`.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
+- RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 
 ## 9. Tabs
-- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
+- Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.
 - Metrics — metric catalog browser.
 - Data — Access-style datasheet with column filters and sort indicators.
-- Strategies — disk-streamed catalog.
+- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
+- (Removed: Strategies tab. Replaced by Runner. Overview tab planned next.)
 
 ## 10. Logging
 - LogManager writes via Serilog to logs/runtime-{yyyyMMdd-HHmmss}.log.
+
+## 11. Runner & Presets
+- RunnerViewModel (src/gui/Runner/RunnerViewModel.cs):
+  - Left column: strategy list (from StrategyCatalogService.Current, live-updated via Changed event).
+  - Middle column: source preview (lazy-loaded via ReadSourceAsync on strategy selection).
+  - Right column: parameter panel, populated by StrategyParameterParser.Parse(source). Scrollable vertically when overflowing.
+  - Toolbar: symbol picker (ComboBox + free-text), Refresh Catalog, Run, Presets…, Save Preset….
+  - RunAsync: reads current parameter values into a Dictionary<string,string>, fetches data via DataManager.GetSymbolDataAsync(symbol, "1D", IProgress<DataProgress>), invokes StrategyManager.RunBacktestFromFileAsync(path, data, params), raises RunCompleted with the StrategyRunResult.
+- RunnerParameterViewModel: wraps a StrategyParameter with mutable CurrentValue / CurrentBool. Exposes HasOptions, IsTextInput, IsBoolToggle, IsDirty. IsDirty is true when EffectiveValue differs from DefaultValue.
+- StrategyParameterParser (src/core/Runner/StrategyParameterParser.cs): parses `// @param` lines. Stops at the first non-comment, non-blank line. Supports int, double, bool, string; string params may declare `options: "A", "B"` for a ComboBox.
+- TradeRecorder (src/core/Runner/TradeRecorder.cs): records closed trades. Strategy calls Advance(index), Enter(side, price), Exit(price). Timestamps come from Data[index].
+- PresetService (src/core/Runner/PresetService.cs):
+  - Preset files live in config/presets/{StrategyName}_{PresetName}.preset.json.
+  - Filename parsing splits on the first underscore: everything before is the strategy name, everything after is the preset name.
+  - Sanitize replaces `_` and invalid filename chars with `-` in the filename; the JSON payload retains the original name.
+  - ListForStrategy(name) / ListAll() / Load(path) / Save(name, preset, values) / Delete(path) / GetNextSequentialName(name).
+- PresetPickerWindow (src/gui/Runner/PresetPickerWindow.axaml): modal Window with a DataGrid of PresetDescriptor rows, a "Show all strategies" checkbox, Load / Delete / Cancel buttons. Returns the loaded Preset via ShowDialog<Preset?>.
+- Save flow: toolbar "Save Preset…" or per-parameter "Save" button (visible only when IsDirty) → inline name prompt (default = GetNextSequentialName) → PresetService.Save.
+- Load flow: toolbar "Presets…" → PresetPickerWindow → ApplyPreset writes every value back into the parameter panel.

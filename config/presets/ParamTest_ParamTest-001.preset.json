@@ -1,0 +1,12 @@
+{
+  "StrategyName": "ParamTest",
+  "PresetName": "ParamTest_001",
+  "CreatedUtc": "2026-09-24T19:00:51.0501603Z",
+  "Values": {
+    "Entry_Threshold": "1.5",
+    "Exit_Threshold": "0.5",
+    "Use_Vwap_Filter": "true",
+    "Side": "Long",
+    "Max_Trades": "10"
+  }
+}

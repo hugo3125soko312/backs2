@@ -137,3 +137,22 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Metrics are pure and stateless -- no memoisation, no shared cache, no cross-call state. Correct every call. Interface unchanged (`double Calculate(List<Kline>)`) so existing strategy scripts are untouched.
 - [x] `MetricRegistry` constructor registers all nine metrics. `HelloVwap.cs` still runs unchanged.
 - [x] Build verified: `dotnet build --no-incremental` -- 0 errors.
+
+## Phase 10.9: Runner & Presets [COMPLETED]
+- [x] New `src/core/Runner/` folder consolidates Runner contract types: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
+- [x] `TradeRecorder` — engine-side trade tracking. Strategy calls Advance/Enter/Exit; timestamps derive from the current Kline.
+- [x] `StrategyRunResult` extended with `IReadOnlyList<Trade> Trades`.
+- [x] `// @param <Name> <Type> = <Default> [options: "A", "B"]` declaration format for strategy parameters.
+- [x] `StrategyParameterParser` — parses `@param` lines, stops at first executable line, supports int/double/bool/string + string options.
+- [x] `RunnerScriptGlobals` — moved out of StrategyManager. Adds `Trades` and `Params`.
+- [x] `StrategyManager.RunBacktestFromFileAsync(path, data, parameters, ct)` — parameter injection via `Params`.
+- [x] `PresetService` — CRUD over `config/presets/{Strategy}_{Preset}.preset.json`. Filename parsing splits on first underscore.
+- [x] `ConfigManager.ConfigDirectory` — single source of truth for the config root.
+- [x] `RunnerViewModel` + `RunnerView` — replaces Strats tab. Layout: strategy list (left), source preview (middle), parameter panel (right, scrollable).
+- [x] `RunnerParameterViewModel` — per-parameter wrapper with `HasOptions`, `IsTextInput`, `IsBoolToggle`, `IsDirty`. Render dispatch: ComboBox / TextBox / ToggleSwitch.
+- [x] Per-parameter "Save" button visible only when `IsDirty`.
+- [x] `PresetPickerWindow` — modal, DataGrid, "Show all strategies" toggle, Load/Delete/Cancel.
+- [x] Inline name prompt for preset save; default = `GetNextSequentialName(strategy)`.
+- [x] Strats tab removed from MainWindow.axaml; Runner tab added first, before Metrics.
+- [x] `PresetService` registered as singleton; `RunnerViewModel` as transient.
+- [x] `data/strategies/ParamTest.cs` — exercises all four parameter types + TradeRecorder.
