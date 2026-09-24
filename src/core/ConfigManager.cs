@@ -1,4 +1,3 @@
-// src/core/ConfigManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,12 +9,12 @@ public class AppSettings
 {
     public int MaxThreads { get; set; } = 5;
 
-    // Resilience Settings
     public int MaxRetries { get; set; } = 3;
     public int TimeoutSeconds { get; set; } = 30;
 
-    // Provider Routing (ordered — first success wins)
     public List<string> ProviderOrder { get; set; } = new() { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
+
+    public string ActiveAccountName { get; set; } = "";
 }
 
 public class ConfigManager
@@ -25,10 +24,8 @@ public class ConfigManager
 
     public AppSettings Settings { get; private set; } = new();
 
-    // Root directory for non-secret engine state (settings.json, presets/, etc.).
     public string ConfigDirectory => "config";
 
-    // Secrets loaded from .env — never persisted to settings.json
     public string MassiveApiKey { get; private set; } = "";
     public string YahooApiKey { get; private set; } = "";
     public string TwelveDataApiKey { get; private set; } = "";
@@ -94,6 +91,9 @@ public class ConfigManager
 
         if (Settings.ProviderOrder == null || Settings.ProviderOrder.Count == 0)
             Settings.ProviderOrder = new List<string> { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
+
+        if (Settings.ActiveAccountName == null)
+            Settings.ActiveAccountName = "";
     }
 
     public void SaveConfig()

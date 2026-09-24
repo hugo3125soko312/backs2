@@ -144,3 +144,22 @@
 - PresetPickerWindow (src/gui/Runner/PresetPickerWindow.axaml): modal Window with a DataGrid of PresetDescriptor rows, a "Show all strategies" checkbox, Load / Delete / Cancel buttons. Returns the loaded Preset via ShowDialog<Preset?>.
 - Save flow: toolbar "Save Preset…" or per-parameter "Save" button (visible only when IsDirty) → inline name prompt (default = GetNextSequentialName) → PresetService.Save.
 - Load flow: toolbar "Presets…" → PresetPickerWindow → ApplyPreset writes every value back into the parameter panel.
+
+## 12. Accounts
+
+- Purpose: model prop-firm rules (FTMO, Maventrading, etc.) so Monte Carlo and Overview can read the active account's drawdown limits.
+- Data location: `data/accounts/*.account.json`. Engine-managed, version-controlled, one file per (firm, plan, size).
+- Core types (`src/core/Accounts/`):
+  - `AccountPhase` — one challenge/funded phase. `PhaseName`, `ProfitTargetPercent`, `MaxLossPercent`, `MaxDailyLossPercent`, `MinTradingDays`, `TradingPeriodDays`, `BestDayRulePercent`, `ProfitSplitPercent`, `Refundable`. All rule fields are nullable — a phase declares only the rules it enforces.
+  - `AccountConfig` — `Name`, `Firm`, `Plan`, `Currency`, `StartingCapital`, `Phases` (array, last element is the funded stage), `ConsistencyScoreRule`, `Notes`.
+  - `AccountJsonContext` — source-generated `System.Text.Json` context. Camel-case, write-indented, nulls omitted.
+  - `AccountDescriptor` — `FilePath`, `FileStem`. Catalog row, no JSON read.
+  - `AccountService` — singleton. Scans `data/accounts/` for `*.account.json` on construction (filenames only). Loads JSON lazily via `Load(descriptor)` / `LoadByStem(stem)`. `SetActive(descriptor)` writes `AppSettings.ActiveAccountName` to `config/settings.json` and raises `ActiveChanged`. `Active` returns the cached active `AccountConfig?`.
+- Persistence: active account is stored in `config/settings.json` under `activeAccountName` (file stem, no extension). On startup `AccountService.TryLoadActiveFromSettings` resolves it and logs if the file is missing.
+- No FileSystemWatcher. The Accounts tab has a Refresh button. Accounts change rarely; strategy files change often (that is why `StrategyCatalogService` watches its folder and this service does not).
+- GUI (`src/gui/Accounts/`):
+  - `AccountView.axaml` — three-column grid. Left: `ListBox` of `AccountDescriptor.FileStem`. Middle: splitter. Right: detail pane with header, per-phase rule rows, and notes.
+  - `AccountViewModel` — `Accounts`, `PhaseRules` (ObservableCollection of `AccountRuleRow`), `SelectedAccount`, `ActiveAccountName`, `HasSelection`. Commands: `RefreshCommand`, `SetActiveCommand`, `OpenFolderCommand`.
+  - `AccountRuleRow` — `Label`, `Value` record for the rule grid.
+- Tab position: `MainWindow.axaml` places Accounts between Metrics and Data.
+- Config tab interaction: `AppSettings.ActiveAccountName` is a public string property, so the dynamic reflection engine auto-renders a TextBox for it in the Config tab. Editing that text box is not equivalent to `SetActive` — the tab's `Set Active` button is the only supported path that also reloads and caches the config.

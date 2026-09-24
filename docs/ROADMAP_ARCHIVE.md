@@ -139,20 +139,36 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Build verified: `dotnet build --no-incremental` -- 0 errors.
 
 ## Phase 10.9: Runner & Presets [COMPLETED]
-- [x] New `src/core/Runner/` folder consolidates Runner contract types: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
-- [x] `TradeRecorder` — engine-side trade tracking. Strategy calls Advance/Enter/Exit; timestamps derive from the current Kline.
-- [x] `StrategyRunResult` extended with `IReadOnlyList<Trade> Trades`.
-- [x] `// @param <Name> <Type> = <Default> [options: "A", "B"]` declaration format for strategy parameters.
-- [x] `StrategyParameterParser` — parses `@param` lines, stops at first executable line, supports int/double/bool/string + string options.
-- [x] `RunnerScriptGlobals` — moved out of StrategyManager. Adds `Trades` and `Params`.
-- [x] `StrategyManager.RunBacktestFromFileAsync(path, data, parameters, ct)` — parameter injection via `Params`.
-- [x] `PresetService` — CRUD over `config/presets/{Strategy}_{Preset}.preset.json`. Filename parsing splits on first underscore.
-- [x] `ConfigManager.ConfigDirectory` — single source of truth for the config root.
-- [x] `RunnerViewModel` + `RunnerView` — replaces Strats tab. Layout: strategy list (left), source preview (middle), parameter panel (right, scrollable).
-- [x] `RunnerParameterViewModel` — per-parameter wrapper with `HasOptions`, `IsTextInput`, `IsBoolToggle`, `IsDirty`. Render dispatch: ComboBox / TextBox / ToggleSwitch.
-- [x] Per-parameter "Save" button visible only when `IsDirty`.
-- [x] `PresetPickerWindow` — modal, DataGrid, "Show all strategies" toggle, Load/Delete/Cancel.
-- [x] Inline name prompt for preset save; default = `GetNextSequentialName(strategy)`.
-- [x] Strats tab removed from MainWindow.axaml; Runner tab added first, before Metrics.
-- [x] `PresetService` registered as singleton; `RunnerViewModel` as transient.
-- [x] `data/strategies/ParamTest.cs` — exercises all four parameter types + TradeRecorder.
+- [x] `src/core/Runner/` folder: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
+- [x] `TradeRecorder` — Advance/Enter/Exit API. Timestamps from `Data[index]`.
+- [x] `StrategyRunResult.Trades` — `IReadOnlyList<Trade>`.
+- [x] `@param` declaration format + parser.
+- [x] `RunnerScriptGlobals` gains `Trades`, `Params`.
+- [x] `StrategyManager.RunBacktestFromFileAsync(path, data, parameters, ct)`.
+- [x] `PresetService` — CRUD over `config/presets/{Strategy}_{Preset}.preset.json`.
+- [x] `ConfigManager.ConfigDirectory` property.
+- [x] `RunnerViewModel` + `RunnerView` — three-column layout (strategy list, source preview, scrollable params).
+- [x] `PresetPickerWindow` — modal, DataGrid, Show-all toggle.
+- [x] Strategies tab removed; Runner added as second tab.
+- [x] `data/strategies/ParamTest.cs` test strategy.
+
+## Phase 10.10A: Account Model & Service [COMPLETED]
+- [x] `src/core/Accounts/AccountPhase.cs` — record for one challenge/funded phase. All rule fields nullable.
+- [x] `src/core/Accounts/AccountConfig.cs` — record for a full account: Firm, Plan, Currency, StartingCapital, Phases array, ConsistencyScoreRule, Notes.
+- [x] `src/core/Accounts/AccountJsonContext.cs` — source-generated System.Text.Json context. Camel-case, write-indented, nulls omitted.
+- [x] `src/core/Accounts/AccountService.cs` — singleton. Scan data/accounts/ for *.account.json (filenames only), lazy JSON load, active selection, settings-backed persistence.
+- [x] `AccountDescriptor` — FilePath, FileStem. Catalog row, no JSON read.
+- [x] `AccountService.SetActive(descriptor)` writes `AppSettings.ActiveAccountName` and raises `ActiveChanged`.
+- [x] `AppSettings.ActiveAccountName` — string property, auto-renders in Config tab via dynamic reflection engine.
+- [x] Three seed accounts shipped: FTMO 1-Step 100K, FTMO 2-Step 100K, Maven Standard 2-Step 50K.
+- [x] No FileSystemWatcher — manual Refresh only. Accounts change rarely.
+
+## Phase 10.10B: Accounts Tab GUI [COMPLETED]
+- [x] `src/gui/Accounts/AccountViewModel.cs` — Accounts list, PhaseRules (ObservableCollection of AccountRuleRow), SelectedAccount, ActiveAccountName banner, HasSelection.
+- [x] Commands: `RefreshCommand`, `SetActiveCommand`, `OpenFolderCommand`.
+- [x] `AccountView.axaml` — three-column grid (account list, splitter, detail pane).
+- [x] Detail pane renders per-phase rules as label/value rows. Funded stage included as last phase.
+- [x] `AccountView.axaml.cs` — DI wiring via `Application.Current is App app` pattern.
+- [x] `AccountService` and `AccountViewModel` registered in `App.axaml.cs`.
+- [x] Accounts tab inserted in MainWindow.axaml between Metrics and Data.
+- [x] Verified: three seed accounts load, Set Active persists to settings.json, Open Folder opens data/accounts/, Config tab shows activeAccountName text box.

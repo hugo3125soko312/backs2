@@ -4,90 +4,106 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-## Phase 10.9: Runner & Presets [COMPLETED]
+## Phase 10.10: Account Configuration [COMPLETED]
 
-See `docs/ROADMAP_ARCHIVE.md`. The Strategies tab is gone; the Runner tab replaces it. Preset save/load, parameter parsing, and per-parameter dirty state all ship.
+See `docs/ROADMAP_ARCHIVE.md` — 10.10A (Account Model & Service) and 10.10B (Accounts Tab GUI) shipped.
 
-## Phase 10.10: Overview Tab [IN PROGRESS]
+## Phase 10.11: Monte Carlo [IN PROGRESS]
 
-First tab from the left. Reads the last `StrategyRunResult` (via `RunnerViewModel.RunCompleted`) and displays performance analytics + Monte Carlo distributions.
+Stationary block bootstrap over the last strategy run's trades. Consumes `LastRunStore` (pending) and `AccountService.Active` (shipped).
 
-### Phase 10.10A -- Overview Data Model
-- [ ] `LastRunStore` singleton holding the most recent `StrategyRunResult` + the strategy name, symbol, and timeframe it was run against.
-- [ ] `RunnerViewModel.RunCompleted` writes into `LastRunStore`.
-- [ ] `OverviewViewModel` subscribes to a `LastRunStore.Changed` event.
+### Phase 10.11A -- LastRunStore & OverviewData
+- [ ] `OverviewData` record: StrategyName, Symbol, Timeframe, RunUtc, Duration, Trades, SourceData.
+- [ ] `LastRunStore` singleton: `Current` (OverviewData?), `Publish(data)`, `Changed` event.
+- [ ] `RunnerViewModel.RunAsync` publishes into `LastRunStore` after every run.
+- [ ] `LastRunStore` registered in `App.axaml.cs`.
 
-### Phase 10.10B -- In-Sample Metrics
-- [ ] CAGR, Expectancy, Max Drawdown (abs + %), Sortino, Net Profit, Profit Factor, Payoff Ratio.
-- [ ] Sample Size, Avg Duration, Max Consecutive Wins/Losses.
-- [ ] Win/Loss/Breakeven rate, Frequency, Exposure.
-- [ ] Sharpe, MAR, RoR, R2, CVaR, p-value, Alpha, Beta.
-- [ ] Compounding, Avg Win/Trade/Loss, Rolling Expectancy, Avg Win/Loss Duration.
-- [ ] Max/Min Equity, Rolling Sortino, Current Drawdown, DAR, Kurtosis, Skewness, VaR, Ulcer Index.
+### Phase 10.11B -- Monte Carlo Core
+- [ ] `MonteCarloEngine` in `src/core/Overview/`.
+- [ ] Stationary block bootstrap: block length drawn from geometric distribution with mean `b`.
+- [ ] `Random.Shared` for thread-safe parallel simulation. No NuGet RNG package.
+- [ ] `Parallel.For` with pre-allocated `double[]` result arrays. No `List<T>.Add`, no LINQ in hot loop.
+- [ ] Per-simulation metrics: Net Profit, Max Drawdown %, Max Consecutive Losses.
+- [ ] Risk of Ruin: fraction of simulations where equity drops below `StartingCapital * (1 - MaxLossPercent/100)`. Reads MaxLossPercent from `AccountService.Active.Phases[last].MaxLossPercent`. Falls back to 50% if no active account.
+- [ ] Optional fixed seed for reproducibility.
+- [ ] `IProgress<int>` for UI progress.
+- [ ] `MonteCarloResult` record: `double[] NetProfits`, `double[] MaxDrawdowns`, `int[] MaxConsecutiveLosses`, `double RiskOfRuin`, percentile aggregates, metadata.
 
-### Phase 10.10C -- Monte Carlo Simulation
-- [ ] Bootstrap resampling of trade sequence (with and without replacement).
-- [ ] Randomized trade ordering (shuffle).
-- [ ] Optional: randomized entry/exit jitter.
-- [ ] Configurable iteration count (default 1000).
-- [ ] `Parallel.For` with `ThreadLocal<Random>`; no shared collection writes in the hot loop; `double[]` result arrays pre-allocated per iteration.
-- [ ] Per-metric distribution: Best / Median / Worst / Mean / StdDev.
-- [ ] Confidence intervals (5% / 95%).
-- [ ] Risk-of-Ruin: fraction of simulations where equity drops below a configurable threshold.
+### Phase 10.11C -- Monte Carlo Tab GUI
+- [ ] New **Monte Carlo** tab in MainWindow.axaml, positioned between Runner and Metrics.
+- [ ] Toolbar: Iterations (default 1000), Mean Block Size (default 5), Ruin Threshold % (defaults to active account's funded MaxLossPercent), Progress Interval % (default 10), Run MC button, ProgressBar.
+- [ ] Left panel: Summary stats — Net Profit (Mean/Median/StdDev/p05/p95), Max Drawdown (same), Max Consecutive Losses, **Risk of Ruin** prominent.
+- [ ] Right top: Equity curve plot (ScottPlot). Base + p05 + p95 + straw broom count (default 20, configurable).
+- [ ] Right bottom: Net Profit histogram with vertical lines at p05/p50/p95.
+- [ ] Active account name displayed in the toolbar.
+- [ ] Reads `LastRunStore.Current` trades + `AccountService.Active` rules.
 
-### Phase 10.10D -- Out-of-Sample Analysis
-- [ ] 70/30 in-sample / out-of-sample split (configurable).
-- [ ] Run identical metrics on both windows.
-- [ ] Side-by-side comparison.
-
-### Phase 10.10E -- Overview GUI
-- [ ] New Overview tab, first from the left in MainWindow.axaml.
-- [ ] Equity curve (ScottPlot.Avalonia).
-- [ ] Monte Carlo histogram per metric.
-- [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample).
+### Phase 10.11D -- Overview Tab
+- [ ] New **Overview** tab, first from the left.
+- [ ] Reads `LastRunStore.Current` + latest `MonteCarloResult`.
+- [ ] In-sample metrics: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
+- [ ] Monte Carlo summary: Risk of Ruin, p05/p50/p95 for Net Profit and Max DD.
+- [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample — OOS deferred).
 - [ ] Color-coded cells.
-- [ ] Export results to CSV / JSON.
 
 ### Dependencies
-- Depends on Phase 10.9 (Runner + TradeRecorder) — done.
-- Package candidates: `MathNet.Numerics` (statistics).
+- 10.11A before 10.11B and 10.11C.
+- 10.11B before 10.11C.
+- 10.11C before 10.11D (Overview reads MC results).
 
 ---
 
 ## Phase 10.7: Chart Tab [IN PROGRESS]
 
-Foundation (10.7A), volume (10.7B), and SkiaSharp Render Path (10.7F) are complete — see `docs/ROADMAP_ARCHIVE.md`. Remaining sub-phases below.
+See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases (10.7A, 10.7B, 10.7F).
 
 ### Phase 10.7C -- Timeframe Switching [PENDING]
 - [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
-- [ ] **Data source decision:** fetch per-timeframe from provider, cache each timeframe under a distinct symbol key (e.g. `XAUUSD@1h`), so `DataManager` handles it as just another series.
-- [ ] Progressbar during timeframe switch: `[ObservableProperty] bool IsLoading`, `[ObservableProperty] double LoadingProgress`.
+- [ ] Fetch per-timeframe from provider, cache under `symbol@timeframe`.
 
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
 - [ ] Mouse crosshair tracking on the price panel.
-- [ ] Readout box showing O/H/L/C/Volume/timestamp for the hovered bar.
-- [ ] Optional: snap crosshair to nearest bar.
+- [ ] O/H/L/C/Volume/timestamp readout box.
 
 ### Phase 10.7E -- Polish [IN PROGRESS]
-- [ ] Save/restore last-viewed symbol + timeframe between app runs.
-- [ ] Empty state: friendly message instead of a blank canvas.
-- [ ] Error state: fallback chain's progress messages in a status line.
-- [ ] Selectable error texts (`SelectableTextBlock`).
-- [x] **Data tab empty state bug.** Resolved via scoped `<UserControl.Styles>` `StyleInclude` in `DataView.axaml`.
-- [ ] **Lock price to bar ratio** (deferred from 10.7A, re-deferred from 10.7D).
-
-### Chart Tab — General Dependencies
-- Depends on Phase 10 (DI wiring) — done.
-- Depends on Phase 10.5 (cache performance) — done.
+- [ ] Save/restore last symbol + timeframe.
+- [ ] Empty state, error state, selectable error texts.
+- [ ] Lock price-to-bar ratio.
 
 ---
 
-## Phase 10.8: Metrics Library Expansion [COMPLETED]
-
-See `docs/ROADMAP_ARCHIVE.md` — Phase 10.8A (Metric Taxonomy) and Phase 10.8B (Metric Suite Expansion) shipped.
-
-## Phase 11: Monte Carlo & Performance Analytics [MERGED INTO 10.10]
-
-The work previously planned under Phase 11A-11F is now Phase 10.10A-10.10E, above, because the Overview tab is the delivery vehicle. Trade model + authoring contract shipped in Phase 10.9.
-
 ## Phase 12: Hardening & Housekeeping [PLANNED]
+
+---
+
+## Appendix A: Shipped Accounts
+
+### FTMO (USD) — 1-Step
+Sizes: 10K, 25K, 50K, 100K, 200K. Profit Target 10%, Max Daily Loss 3%, Max Loss 10%, Best Day Rule 50%, Profit Split 90%.
+Shipped: 100K. Add the remaining sizes via the Accounts tab.
+
+### FTMO (USD) — 2-Step
+Sizes: 10K, 25K, 50K, 100K, 200K. Phase 1 Target 10%, Phase 2 Target 5%, Max Daily Loss 5%, Max Loss 10%, Min Trading Days 4, Profit Split up to 90%.
+Shipped: 100K. Add the remaining sizes via the Accounts tab.
+
+### Maventrading — Standard 1-Step
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Profit Target 8%, Max Loss 5%, Daily Loss 3%, Profit Split 80%, Consistency No.
+
+### Maventrading — Standard 2-Step
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 8%, Phase 2 Target 5%, Max Loss 8%, Daily Loss 4%, Profit Split 80%.
+Shipped: 50K. Add the remaining sizes via the Accounts tab.
+
+### Maventrading — Standard 3-Step
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1/2/3 Target 3% each, Max Loss 3%, Daily Loss 2%, Profit Split 80%.
+
+### Maventrading — Instant
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. No target, Max Loss 3%, Daily Loss 2%, Profit Split 80%, Consistency Yes.
+
+### Maventrading — Mini
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. No target, Max Loss 3%, Daily Loss 2%, Profit Split 70%, Payout 24h, Consistency Yes.
+
+### Maventrading — Omo 2-Step
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 6%, Phase 2 Target 8%, Max Loss 8%, Daily Loss 4%, Profit Split 80%.
+
+### Maventrading — Buy Now Pay Later
+Sizes: 2K, 5K, 10K, 20K, 50K, 100K. Phase 1 Target 4%, Phase 1 Max Loss 10%, Funded Max Loss 8%, Funded Daily Loss 4%, Profit Split 80%, Funded Consistency 20%.

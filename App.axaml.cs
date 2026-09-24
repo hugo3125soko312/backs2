@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using backs2.Core;
+using backs2.Core.Accounts;
 using backs2.Core.Runner;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,6 +53,7 @@ public partial class App : Application
         services.AddSingleton<StrategyManager>();
         services.AddSingleton<StrategyCatalogService>();
         services.AddSingleton<PresetService>();
+        services.AddSingleton<AccountService>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();
@@ -59,6 +61,7 @@ public partial class App : Application
         services.AddTransient<DataViewModel>();
         services.AddTransient<MetricsViewModel>();
         services.AddTransient<RunnerViewModel>();
+        services.AddTransient<AccountViewModel>();
         services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
 
