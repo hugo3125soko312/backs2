@@ -1,3 +1,4 @@
+// App.axaml.cs
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -68,8 +69,9 @@ public partial class App : Application
             });
 
         // Keyed Providers
+        services.AddKeyedTransient<IDataProvider, TwelveDataProvider>("Twelve Data");
+        services.AddKeyedTransient<IDataProvider, TiingoProvider>("Tiingo");
         services.AddKeyedTransient<IDataProvider, YahooProvider>("Yahoo");
         services.AddKeyedTransient<IDataProvider, MassiveProvider>("Massive");
-        // services.AddKeyedTransient<IDataProvider, BinanceProvider>("Binance");
     }
 }

@@ -8,7 +8,7 @@
     - Microsoft.CodeAnalysis.CSharp.Scripting 4.8.0
     - Microsoft.Extensions.Http.Resilience
     - Avalonia.Controls.DataGrid 11.0.11
-    - ScottPlot.Avalonia 5.0.55 (chart tab — SkiaSharp hardware accelerated)
+    - ScottPlot.Avalonia 5.0.55
 - Architecture:
     - src/core/: Managers, Metrics, Models, Providers.
     - src/gui/: ViewModels, Views (organized by feature module).
@@ -17,7 +17,7 @@
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder.
     - Caching: Compact KlineCompact[] JSON in data/cache/, source-generated serializer.
 - Secrets:
-    - .env at repo root: MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY.
+    - .env at repo root: MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, TWELVEDATA_API_KEY, TIINGO_API_KEY.
     - ConfigManager reads them at startup, exposes them as read-only properties.
     - Never persisted to config/settings.json. .env is git-ignored.
 - Crucial Rules:
@@ -30,15 +30,7 @@
     - logs/ and .env are git-ignored; never commit secrets or log output.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
-    - Each provider resolves symbols on its own (XAUUSD -> C:XAUUSD for Massive, XAUUSD=X for Yahoo).
+    - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".
+    - Each provider resolves symbols on its own.
     - Timeframe wire-format mapping lives in TimeframeMap.
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.
-    - `DataManager` reports structured progress via `DataProgress(Message, IsDeterminate, Percent)`. RAM/disk hits are indeterminate; the provider chain is determinate. The `IProgress<string>` overload is retained as an adapter for `StratsViewModel`.
-- Strategies:
-    - Top-level statements against ScriptGlobals (Engine, Data, Log).
-    - Compiled runners cached by (path, lastWriteUtc, size).
-    - Catalog auto-refreshes on file changes via FileSystemWatcher, debounced 250 ms.
-- Timeframes:
-    - Canonical: 1m, 2m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W.
-    - Yahoo does not support 3m, 45m, 2h, 3h, 4h; those requests return empty.
-    - Cache keys include the timeframe: symbol@timeframe.

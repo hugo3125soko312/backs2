@@ -1,3 +1,4 @@
+// src\core\Providers\TimeframeMap.cs
 using System;
 
 namespace backs2.Core.Providers;
@@ -44,17 +45,62 @@ public static class TimeframeMap
         {
             "1m"  => "1m",
             "2m"  => "2m",
-            "3m"  => null,   // Yahoo doesn't support
+            "3m"  => null,   
             "5m"  => "5m",
             "15m" => "15m",
             "30m" => "30m",
-            "45m" => null,   // not supported
+            "45m" => null,   
             "1h"  => "60m",
-            "2h"  => null,   // not supported natively
+            "2h"  => null,   
             "3h"  => null,
             "4h"  => null,
             "1D"  => "1d",
             "1W"  => "1wk",
+            _     => null
+        };
+    }
+
+    // Twelve Data natively supports a wide range of intervals.
+    public static string? ToTwelveData(string tf)
+    {
+        return tf switch
+        {
+            "1m"  => "1min",
+            "2m"  => null,
+            "3m"  => null,
+            "5m"  => "5min",
+            "15m" => "15min",
+            "30m" => "30min",
+            "45m" => "45min",
+            "1h"  => "1h",
+            "2h"  => "2h",
+            "3h"  => null,
+            "4h"  => "4h",
+            "1D"  => "1day",
+            "1W"  => "1week",
+            _     => null
+        };
+    }
+
+    // Tiingo natively supports IEX intraday resampling. 
+    // EOD (1D, 1W) uses a different endpoint so we map "daily" and "weekly".
+    public static string? ToTiingo(string tf)
+    {
+        return tf switch
+        {
+            "1m"  => "1min",
+            "2m"  => "2min",
+            "3m"  => "3min",
+            "5m"  => "5min",
+            "15m" => "15min",
+            "30m" => "30min",
+            "45m" => "45min",
+            "1h"  => "1hour",
+            "2h"  => "2hour",
+            "3h"  => "3hour",
+            "4h"  => "4hour",
+            "1D"  => "daily",
+            "1W"  => "weekly",
             _     => null
         };
     }

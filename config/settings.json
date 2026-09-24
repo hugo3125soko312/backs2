@@ -1,6 +1,6 @@
 {
   "MaxThreads": 5,
-  "MaxRetries": 3,
+  "MaxRetries": 2,
   "TimeoutSeconds": 30,
   "ProviderOrder": [
     "Massive",

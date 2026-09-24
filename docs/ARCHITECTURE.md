@@ -41,8 +41,8 @@
 
 ## 5. Configuration & Settings
 - Settings File: ConfigManager handles config/settings.json — non-secret engine state (threading, resilience, provider order).
-- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (MassiveApiKey, YahooApiKey). Secrets are never persisted to settings.json.
-- Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (e.g. ["Massive", "Yahoo"]). Edited via the Config tab. Consumed by DataManager.
+- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (MassiveApiKey, YahooApiKey, TwelveDataApiKey, TiingoApiKey). Secrets are never persisted to settings.json.
+- Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (default: ["Twelve Data", "Tiingo", "Yahoo", "Massive"]). Edited via the Config tab. Consumed by DataManager.
 - Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W.
 
 ## 6. Providers (IDataProvider)
@@ -54,19 +54,20 @@
 - Symbol resolution is per-provider:
     - Yahoo: XAUUSD -> XAUUSD=X, EURUSD -> EURUSD=X, AAPL -> AAPL
     - Massive: XAUUSD -> C:XAUUSD, EURUSD -> C:EURUSD, AAPL -> AAPL
-- Timeframe resolution is centralized in TimeframeMap.
+    - Twelve Data: EURUSD -> EUR/USD, XAUUSD -> XAU/USD, stocks pass through.
+    - Tiingo: Symbols pass through directly (e.g. AAPL, EURUSD).
+- Timeframe resolution is centralized in TimeframeMap:
+    - ToTwelveData(tf) -> 1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 1day, 1week.
+    - ToTiingo(tf) -> 1min, 2min, 3min, 5min, 15min, 30min, 45min, 1hour, 2hour, 3hour, 4hour, daily, weekly.
     - ToMassive(tf) -> (multiplier, timespan). All canonical timeframes supported.
-    - ToYahoo(tf) -> interval string or null. Yahoo does not support 3m, 45m, 2h, 3h, 4h natively; those return null and the provider logs an error and returns an empty list.
+    - ToYahoo(tf) -> interval string or null.
     - LookbackDays(tf) — per-timeframe fetch window.
-- Massive provider:
-    - Endpoint: GET https://api.massive.com/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}?adjusted=true&sort=asc&limit=50000&apiKey=...
-    - Response fields: t (ms timestamp), o, h, l, c, v, vw, n.
-    - Status handling: only NOT_AUTHORIZED, ERROR, and NOT_FOUND are fatal. OK and DELAYED both carry usable results[] and are parsed.
-- Yahoo provider:
-    - Endpoint: GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval}&range={range}
-    - Response parsing walks chart.result[0].timestamp and chart.result[0].indicators.quote[0].{open,high,low,close,volume}.
-    - Skips null bars (Yahoo returns nulls on market-closed days).
-- Secrets: providers read keys from ConfigManager.MassiveApiKey / ConfigManager.YahooApiKey — never from AppSettings.
+- Twelve Data provider:
+    - Endpoint: GET https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=5000&apikey={key}
+    - Handles status errors cleanly and reverses response order from newest-first to oldest-first.
+- Tiingo provider:
+    - Endpoints: GET https://api.tiingo.com/iex/{symbol}/prices (intraday) and GET https://api.tiingo.com/tiingo/daily/{symbol}/prices (daily/weekly).
+- Secrets: providers read keys from ConfigManager read-only properties sourced from .env — never from AppSettings.
 
 ## 7. Caching
 - Disk format: KlineCompact record — flat {T, O, H, L, C, V} with T as Unix milliseconds. Serialized via source-generated KlineJsonContext.
@@ -76,30 +77,19 @@
 - Benchmark: CacheManager.BenchmarkAsync(int barCount) serializes and loads N synthetic bars, logging elapsed milliseconds.
 
 ## 8. GUI (MVVM Toolkit)
-- Dependency Injection: ViewModels resolved in the View constructor:
-  if (Application.Current is App app)
-      DataContext = app.Services.GetRequiredService<TViewModel>();
+- Dependency Injection: ViewModels resolved in the View constructor.
 - Source Generation: All ViewModels use CommunityToolkit.Mvvm attributes ([ObservableProperty], [RelayCommand]).
-- XAML Bindings:
-    - x:DataType on every View/UserControl root.
-    - MainWindow.axaml sets x:CompileBindings="False" on the TabControl so child views with their own x:DataType are self-contained.
-    - If AXSG0111 errors appear, wipe obj/ and bin/, then dotnet build --no-incremental.
-- DataGrid use: Avalonia.Controls.DataGrid 11.0.11 is referenced. Its theme is included in App.axaml:
-    StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"
-- Binding inside templates: use Binding DataContext.Prop with RelativeSource AncestorType=UserControl. Do not use $parent[UserControl].((vm:Type)DataContext).Prop — it fails at runtime inside DataTemplate/HeaderTemplate because the XAML runtime type resolver cannot see the vm prefix from within the template scope.
+- XAML Bindings: x:DataType on every View/UserControl root.
+- DataGrid use: Avalonia.Controls.DataGrid 11.0.11.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 
 ## 9. Tabs
-- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis, dark theme, scale context menu, timeframe switching (Phase 10.7C), crosshair + OHLCV readout (Phase 10.7D). Pan/zoom lag is resolved via SkiaSharp hardware-accelerated render path. Pointer handling lives in ChartView.axaml.cs.
+- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Metrics — metric catalog browser.
-- Data — Access-style datasheet. DataGrid with per-column filter rows embedded in the header, sort via header buttons, size formatting via DataEntry.SizeDisplay.
-- Strategies — disk-streamed catalog. Click a row to preview source, choose a symbol, "Run Selected".
-- Logs — event-driven live log view driven by LogManager.Logged. In-memory ring buffer (1000 entries), 2000-line display cap.
+- Data — Access-style datasheet with column filters and sort indicators.
+- Strategies — disk-streamed catalog.
+- Logs — event-driven live log view.
 - Config — settings editor, provider order.
 
 ## 10. Logging
-- LogManager writes via Serilog to logs/runtime-{yyyyMMdd-HHmmss}.log — one file per app run, no daily rotation.
-- Logged event raised in-process on every Info / Error.
-- Ring buffer: last 1000 entries via GetRecentEntries().
-- GetLatestLogs() reads the current run's file with FileShare.ReadWrite | FileShare.Delete.
-- logs/ is git-ignored.
+- LogManager writes via Serilog to logs/runtime-{yyyyMMdd-HHmmss}.log.

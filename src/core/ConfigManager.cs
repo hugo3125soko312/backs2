@@ -1,3 +1,4 @@
+// src\core\ConfigManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,7 +15,7 @@ public class AppSettings
     public int TimeoutSeconds { get; set; } = 30;
 
     // Provider Routing (ordered — first success wins)
-    public List<string> ProviderOrder { get; set; } = new() { "Yahoo", "Massive" };
+    public List<string> ProviderOrder { get; set; } = new() { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
 }
 
 public class ConfigManager
@@ -27,6 +28,8 @@ public class ConfigManager
     // Secrets loaded from .env — never persisted to settings.json
     public string MassiveApiKey { get; private set; } = "";
     public string YahooApiKey { get; private set; } = "";
+    public string TwelveDataApiKey { get; private set; } = "";
+    public string TiingoApiKey { get; private set; } = "";
 
     public ConfigManager()
     {
@@ -57,6 +60,12 @@ public class ConfigManager
                 case "YAHOO_PROVIDER_API_KEY":
                     YahooApiKey = value;
                     break;
+                case "TWELVEDATA_API_KEY":
+                    TwelveDataApiKey = value;
+                    break;
+                case "TIINGO_API_KEY":
+                    TiingoApiKey = value;
+                    break;
             }
         }
     }
@@ -81,7 +90,7 @@ public class ConfigManager
         }
 
         if (Settings.ProviderOrder == null || Settings.ProviderOrder.Count == 0)
-            Settings.ProviderOrder = new List<string> { "Yahoo", "Massive" };
+            Settings.ProviderOrder = new List<string> { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
     }
 
     public void SaveConfig()
