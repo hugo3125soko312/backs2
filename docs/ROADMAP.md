@@ -10,13 +10,11 @@ See `docs/ROADMAP_ARCHIVE.md` — 10.10A (Account Model & Service) and 10.10B (A
 
 ## Phase 10.11: Monte Carlo [IN PROGRESS]
 
-Stationary block bootstrap over the last strategy run's trades. Consumes `LastRunStore` (pending) and `AccountService.Active` (shipped).
+Stationary block bootstrap over the last strategy run's trades. Consumes `LastRunStore` (shipped) and `AccountService.Active` (shipped).
 
-### Phase 10.11A -- LastRunStore & OverviewData
-- [ ] `OverviewData` record: StrategyName, Symbol, Timeframe, RunUtc, Duration, Trades, SourceData.
-- [ ] `LastRunStore` singleton: `Current` (OverviewData?), `Publish(data)`, `Changed` event.
-- [ ] `RunnerViewModel.RunAsync` publishes into `LastRunStore` after every run.
-- [ ] `LastRunStore` registered in `App.axaml.cs`.
+### Phase 10.11A -- LastRunStore & OverviewData [COMPLETED]
+
+See `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 10.11B -- Monte Carlo Core
 - [ ] `MonteCarloEngine` in `src/core/Overview/`.
@@ -38,10 +36,8 @@ Stationary block bootstrap over the last strategy run's trades. Consumes `LastRu
 - [ ] Active account name displayed in the toolbar.
 - [ ] Reads `LastRunStore.Current` trades + `AccountService.Active` rules.
 
-### Phase 10.11D -- Overview Tab
-- [ ] New **Overview** tab, first from the left.
-- [ ] Reads `LastRunStore.Current` + latest `MonteCarloResult`.
-- [ ] In-sample metrics: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
+### Phase 10.11D -- Overview Tab (Full)
+- [ ] Full in-sample metrics table: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
 - [ ] Monte Carlo summary: Risk of Ruin, p05/p50/p95 for Net Profit and Max DD.
 - [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample — OOS deferred).
 - [ ] Color-coded cells.

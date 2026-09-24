@@ -172,3 +172,13 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `AccountService` and `AccountViewModel` registered in `App.axaml.cs`.
 - [x] Accounts tab inserted in MainWindow.axaml between Metrics and Data.
 - [x] Verified: three seed accounts load, Set Active persists to settings.json, Open Folder opens data/accounts/, Config tab shows activeAccountName text box.
+
+## Phase 10.11A: LastRunStore & OverviewData [COMPLETED]
+- [x] `src/core/Overview/OverviewData.cs` — record: StrategyName, StrategyPath, Symbol, Timeframe, RunUtc, Duration, Trades, SourceData, Error.
+- [x] `src/core/Overview/LastRunStore.cs` — singleton with `Current`, `Publish(data)`, `Changed` event. Lock-protected.
+- [x] `RunnerViewModel` gains `LastRunStore` constructor dependency. Publishes into it after every run, including failed runs (Error populated).
+- [x] `LastRunStore` registered as singleton in `App.axaml.cs`.
+- [x] `src/gui/Overview/` — `OverviewViewModel`, `OverviewView.axaml`, `OverviewView.axaml.cs` (placeholder layout; full metrics in 10.11D).
+- [x] `OverviewViewModel` registered as transient in `App.axaml.cs`.
+- [x] Overview tab inserted as first tab in MainWindow.axaml, before Runner.
+- [x] Verified: Runner run publishes into LastRunStore, Overview header populates with strategy name, symbol, trade count, duration, timestamp.

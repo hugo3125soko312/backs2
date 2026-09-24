@@ -163,3 +163,22 @@
   - `AccountRuleRow` — `Label`, `Value` record for the rule grid.
 - Tab position: `MainWindow.axaml` places Accounts between Metrics and Data.
 - Config tab interaction: `AppSettings.ActiveAccountName` is a public string property, so the dynamic reflection engine auto-renders a TextBox for it in the Config tab. Editing that text box is not equivalent to `SetActive` — the tab's `Set Active` button is the only supported path that also reloads and caches the config.
+
+## 13. Overview & LastRunStore
+
+- Purpose: hand off the most recent strategy run's trades and source data to any consumer (Overview tab, Monte Carlo engine, future analytics).
+- `OverviewData` record (`src/core/Overview/OverviewData.cs`):
+  - `StrategyName`, `StrategyPath` — from the selected `StrategyDescriptor`.
+  - `Symbol`, `Timeframe` — the run context (`Timeframe` currently hardcoded `"1D"` until Phase 10.7C ships timeframe selection).
+  - `RunUtc`, `Duration` — from `StrategyRunResult`.
+  - `Trades` — `IReadOnlyList<Trade>` from `StrategyRunResult.Trades`.
+  - `SourceData` — the `List<Kline>` fetched for the run. Required by Monte Carlo for timestamp reconstruction after shuffling.
+  - `Error` — null on success, exception message on failure. Failed runs still publish so consumers can display the error state.
+- `LastRunStore` singleton (`src/core/Overview/LastRunStore.cs`):
+  - `Current` — most recently published `OverviewData`, or null.
+  - `Publish(data)` — replaces `Current`, raises `Changed`.
+  - `Changed` — event raised after every publish. Consumers subscribe and marshal to the UI thread with `Dispatcher.UIThread.Post`.
+  - Lock-protected with a private `object _gate`. No async, no queue — single-slot store.
+- Publisher: `RunnerViewModel.RunAsync` — after `StrategyManager.RunBacktestFromFileAsync` returns, `_lastRun.Publish(new OverviewData(...))` is called before `RunCompleted?.Invoke`. Both success and failure paths publish.
+- Consumer: `OverviewViewModel` — subscribes to `Changed` in the constructor and reads `Current` once at construction to seed the UI if a run already happened.
+- Lifetime: process-scoped. Not persisted across app restarts. Each new run replaces the slot.

@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using backs2.Core.Overview;
 using backs2.Core.Runner;
 
 namespace backs2.ViewModels;
@@ -71,6 +72,7 @@ public partial class RunnerViewModel : ObservableObject
     private readonly StrategyManager _strat;
     private readonly DataManager _data;
     private readonly PresetService _presets;
+    private readonly LastRunStore _lastRun;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<string> AvailableSymbols { get; } = new();
@@ -89,12 +91,14 @@ public partial class RunnerViewModel : ObservableObject
         StrategyCatalogService catalog,
         StrategyManager strat,
         DataManager data,
-        PresetService presets)
+        PresetService presets,
+        LastRunStore lastRun)
     {
         _catalog = catalog;
         _strat = strat;
         _data = data;
         _presets = presets;
+        _lastRun = lastRun;
 
         _catalog.Changed += OnCatalogChanged;
         SyncCatalog(_catalog.Current);
@@ -222,6 +226,17 @@ public partial class RunnerViewModel : ObservableObject
             StatusText = result.Success
                 ? $"OK  {SelectedStrategy.Name}  {SelectedSymbol}  ({result.Duration.TotalMilliseconds:F0} ms, {result.Trades.Count} trades)"
                 : $"FAIL  {SelectedStrategy.Name}  {result.Error}";
+
+            _lastRun.Publish(new OverviewData(
+                StrategyName: SelectedStrategy.Name,
+                StrategyPath: SelectedStrategy.Path,
+                Symbol: SelectedSymbol,
+                Timeframe: "1D",
+                RunUtc: DateTime.UtcNow,
+                Duration: result.Duration,
+                Trades: result.Trades,
+                SourceData: data,
+                Error: result.Success ? null : result.Error));
 
             RunCompleted?.Invoke(this, result);
             RefreshSymbols();

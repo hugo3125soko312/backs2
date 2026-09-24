@@ -26,6 +26,7 @@
         </Border>
 
         <TabControl x:CompileBindings="False">
+            <TabItem Header="Overview"><views:OverviewView /></TabItem>
             <TabItem Header="Runner"><views:RunnerView /></TabItem>
             <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Accounts"><views:AccountView /></TabItem>
