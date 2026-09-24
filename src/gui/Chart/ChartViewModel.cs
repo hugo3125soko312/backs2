@@ -1,14 +1,14 @@
+// src\gui\Chart\ChartViewModel.cs
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Models;
 using backs2.Core.Providers;
-using OxyPlot;
+using ScottPlot.Avalonia;
 
 namespace backs2.ViewModels;
 
@@ -16,19 +16,10 @@ public partial class ChartViewModel : ObservableObject
 {
     private readonly DataManager _data;
     private readonly ChartPlotBuilder _builder = new();
-
-    // Crosshair throttle state. Pointer events can arrive faster than the
-    // display can render; we coalesce them to ~60fps and skip work entirely
-    // when the snapped bar has not changed.
-    private const double FrameBudgetMs = 16.0;
-    private readonly Stopwatch _crosshairClock = Stopwatch.StartNew();
-    private int _lastSnappedIndex = -1;
-    private double _lastCrosshairY = double.NaN;
-    private long _lastRenderMs = -1000;
+    private AvaPlot? _avaPlot;
 
     public ObservableCollection<string> AvailableSymbols { get; } = new();
-    public ObservableCollection<string> AvailableTimeframes { get; } =
-        new(TimeframeMap.All);
+    public ObservableCollection<string> AvailableTimeframes { get; } = new(TimeframeMap.All);
 
     [ObservableProperty] private string _selectedSymbol = "";
     [ObservableProperty] private string _selectedTimeframe = "1D";
@@ -44,12 +35,9 @@ public partial class ChartViewModel : ObservableObject
 
     [ObservableProperty] private double _loadingProgress;
     [ObservableProperty] private List<Kline> _series = new();
-    [ObservableProperty] private PlotModel? _plotModel;
 
-    [ObservableProperty] private bool _isLogarithmic;
     [ObservableProperty] private bool _isPercent;
     [ObservableProperty] private bool _isIndexedTo100;
-    [ObservableProperty] private bool _isInverted;
 
     [ObservableProperty] private bool _hasCrosshair;
     [ObservableProperty] private string _readoutTime = "";
@@ -67,6 +55,11 @@ public partial class ChartViewModel : ObservableObject
     {
         _data = data;
         RefreshSymbols();
+    }
+
+    public void SetPlotControl(AvaPlot plotView)
+    {
+        _avaPlot = plotView;
         RebuildPlotModel();
     }
 
@@ -75,29 +68,18 @@ public partial class ChartViewModel : ObservableObject
     {
         var previous = SelectedSymbol;
         AvailableSymbols.Clear();
-        foreach (var s in _data.GetCachedSymbols())
-            AvailableSymbols.Add(s);
+        foreach (var s in _data.GetCachedSymbols()) AvailableSymbols.Add(s);
 
-        if (!string.IsNullOrWhiteSpace(previous))
-            SelectedSymbol = previous;
-        else if (AvailableSymbols.Count > 0)
-            SelectedSymbol = AvailableSymbols[0];
+        if (!string.IsNullOrWhiteSpace(previous)) SelectedSymbol = previous;
+        else if (AvailableSymbols.Count > 0) SelectedSymbol = AvailableSymbols[0];
     }
 
-    partial void OnSelectedTimeframeChanged(string value)
-    {
-        _ = LoadAsync();
-    }
+    partial void OnSelectedTimeframeChanged(string value) => _ = LoadAsync();
 
     [RelayCommand]
     private async Task LoadAsync()
     {
-        if (string.IsNullOrWhiteSpace(SelectedSymbol))
-        {
-            StatusText = "No symbol selected.";
-            return;
-        }
-
+        if (string.IsNullOrWhiteSpace(SelectedSymbol)) return;
         if (IsLoading) return;
 
         try
@@ -135,23 +117,14 @@ public partial class ChartViewModel : ObservableObject
         }
     }
 
-    partial void OnSeriesChanged(List<Kline> value)
-    {
-        ResetCrosshairState();
-        RebuildPlotModel();
-    }
+    partial void OnSeriesChanged(List<Kline> value) => RebuildPlotModel();
 
     [RelayCommand]
     private void AutoScale()
     {
-        _builder.AutoScale();
-    }
-
-    [RelayCommand]
-    private void ToggleLogarithmic()
-    {
-        IsLogarithmic = !IsLogarithmic;
-        ApplyScale();
+        if (_avaPlot == null) return;
+        _avaPlot.Plot.Axes.AutoScale();
+        _avaPlot.Refresh();
     }
 
     [RelayCommand]
@@ -159,7 +132,7 @@ public partial class ChartViewModel : ObservableObject
     {
         IsPercent = !IsPercent;
         if (IsPercent) IsIndexedTo100 = false;
-        RebuildSeries();
+        RebuildPlotModel();
     }
 
     [RelayCommand]
@@ -167,41 +140,18 @@ public partial class ChartViewModel : ObservableObject
     {
         IsIndexedTo100 = !IsIndexedTo100;
         if (IsIndexedTo100) IsPercent = false;
-        RebuildSeries();
+        RebuildPlotModel();
     }
 
-    [RelayCommand]
-    private void ToggleInvert()
-    {
-        IsInverted = !IsInverted;
-        ApplyScale();
-    }
-
-    private ChartScaleState ScaleState => new(
-        IsLogarithmic,
-        IsPercent,
-        IsIndexedTo100,
-        IsInverted);
-
-    private void ApplyScale()
-    {
-        _builder.ApplyScale(ScaleState);
-        PlotModel = _builder.Model;
-    }
-
-    private void RebuildSeries()
-    {
-        _builder.RebuildSeries(Series, ScaleState);
-        PlotModel = _builder.Model;
-    }
+    private ChartScaleState ScaleState => new(false, IsPercent, IsIndexedTo100, false);
 
     private void RebuildPlotModel()
     {
-        _builder.Rebuild(Series, ScaleState);
-        PlotModel = _builder.Model;
+        if (_avaPlot == null) return;
+        _builder.Rebuild(_avaPlot, Series, ScaleState);
+        HasCrosshair = false;
     }
 
-    // Called from the view's pointer handler. Coordinates arrive in data space.
     public void UpdateCrosshair(double dataX, double dataY)
     {
         if (Series.Count == 0)
@@ -217,74 +167,48 @@ public partial class ChartViewModel : ObservableObject
             return;
         }
 
-        bool barChanged = idx != _lastSnappedIndex;
+        var k = Series[idx];
+        double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
+        double change = k.Close - prevClose;
 
-        if (barChanged)
+        ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
+        ReadoutOpen = k.Open.ToString("0.#####");
+        ReadoutHigh = k.High.ToString("0.#####");
+        ReadoutLow = k.Low.ToString("0.#####");
+        ReadoutClose = k.Close.ToString("0.#####");
+        ReadoutVolume = k.Volume.ToString("0");
+        ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
+
+        HasCrosshair = true;
+        
+        if (_avaPlot != null)
         {
-            var k = Series[idx];
-            double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
-            double change = k.Close - prevClose;
-
-            ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
-            ReadoutOpen = k.Open.ToString("0.#####");
-            ReadoutHigh = k.High.ToString("0.#####");
-            ReadoutLow = k.Low.ToString("0.#####");
-            ReadoutClose = k.Close.ToString("0.#####");
-            ReadoutVolume = k.Volume.ToString("0");
-            ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
-
-            _lastSnappedIndex = idx;
-            HasCrosshair = true;
+            _builder.MoveCrosshair(_avaPlot, k.Timestamp.ToOADate());
         }
-
-        // Frame budget: skip the redraw if we rendered within the last frame.
-        long nowMs = _crosshairClock.ElapsedMilliseconds;
-        bool renderAllowed = nowMs - _lastRenderMs >= FrameBudgetMs || barChanged;
-
-        if (!renderAllowed)
-        {
-            _lastCrosshairY = dataY;
-            return;
-        }
-
-        _lastRenderMs = nowMs;
-        _lastCrosshairY = dataY;
-
-        _builder.MoveCrosshair(dataX, dataY, barChanged);
     }
 
     public void ClearCrosshair()
     {
-        if (!HasCrosshair) return;
-
         HasCrosshair = false;
-        _builder.HideCrosshair();
-        ResetCrosshairState();
-    }
-
-    private void ResetCrosshairState()
-    {
-        _lastSnappedIndex = -1;
-        _lastCrosshairY = double.NaN;
+        if (_avaPlot != null) _builder.HideCrosshair(_avaPlot);
     }
 
     private int NearestIndex(double dataX)
     {
         if (Series.Count == 0) return -1;
-
         int lo = 0, hi = Series.Count - 1;
         while (lo < hi)
         {
             int mid = (lo + hi) / 2;
-            double midX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[mid].Timestamp);
+            double midX = Series[mid].Timestamp.ToOADate();
             if (midX < dataX) lo = mid + 1;
             else hi = mid;
         }
-
-        double loX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[lo].Timestamp);
+        
+        double loX = Series[lo].Timestamp.ToOADate();
         if (lo > 0)
         {
-            double prevX = OxyPlot.Axes.DateTimeAxis.ToDouble(Series[lo - 1].Timestamp);
+            double prevX = Series[lo - 1].Timestamp.ToOADate();
             if (Math.Abs(prevX - dataX) < Math.Abs(loX - dataX)) return lo - 1;
         }
         return lo;

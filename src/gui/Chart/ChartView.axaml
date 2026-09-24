@@ -1,7 +1,8 @@
+<!-- src\gui\Chart\ChartView.axaml -->
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
-             xmlns:oxy="clr-namespace:OxyPlot.Avalonia;assembly=OxyPlot.Avalonia"
+             xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
              x:Class="backs2.Views.ChartView"
              x:DataType="vm:ChartViewModel">
 
@@ -27,138 +28,39 @@
             <Setter Property="Foreground" Value="White" />
             <Setter Property="FontSize" Value="11" />
         </Style>
-        <Style Selector="Rectangle.crosshair">
-            <Setter Property="Fill" Value="#888888" />
-            <Setter Property="IsHitTestVisible" Value="False" />
-        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*,Auto">
-
-        <StackPanel Grid.Row="0"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    Margin="8">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="8">
             <TextBlock Text="Symbol:" VerticalAlignment="Center" />
-            <ComboBox Width="130"
-                      ItemsSource="{Binding AvailableSymbols}"
-                      SelectedItem="{Binding SelectedSymbol, Mode=TwoWay}" />
-            <TextBox Width="110"
-                     Watermark="or type…"
-                     Text="{Binding SelectedSymbol, Mode=TwoWay}" />
-            <Button Content="⟳"
-                    Command="{Binding RefreshSymbolsCommand}"
-                    ToolTip.Tip="Rescan cached symbols" />
-
+            <ComboBox Width="130" ItemsSource="{Binding AvailableSymbols}" SelectedItem="{Binding SelectedSymbol, Mode=TwoWay}" />
+            <TextBox Width="110" Watermark="or type…" Text="{Binding SelectedSymbol, Mode=TwoWay}" />
+            <Button Content="⟳" Command="{Binding RefreshSymbolsCommand}" ToolTip.Tip="Rescan cached symbols" />
             <TextBlock Text="Timeframe:" VerticalAlignment="Center" Margin="12,0,0,0" />
-            <ComboBox Width="90"
-                      ItemsSource="{Binding AvailableTimeframes}"
-                      SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}" />
-
-            <Button Content="Load"
-                    Command="{Binding LoadCommand}"
-                    IsEnabled="{Binding IsNotLoading}" />
-
-            <ProgressBar Width="140"
-                         Minimum="0"
-                         Maximum="100"
-                         Value="{Binding LoadingProgress}"
-                         IsIndeterminate="{Binding IsProgressIndeterminate}"
-                         IsVisible="{Binding IsLoading}"
-                         VerticalAlignment="Center" />
+            <ComboBox Width="90" ItemsSource="{Binding AvailableTimeframes}" SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}" />
+            <Button Content="Load" Command="{Binding LoadCommand}" IsEnabled="{Binding IsNotLoading}" />
+            <ProgressBar Width="140" Minimum="0" Maximum="100" Value="{Binding LoadingProgress}" IsIndeterminate="{Binding IsProgressIndeterminate}" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" />
         </StackPanel>
 
-        <Border Grid.Row="1"
-                Classes="chartFrame"
-                Margin="8,0,8,8"
-                BorderThickness="1"
-                BorderBrush="#333"
-                UseLayoutRounding="True">
-            <Panel Classes="chartHost"
-                   ClipToBounds="True">
+        <Border Grid.Row="1" Classes="chartFrame" Margin="8,0,8,8" BorderThickness="1" BorderBrush="#333" UseLayoutRounding="True">
+            <Panel Classes="chartHost" ClipToBounds="True">
                 <Border Background="#1E1E1E" />
-
-                <oxy:PlotView x:Name="Plot"
-                              Model="{Binding PlotModel}"
-                              UseLayoutRounding="True">
-                    <oxy:PlotView.DefaultTrackerTemplate>
-                        <ControlTemplate>
-                            <oxy:TrackerControl Position="{Binding Position}"
-                                                LineStroke="#888888"
-                                                Background="#2A2A2A">
-                                <oxy:TrackerControl.Content>
-                                    <TextBlock Text="{Binding Text}"
-                                               Foreground="White"
-                                               FontSize="11"
-                                               Margin="6,4" />
-                                </oxy:TrackerControl.Content>
-                            </oxy:TrackerControl>
-                        </ControlTemplate>
-                    </oxy:PlotView.DefaultTrackerTemplate>
-                    <oxy:PlotView.ContextMenu>
+                <sp:AvaPlot x:Name="Plot">
+                    <sp:AvaPlot.ContextMenu>
                         <ContextMenu>
-                            <MenuItem Header="Auto (fits data to screen)"
-                                      Command="{Binding AutoScaleCommand}" />
+                            <MenuItem Header="Auto (fits data to screen)" Command="{Binding AutoScaleCommand}" />
                             <Separator />
-                            <MenuItem Header="Logarithmic"
-                                      Command="{Binding ToggleLogarithmicCommand}">
-                                <MenuItem.Icon>
-                                    <CheckBox IsChecked="{Binding IsLogarithmic}"
-                                              IsHitTestVisible="False" />
-                                </MenuItem.Icon>
+                            <MenuItem Header="Percent" Command="{Binding TogglePercentCommand}">
+                                <MenuItem.Icon><CheckBox IsChecked="{Binding IsPercent}" IsHitTestVisible="False" /></MenuItem.Icon>
                             </MenuItem>
-                            <MenuItem Header="Percent"
-                                      Command="{Binding TogglePercentCommand}">
-                                <MenuItem.Icon>
-                                    <CheckBox IsChecked="{Binding IsPercent}"
-                                              IsHitTestVisible="False" />
-                                </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="Indexed to 100"
-                                      Command="{Binding ToggleIndexedCommand}">
-                                <MenuItem.Icon>
-                                    <CheckBox IsChecked="{Binding IsIndexedTo100}"
-                                              IsHitTestVisible="False" />
-                                </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="Invert scale"
-                                      Command="{Binding ToggleInvertCommand}">
-                                <MenuItem.Icon>
-                                    <CheckBox IsChecked="{Binding IsInverted}"
-                                              IsHitTestVisible="False" />
-                                </MenuItem.Icon>
+                            <MenuItem Header="Indexed to 100" Command="{Binding ToggleIndexedCommand}">
+                                <MenuItem.Icon><CheckBox IsChecked="{Binding IsIndexedTo100}" IsHitTestVisible="False" /></MenuItem.Icon>
                             </MenuItem>
                         </ContextMenu>
-                    </oxy:PlotView.ContextMenu>
-                </oxy:PlotView>
+                    </sp:AvaPlot.ContextMenu>
+                </sp:AvaPlot>
 
-                <Rectangle x:Name="CrosshairV"
-                           Classes="crosshair"
-                           Width="1"
-                           HorizontalAlignment="Left"
-                           VerticalAlignment="Stretch"
-                           IsVisible="{Binding HasCrosshair}">
-                    <Rectangle.RenderTransform>
-                        <TranslateTransform X="-9999" />
-                    </Rectangle.RenderTransform>
-                </Rectangle>
-
-                <Rectangle x:Name="CrosshairH"
-                           Classes="crosshair"
-                           Height="1"
-                           HorizontalAlignment="Stretch"
-                           VerticalAlignment="Top"
-                           IsVisible="{Binding HasCrosshair}">
-                    <Rectangle.RenderTransform>
-                        <TranslateTransform Y="-9999" />
-                    </Rectangle.RenderTransform>
-                </Rectangle>
-
-                <Border Classes="readout"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Top"
-                        Margin="8"
-                        IsVisible="{Binding HasCrosshair}">
+                <Border Classes="readout" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8" IsVisible="{Binding HasCrosshair}">
                     <StackPanel Spacing="2">
                         <TextBlock Classes="readoutValue" Text="{Binding ReadoutTime}" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
@@ -184,13 +86,6 @@
             </Panel>
         </Border>
 
-        <TextBox Grid.Row="2"
-                 Text="{Binding StatusText}"
-                 IsReadOnly="True"
-                 BorderThickness="0"
-                 Background="Transparent"
-                 Margin="8,0,8,8"
-                 FontSize="11"
-                 Opacity="0.8" />
+        <TextBox Grid.Row="2" Text="{Binding StatusText}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Margin="8,0,8,8" FontSize="11" Opacity="0.8" />
     </Grid>
 </UserControl>
