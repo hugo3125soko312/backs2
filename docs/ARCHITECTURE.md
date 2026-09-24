@@ -20,9 +20,23 @@
 - Progress reporting: DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>) reports DataProgress(Message, IsDeterminate, Percent). RAM/disk hits report IsDeterminate=false (instant). The network tier reports IsDeterminate=true with Percent = attemptIndex / totalProviders * 100. A legacy IProgress<string> overload adapts to the new contract for consumers that only need text (e.g. StratsViewModel).
 
 ## 3. Metrics Engine
-- IMetric Interface: Base template for all mathematical indicators.
-- MetricRegistry: Centralized service for dynamic strategy queries.
-- Implementation: Base and derived metrics (VWAP, Z-Score, SessionHigh) are injected into the registry at startup.
+- IMetric Interface: Contract for all mathematical indicators.
+    - Metadata: Name, Lag (Leading / Lagging / Mixed), Category (Trend / Momentum / Volatility / Volume / Support / Breadth / Statistical), Description.
+    - Calculation: double Calculate(List<Kline> data).
+    - Invariant: every IMetric must return a defined value for degenerate inputs (empty list, flat series, single bar) and must never throw. Metrics are pure and stateless — same input yields same output, always.
+- MetricRegistry: Centralized singleton. Registers every metric at construction.
+    - GetMetric(string) — never throws, never returns null. Returns NullMetric.Instance (Calculate => 0) on a miss, so strategy scripts calling Engine.GetMetric("X").Calculate(Data) never NRE or abort a run.
+    - TryGetMetric(string, out IMetric) — for callers that need to distinguish a hit from a miss.
+    - GetAvailableMetrics() — legacy name-only view.
+    - Metrics — IReadOnlyCollection<IMetric> exposing full metadata for the Metrics tab.
+- Registered metrics (Phase 10.8A / 10.8B):
+    - VWAP (Volume, Lagging) — typical-price volume weighted average.
+    - CVD (Volume, Leading) — CLV x Volume delta proxy: Volume * (2*(Close-Low)/(High-Low) - 1), summed across the series.
+    - RSI (Momentum, Lagging) — 14-period, Wilder smoothing. Flat series returns 50.
+    - ATR (Volatility, Lagging) — 14-period, Wilder smoothing.
+    - SessionHigh (Support, Lagging) — highest High across the series.
+    - ZScore (Statistical, Mixed) — standard score of the last Close vs the series mean and population standard deviation. Returns 0 when variance is zero.
+    - VP-POC / VP-VAH / VP-VAL (Support, Mixed) — Volume Profile Point of Control and 70% Value Area bounds. Each is a pure function of the input series; no shared state, no memoisation. The engine is a tight two-pass routine (min/max/totalVolume sweep, then binning sweep) with no LINQ and no Math.Clamp in the inner bin loop.
 
 ## 4. Strategy Execution (Disk-Streamed)
 - Source of truth: data/strategies/*.cs on disk. There is no in-app strategy builder.

@@ -33,26 +33,9 @@ Chart tab is functional with ScottPlot.Avalonia 5.0.55. Foundation (10.7A), volu
 
 ---
 
-## Phase 10.8: Metrics Library Expansion [PLANNED]
+## Phase 10.8: Metrics Library Expansion [COMPLETED]
 
-Scope: grow `MetricRegistry` from its current 3 metrics (SessionHigh, VWAP, ZScore) into a broad library. Classify every metric by **lag** (leading / lagging / mixed) and **usage** (trend / momentum / volatility / volume / breadth). UI exposes filtering by these categories.
-
-### Phase 10.8A -- Metric Taxonomy
-- [ ] Extend `IMetric` with metadata:
-
-    public enum MetricLag { Leading, Lagging, Mixed }
-    public enum MetricCategory { Trend, Momentum, Volatility, Volume, Support, Breadth, Statistical }
-
-    public interface IMetric
-    {
-        string Name { get; }
-        MetricLag Lag { get; }
-        MetricCategory Category { get; }
-        string Description { get; }
-        double Calculate(List<Kline> data);
-    }
-
----
+See `docs/ROADMAP_ARCHIVE.md` -- Phase 10.8A (Metric Taxonomy) and Phase 10.8B (Metric Suite Expansion) shipped. Further metric additions belong in a new sub-phase.
 
 ## Phase 11: Monte Carlo & Performance Analytics [PLANNED]
 

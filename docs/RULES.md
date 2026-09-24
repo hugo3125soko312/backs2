@@ -12,6 +12,11 @@ ONLY SPEAK IN ENGLISH
     - All I/O non-blocking (Async/Await).
     - UI progress via IProgress<T>.
     - Strictly typed bindings required for all AXAML.
+- Metrics:
+    - Every `IMetric` must return a defined value for degenerate inputs (empty list, flat series, single bar) and must never throw.
+    - Metrics are pure and stateless: same input, same output. No memoisation, no caches, no cross-call state inside a metric or the engine.
+    - `MetricRegistry.GetMetric` returns `NullMetric.Instance` on a miss (`Calculate => 0`). It never throws and never returns null, so strategy scripts can call `.Calculate(...)` unconditionally.
+    - New metrics: subclass `BaseMetric`, supply `Name`, `Lag`, `Category`, `Description`, register in `MetricRegistry`.
 - Settings & Dynamic UI:
     - To add an engine setting, simply declare a public property on `AppSettings`.
     - Supported types (`int`, `double`, `bool`, `string`, `Color`) auto-render into appropriate controls in Config tab (`NumericUpDown`, `ToggleSwitch`, `TextBox`, `ColorPicker Ring`).
