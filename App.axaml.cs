@@ -56,6 +56,7 @@ public partial class App : Application
         services.AddSingleton<PresetService>();
         services.AddSingleton<AccountService>();
         services.AddSingleton<LastRunStore>();
+        services.AddSingleton<MonteCarloEngine>();
 
         // ViewModels
         services.AddTransient<MainViewModel>();
@@ -65,6 +66,7 @@ public partial class App : Application
         services.AddTransient<RunnerViewModel>();
         services.AddTransient<AccountViewModel>();
         services.AddTransient<OverviewViewModel>();
+        services.AddTransient<MonteCarloViewModel>();
         services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
 

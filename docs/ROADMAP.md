@@ -14,35 +14,28 @@ See `docs/ROADMAP_ARCHIVE.md`. One JSON per firm, triple-based active selection.
 See `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 10.11B -- Monte Carlo Core [COMPLETED]
-- [x] `MonteCarloEngine` in `src/core/Overview/`.
-- [x] Stationary block bootstrap: block length drawn from geometric distribution with mean `b`.
-- [x] `Random.Shared` for thread-safe parallel simulation. No NuGet RNG package.
-- [x] `Parallel.For` with pre-allocated result arrays. No `List<T>.Add`, no LINQ in hot loop.
-- [x] Per-simulation metrics: Net Profit, Max Drawdown %, Max Consecutive Losses, Annual Return (CAGR), Sharpe, Profit Factor.
-- [x] Risk of Ruin: fraction of simulations where equity drops below `StartingCapital * (1 - MaxLossPercent/100)`.
-- [x] Optional fixed seed for reproducibility.
-- [x] `IProgress<int>` for UI progress.
-- [x] `MonteCarloResult` record with all distributions + Mean/P05/P95 aggregates.
+See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.11C -- Monte Carlo Tab GUI
-- [ ] New **Monte Carlo** tab in MainWindow.axaml, positioned between Runner and Metrics.
-- [ ] Toolbar: Iterations (default 1000), Mean Block Size (default 5), Ruin Threshold % (defaults to active account's funded MaxLossPercent), Progress Interval % (default 10), Run MC button, ProgressBar.
-- [ ] Left panel: Summary stats — Net Profit / Max DD / Annual Return / Sharpe / Profit Factor (Mean/Median/StdDev/p05/p95 each), Max Consecutive Losses, **Risk of Ruin** prominent.
-- [ ] Right top: Equity curve plot (ScottPlot). Base + p05 + p95 + straw broom count (default 20, configurable).
-- [ ] Right bottom: Net Profit histogram with vertical lines at p05/p50/p95.
-- [ ] Active account name displayed in the toolbar.
-- [ ] `MonteCarloViewModel` reads `LastRunStore.Current` trades + `AccountService.Active` rules.
+### Phase 10.11C -- Monte Carlo Tab GUI [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
+
+### Phase 10.11C2 -- Equity Curve Rendering [PENDING]
+- [ ] Extend `MonteCarloEngine` to store per-simulation equity curves (`double[][]`).
+- [ ] Memory budget: 1000 iterations × 500 trades × 8 bytes = ~4 MB per run. Document it in `MonteCarloResult`.
+- [ ] Spaghetti plot on the Monte Carlo tab: base curve (bold), p05 (red), p95 (green), plus a configurable "straw broom" count (default 20).
+- [ ] Render only the 3 fixed lines + straw broom sample, never all 1000. `Signal` series, not `Scatter`.
 
 ### Phase 10.11D -- Overview Tab (Full)
 - [ ] Full in-sample metrics table: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
 - [ ] Monte Carlo summary: Risk of Ruin, p05/p50/p95 for Net Profit and Max DD.
 - [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample — OOS deferred).
 - [ ] Color-coded cells.
+- [ ] Reads `LastRunStore.Current` and the latest `MonteCarloResult` (cached in a shared store, not recomputed).
 
 ### Dependencies
 - 10.11A before 10.11B and 10.11C.
 - 10.11B before 10.11C.
-- 10.11C before 10.11D.
+- 10.11C before 10.11C2 and 10.11D.
 
 ---
 

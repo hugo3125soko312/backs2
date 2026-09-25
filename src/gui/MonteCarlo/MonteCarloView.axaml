@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:backs2.ViewModels"
+             xmlns:ScottPlot="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+             x:Class="backs2.Views.MonteCarloView"
+             x:DataType="vm:MonteCarloViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="8">
+
+        <!-- Toolbar -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+
+            <TextBlock Text="Iterations:" VerticalAlignment="Center" />
+            <NumericUpDown Value="{Binding Iterations, Mode=TwoWay}"
+                           Minimum="10" Maximum="100000"
+                           Increment="100"
+                           Width="110"
+                           FormatString="0"
+                           ShowButtonSpinner="False" />
+
+            <TextBlock Text="Block Size:" VerticalAlignment="Center" />
+            <NumericUpDown Value="{Binding MeanBlockSize, Mode=TwoWay}"
+                           Minimum="1" Maximum="100"
+                           Increment="1"
+                           Width="90"
+                           FormatString="0"
+                           ShowButtonSpinner="False" />
+
+            <TextBlock Text="Ruin Threshold %:" VerticalAlignment="Center" />
+            <NumericUpDown Value="{Binding RuinThresholdPercent, Mode=TwoWay}"
+                           Minimum="1" Maximum="99"
+                           Increment="1"
+                           Width="90"
+                           FormatString="0"
+                           ShowButtonSpinner="False" />
+
+            <Button Content="Run Monte Carlo"
+                    Command="{Binding RunCommand}"
+                    IsEnabled="{Binding !IsBusy}" />
+
+            <ProgressBar Value="{Binding Progress}"
+                         Minimum="0" Maximum="100"
+                         Width="200"
+                         IsVisible="{Binding IsBusy}" />
+
+            <TextBlock Text="Account:" VerticalAlignment="Center" Margin="16,0,0,0" Opacity="0.7" />
+            <TextBlock Text="{Binding ActiveAccountName}"
+                       VerticalAlignment="Center"
+                       Foreground="#4FC3F7" />
+        </StackPanel>
+
+        <!-- Source info banner -->
+        <Border Grid.Row="1"
+                Background="#1A4FC3F7"
+                Padding="8,4"
+                Margin="0,0,0,8">
+            <TextBlock Text="{Binding SourceInfo}"
+                       FontSize="11"
+                       Foreground="#B0E0FF" />
+        </Border>
+
+        <!-- Main content: stats on left, plot on right -->
+        <Grid Grid.Row="2" ColumnDefinitions="440,4,*">
+
+            <!-- Stats panel -->
+            <Border Grid.Column="0"
+                    BorderThickness="1"
+                    BorderBrush="#333"
+                    Padding="0">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+
+                        <TextBlock Text="Risk of Ruin"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,4" />
+                        <TextBlock Text="{Binding StatusText}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.85"
+                                   Margin="0,0,0,12" />
+
+                        <ItemsControl ItemsSource="{Binding Stats}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:McStatRow">
+                                    <Border BorderThickness="0,0,0,1"
+                                            BorderBrush="#2A2A2A"
+                                            Padding="0,6">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Metric}"
+                                                       FontWeight="SemiBold"
+                                                       FontSize="12"
+                                                       Margin="0,0,0,4" />
+                                            <Grid ColumnDefinitions="80,*"
+                                                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                                  Margin="0">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Mean" FontSize="10" Opacity="0.6" />
+                                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Mean}" FontSize="10" />
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Median" FontSize="10" Opacity="0.6" />
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Median}" FontSize="10" />
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="StdDev" FontSize="10" Opacity="0.6" />
+                                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding StdDev}" FontSize="10" />
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="p05" FontSize="10" Opacity="0.6" />
+                                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding P05}" FontSize="10" Foreground="#EF5350" />
+                                                <TextBlock Grid.Row="4" Grid.Column="0" Text="p95" FontSize="10" Opacity="0.6" />
+                                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding P95}" FontSize="10" Foreground="#26A69A" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          Background="Transparent"
+                          ResizeDirection="Columns" />
+
+            <!-- Plot -->
+            <Border Grid.Column="2"
+                    BorderThickness="1"
+                    BorderBrush="#333">
+                <ScottPlot:AvaPlot x:Name="PlotControl" />
+            </Border>
+        </Grid>
+
+        <!-- Status line -->
+        <TextBox Grid.Row="3"
+                 Text="{Binding StatusText}"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 Margin="0,6,0,0"
+                 FontSize="11"
+                 Opacity="0.8" />
+    </Grid>
+</UserControl>

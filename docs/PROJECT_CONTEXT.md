@@ -25,6 +25,7 @@
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Contains plans[] -> sizes[] -> phases[]. AccountService expands to one AccountDescriptor per (plan, size). Active selection is a triple (firm, plan, size), persisted in config/settings.json.
     - Trade recording: RunnerScriptGlobals.Trades (TradeRecorder). Strategy calls Enter/Exit.
     - Caching: Compact KlineCompact[] JSON in data/cache/, source-generated serializer.
+    - Monte Carlo: src/core/Overview/MonteCarloEngine.cs — stationary block bootstrap, Random.Shared, Parallel.For, no allocations in the hot loop.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY.
@@ -46,7 +47,7 @@
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/). Things configured for the user's own workflow.
     - `data/`: engine-managed (cache/, strategies/, accounts/). Things the app ships with or manages.
-- Tabs: Overview, Runner, Metrics, Accounts, Data, Chart, Logs, Config. (Monte Carlo tab planned.)
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".

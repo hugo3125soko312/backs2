@@ -28,6 +28,7 @@
         <TabControl x:CompileBindings="False">
             <TabItem Header="Overview"><views:OverviewView /></TabItem>
             <TabItem Header="Runner"><views:RunnerView /></TabItem>
+            <TabItem Header="Monte Carlo"><views:MonteCarloView /></TabItem>
             <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Accounts"><views:AccountView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>

@@ -8,5 +8,7 @@
     "Twelve Data",
     "Yahoo"
   ],
-  "ActiveAccountName": "FTMO_2Step_100K"
+  "ActiveAccountFirmFile": "FTMO",
+  "ActiveAccountPlan": "1-Step",
+  "ActiveAccountSize": "10K"
 }

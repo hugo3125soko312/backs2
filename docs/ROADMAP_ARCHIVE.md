@@ -225,3 +225,17 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `AccountPhase.DrawdownType` — `"static"` / `"trailing-eod"` / `"trailing-intraday"`.
 - [x] `MonteCarloEngine` registered as singleton in `App.axaml.cs`.
 - [x] Not yet wired to a ViewModel — that is Phase 10.11C.
+
+## Phase 10.11C: Monte Carlo Tab GUI [COMPLETED]
+- [x] `src/gui/MonteCarlo/MonteCarloViewModel.cs` — reads `LastRunStore.Current`, `AccountService.Active`, subscribes to both `Changed`/`ActiveChanged` events, clears stale results on new runs.
+- [x] `McStatRow` record — Metric / Mean / Median / StdDev / P05 / P95.
+- [x] Six metric groups: Net Profit, Max Drawdown %, Annual Return %, Sharpe, Profit Factor, Max Consecutive Losses.
+- [x] `MonteCarloView.axaml` — three-column grid (stats, splitter, plot), toolbar with Iterations / Block Size / Ruin Threshold / Run button / ProgressBar / active account name.
+- [x] `NumericUpDown` spinners hidden via `ShowButtonSpinner="False"`.
+- [x] Ruin Threshold default reads from the active account's funded-phase `MaxLossPercent`.
+- [x] Net Profit histogram via `ScottPlot.Statistics.Histogram.WithBinCount`, 40 bins, p05/median/p95 vertical lines.
+- [x] `MonteCarloView.axaml.cs` — DI resolution, `SetPlotControl(PlotControl)`.
+- [x] Monte Carlo tab inserted in `MainWindow.axaml` between Runner and Metrics.
+- [x] `MonteCarloViewModel` registered as transient in `App.axaml.cs`.
+- [x] Equity curve spaghetti plot deferred to 10.11C2 — `MonteCarloResult` stores final values only.
+- [x] Verified: run ParamTest with 10 trades → MC tab renders histogram + summary stats.
