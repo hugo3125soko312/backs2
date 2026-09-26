@@ -4,7 +4,7 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-### Phase 10.15D -- MonteCarloViewModel rework [NEXT]
+### Phase 10.15E -- Overview batch summary [NEXT]
 
 ### Phase 10.15A -- Trade extension [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
@@ -15,14 +15,8 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.15C -- New MonteCarloEngine [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.15D -- MonteCarloViewModel rework
-- [ ] Read active account rules from `AccountService.Active`. Last phase's `MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`.
-- [ ] Build `TimeSlice[]` via `TimeSliceBuilder.Build(data.Trades, data.SourceData)`.
-- [ ] Independent run per queued dataset when `LastRunStore.Batch.Count > 1`.
-- [ ] Display `P(ruin)`, `P(funded)`, `P(timeout)` in the summary panel — replace `Risk of Ruin`.
-- [ ] Replace `Net Profit Distribution` histogram with terminal-balance distribution colored by outcome (blown, passed, timeout).
-- [ ] Fix `Annual Return` and `Sharpe` computations: use wall-clock duration from `SourceData` span, not `result.Duration`.
-- [ ] Fix histogram rendering: `plt.Axes.AutoScale()` after adding bars, then add percentile lines.
+### Phase 10.15D -- MonteCarloViewModel rework [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 10.15E -- Overview batch summary
 - [ ] `OverviewViewModel` reads `LastRunStore.Batch` and displays per-dataset outcomes.

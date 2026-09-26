@@ -11,25 +11,6 @@
         <!-- Toolbar -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
 
-            <TextBlock Text="Dataset:"
-                       VerticalAlignment="Center"
-                       IsVisible="{Binding HasBatch}" />
-            <ComboBox Width="220"
-                      ItemsSource="{Binding BatchItems}"
-                      SelectedItem="{Binding SelectedBatchItem, Mode=TwoWay}"
-                      IsVisible="{Binding HasBatch}"
-                      PlaceholderText="(auto)">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate DataType="core:OverviewData">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="{Binding Symbol}" FontWeight="SemiBold" />
-                            <TextBlock Text="@" Opacity="0.5" />
-                            <TextBlock Text="{Binding Timeframe}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-
             <TextBlock Text="Iterations:" VerticalAlignment="Center" />
             <NumericUpDown Value="{Binding Iterations, Mode=TwoWay}"
                            Minimum="10" Maximum="100000"
@@ -91,10 +72,74 @@
                               VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="8">
 
-                        <TextBlock Text="Risk of Ruin"
+                        <!-- Per-dataset outcome list (visible only on batch runs) -->
+                        <StackPanel IsVisible="{Binding HasResults}" Spacing="4" Margin="0,0,0,12">
+                            <TextBlock Text="Per-Dataset Outcomes"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,4" />
+
+                            <ComboBox HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding BatchItems}"
+                                      SelectedItem="{Binding SelectedBatchItem, Mode=TwoWay}"
+                                      IsVisible="{Binding HasBatch}"
+                                      PlaceholderText="(auto)">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="core:OverviewData">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding Symbol}" FontWeight="SemiBold" />
+                                            <TextBlock Text="@" Opacity="0.5" />
+                                            <TextBlock Text="{Binding Timeframe}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <ItemsControl ItemsSource="{Binding BatchResults}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:McBatchRow">
+                                        <Border BorderThickness="0,0,0,1"
+                                                BorderBrush="#2A2A2A"
+                                                Padding="0,4">
+                                            <Grid ColumnDefinitions="*,70,70,70">
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Display}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding PRuinText}"
+                                                           FontSize="11"
+                                                           Foreground="#EF5350"
+                                                           HorizontalAlignment="Right" />
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding PFundedText}"
+                                                           FontSize="11"
+                                                           Foreground="#26A69A"
+                                                           HorizontalAlignment="Right" />
+                                                <TextBlock Grid.Column="3"
+                                                           Text="{Binding PTimeoutText}"
+                                                           FontSize="11"
+                                                           Opacity="0.7"
+                                                           HorizontalAlignment="Right" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock FontSize="10"
+                                       Opacity="0.5"
+                                       Margin="0,2,0,0"
+                                       Text="Columns: P(ruin) · P(funded) · P(timeout)" />
+                        </StackPanel>
+
+                        <!-- Selected dataset stats -->
+                        <TextBlock Text="Selected Dataset"
                                    FontSize="12"
                                    FontWeight="SemiBold"
-                                   Margin="0,0,0,4" />
+                                   Margin="0,0,0,4"
+                                   IsVisible="{Binding HasResults}" />
                         <TextBlock Text="{Binding StatusText}"
                                    FontSize="11"
                                    TextWrapping="Wrap"

@@ -324,3 +324,14 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
   - Stats rows replaced: `P(ruin)/P(funded)/P(timeout)`, `Expected Slices`, `Terminal Balance`, `Max Drawdown %`.
   - Histogram is now terminal-balance distribution with p05/median/p95 vertical lines.
 - [x] `MonteCarloView.axaml` unchanged for this phase — binds the same `McStatRow` shape and toolbar controls.
+
+
+## Phase 10.15D: MonteCarloViewModel rework [COMPLETED]
+- [x] Batch awareness: `RunAsync` iterates every entry in `LastRunStore.Batch` and runs the engine independently per dataset. Results stored in `_resultsByIndex` keyed by batch index.
+- [x] Per-dataset outcome list: `McBatchRow` (`Display`, `PRuinText`, `PFundedText`, `PTimeoutText`) bound to `BatchResults`. Columns: P(ruin) red, P(funded) green, P(timeout) grey.
+- [x] No aggregation. N datasets → N independent `MonteCarloResult` instances. No trade pooling, no mixed histogram.
+- [x] Dataset selector: the existing `SelectedBatchItem` combo now drives which result is displayed in the stats panel and histogram. Selection does not gate the run.
+- [x] `AutoScale` fix: `plt.Axes.AutoScale()` called after adding bars and percentile lines.
+- [x] Roadmap bullets for `Annual Return` / `Sharpe` fixes struck as moot — those fields were removed from `MonteCarloResult` in 10.15C.
+- [x] `MonteCarloView.axaml` restructured: stats panel now has a per-dataset outcomes block (visible only when `HasResults`) above the selected-dataset stats block.
+- [x] Verified end-to-end: single dataset run shows 100% timeout on a 10-trade sample with a tight terminal-balance distribution; three-dataset batch run populates the per-dataset list and switching the combo swaps the histogram.

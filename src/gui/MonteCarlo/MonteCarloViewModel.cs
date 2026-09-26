@@ -19,6 +19,19 @@ public sealed record McStatRow(
     string P05,
     string P95);
 
+public sealed record McBatchRow(
+    string Symbol,
+    string Timeframe,
+    double PRuin,
+    double PFunded,
+    double PTimeout)
+{
+    public string Display => $"{Symbol} @ {Timeframe}";
+    public string PRuinText => PRuin.ToString("P1");
+    public string PFundedText => PFunded.ToString("P1");
+    public string PTimeoutText => PTimeout.ToString("P1");
+}
+
 public partial class MonteCarloViewModel : ObservableObject
 {
     private readonly LastRunStore _lastRun;
@@ -26,11 +39,12 @@ public partial class MonteCarloViewModel : ObservableObject
     private readonly MonteCarloEngine _engine;
 
     private AvaPlot? _plot;
-    private MonteCarloResult? _lastResult;
+    private readonly Dictionary<int, MonteCarloResult> _resultsByIndex = new();
     private IReadOnlyList<OverviewData> _batch = Array.Empty<OverviewData>();
 
     public ObservableCollection<McStatRow> Stats { get; } = new();
     public ObservableCollection<OverviewData> BatchItems { get; } = new();
+    public ObservableCollection<McBatchRow> BatchResults { get; } = new();
 
     [ObservableProperty] private OverviewData? _selectedBatchItem;
 
@@ -46,6 +60,7 @@ public partial class MonteCarloViewModel : ObservableObject
     [ObservableProperty] private string _sourceInfo = "No run data yet.";
     [ObservableProperty] private bool _hasRunData;
     [ObservableProperty] private bool _hasBatch;
+    [ObservableProperty] private bool _hasResults;
 
     public MonteCarloViewModel(
         LastRunStore lastRun,
@@ -68,7 +83,7 @@ public partial class MonteCarloViewModel : ObservableObject
     public void SetPlotControl(AvaPlot plot)
     {
         _plot = plot;
-        if (_lastResult != null) RenderPlots(_lastResult);
+        RenderForSelection();
     }
 
     private void OnLastRunChanged(object? sender, IReadOnlyList<OverviewData> batch)
@@ -85,22 +100,15 @@ public partial class MonteCarloViewModel : ObservableObject
 
             SelectedBatchItem = _batch.Count > 0 ? _batch[_batch.Count - 1] : null;
 
-            _lastResult = null;
-            Stats.Clear();
-            _plot?.Plot.Clear();
-            _plot?.Refresh();
-
+            ClearResults();
             RefreshSourceInfo();
         });
     }
 
     partial void OnSelectedBatchItemChanged(OverviewData? value)
     {
-        _lastResult = null;
-        Stats.Clear();
-        _plot?.Plot.Clear();
-        _plot?.Refresh();
         RefreshSourceInfo();
+        RenderForSelection();
     }
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
@@ -126,6 +134,16 @@ public partial class MonteCarloViewModel : ObservableObject
     }
 
     private OverviewData? CurrentData => SelectedBatchItem ?? _lastRun.Current;
+
+    private void ClearResults()
+    {
+        _resultsByIndex.Clear();
+        BatchResults.Clear();
+        Stats.Clear();
+        HasResults = false;
+        _plot?.Plot.Clear();
+        _plot?.Refresh();
+    }
 
     private void RefreshSourceInfo()
     {
@@ -158,8 +176,7 @@ public partial class MonteCarloViewModel : ObservableObject
     {
         if (IsBusy) return;
 
-        var data = CurrentData;
-        if (data == null || data.Trades.Count < 2)
+        if (_batch.Count == 0)
         {
             StatusText = "No run data available. Run a strategy in the Runner tab first.";
             return;
@@ -183,14 +200,7 @@ public partial class MonteCarloViewModel : ObservableObject
         {
             IsBusy = true;
             Progress = 0;
-            StatusText = $"Building time slices and running {Iterations} simulations...";
-
-            var slices = TimeSliceBuilder.Build(data.Trades, data.SourceData);
-            if (slices.Length == 0)
-            {
-                StatusText = "TimeSlice build produced no slices.";
-                return;
-            }
+            ClearResults();
 
             var funded = planSize.Phases[planSize.Phases.Count - 1];
 
@@ -201,35 +211,69 @@ public partial class MonteCarloViewModel : ObservableObject
             string drawdownType = string.IsNullOrWhiteSpace(funded.DrawdownType) ? "static" : funded.DrawdownType!;
 
             int tradingPeriodDays = funded.TradingPeriodDays ?? 90;
-            int targetDurationSlices = ComputeTargetSlices(data, tradingPeriodDays);
-
             int iterations = Iterations;
             int blockSize = MeanBlockSize;
 
+            int totalRuns = _batch.Count;
+            int runIndex = 0;
+
             var progress = new Progress<int>(done =>
             {
-                Progress = (double)done / iterations * 100.0;
+                double perRun = (double)done / iterations;
+                Progress = ((runIndex + perRun) / totalRuns) * 100.0;
             });
 
-            var result = await Task.Run(() => _engine.Run(
-                slices,
-                targetDurationSlices,
-                startingCapital,
-                drawdownType,
-                maxDailyLossPct,
-                maxLossPct,
-                profitTargetPct,
-                expectedBlockSize: blockSize,
-                seed: null,
-                progress: progress));
+            for (int i = 0; i < _batch.Count; i++)
+            {
+                var data = _batch[i];
+                runIndex = i;
 
-            _lastResult = result;
-            PopulateStats(result);
-            RenderPlots(result);
+                if (data.Error != null || data.Trades.Count < 2)
+                {
+                    StatusText = $"Skipping {data.Symbol}@{data.Timeframe} — insufficient trades.";
+                    continue;
+                }
 
-            StatusText =
-                $"Done — {result.Iterations} simulations · " +
-                $"P(ruin) {result.PRuin:P1} · P(funded) {result.PFunded:P1} · P(timeout) {result.PTimeout:P1}";
+                var slices = TimeSliceBuilder.Build(data.Trades, data.SourceData);
+                if (slices.Length == 0)
+                {
+                    StatusText = $"Skipping {data.Symbol}@{data.Timeframe} — no time slices.";
+                    continue;
+                }
+
+                int targetDurationSlices = ComputeTargetSlices(data, tradingPeriodDays);
+
+                StatusText = $"Running {data.Symbol}@{data.Timeframe} ({i + 1}/{_batch.Count}) — {iterations} simulations...";
+
+                var result = await Task.Run(() => _engine.Run(
+                    slices,
+                    targetDurationSlices,
+                    startingCapital,
+                    drawdownType,
+                    maxDailyLossPct,
+                    maxLossPct,
+                    profitTargetPct,
+                    expectedBlockSize: blockSize,
+                    seed: null,
+                    progress: progress));
+
+                _resultsByIndex[i] = result;
+
+                BatchResults.Add(new McBatchRow(
+                    data.Symbol,
+                    data.Timeframe,
+                    result.PRuin,
+                    result.PFunded,
+                    result.PTimeout));
+            }
+
+            HasResults = _resultsByIndex.Count > 0;
+
+            RenderForSelection();
+
+            StatusText = HasResults
+                ? $"Done — Monte Carlo ran on {_resultsByIndex.Count} dataset(s)."
+                : "No datasets produced a result.";
         }
         catch (Exception ex)
         {
@@ -254,6 +298,32 @@ public partial class MonteCarloViewModel : ObservableObject
 
         int slices = (int)Math.Round(tradingPeriodDays * slicesPerDay);
         return slices < 1 ? tradingPeriodDays : slices;
+    }
+
+    private MonteCarloResult? SelectedResult
+    {
+        get
+        {
+            if (SelectedBatchItem == null) return null;
+            int idx = BatchItems.IndexOf(SelectedBatchItem);
+            if (idx < 0) return null;
+            return _resultsByIndex.TryGetValue(idx, out var r) ? r : null;
+        }
+    }
+
+    private void RenderForSelection()
+    {
+        var r = SelectedResult;
+        if (r == null)
+        {
+            Stats.Clear();
+            _plot?.Plot.Clear();
+            _plot?.Refresh();
+            return;
+        }
+
+        PopulateStats(r);
+        RenderPlots(r);
     }
 
     private void PopulateStats(MonteCarloResult r)
@@ -307,6 +377,8 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Add.VerticalLine(p05, 2, ScottPlot.Color.FromHex("#EF5350"), ScottPlot.LinePattern.Solid);
         plt.Add.VerticalLine(p50, 1, ScottPlot.Colors.White, ScottPlot.LinePattern.Solid);
         plt.Add.VerticalLine(p95, 2, ScottPlot.Color.FromHex("#26A69A"), ScottPlot.LinePattern.Solid);
+
+        plt.Axes.AutoScale();
 
         plt.Title("Terminal Balance Distribution");
         plt.Axes.Bottom.Label.Text = "Terminal Balance";

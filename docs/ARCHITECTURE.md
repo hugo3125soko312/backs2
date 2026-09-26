@@ -206,20 +206,22 @@
 
 ## 14. Monte Carlo Tab
 
-- Purpose: run stationary block bootstrap over the trades of the most recent strategy run and display the resulting distributions.
+- Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §16). Produces per-dataset outcome probabilities and terminal-balance distributions.
 - GUI (`src/gui/MonteCarlo/`):
   - `MonteCarloView.axaml` — Grid with toolbar (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,4,*"`: stats panel left, splitter, ScottPlot `AvaPlot` right.
   - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, calls `vm.SetPlotControl(PlotControl)` with the `x:Name`-ed AvaPlot instance.
   - `MonteCarloViewModel`:
-    - Reads `LastRunStore.Current` for the trade list.
-    - Reads `AccountService.Active` for starting capital and default ruin threshold (last phase in the active account's `Phases` array, `MaxLossPercent`).
+    - Reads `LastRunStore.Batch` for the dataset list.
+    - Reads `AccountService.Active` for starting capital and funded-phase rules (`MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`, `TradingPeriodDays`).
     - Subscribes to `LastRunStore.Changed` and `AccountService.ActiveChanged`. Stale results are cleared on a new run.
-    - `RunAsync` marshals to `Task.Run`, calls `MonteCarloEngine.Run(...)` with `IProgress<int>`, and populates `Stats` + plots on completion.
-    - `McStatRow` — `Metric`, `Mean`, `Median`, `StdDev`, `P05`, `P95`. Display-only record.
-- Toolbar controls: Iterations (`NumericUpDown`, default 1000, max 100000), Mean Block Size (default 5, max 100), Ruin Threshold % (default = active account's funded `MaxLossPercent`, else 50), Run button, ProgressBar (visible only while running), active account name label.
-- Stats panel: six metric groups — Net Profit, Max Drawdown %, Annual Return %, Sharpe, Profit Factor, Max Consecutive Losses. Each shows Mean / Median / StdDev / p05 / p95 where the engine provides them. p05 is red, p95 is green.
-- Plot panel: Net Profit histogram (40 bins) via `ScottPlot.Statistics.Histogram.WithBinCount`, plus vertical lines at p05 (red), median (white), p95 (green). No spaghetti equity curve yet — `MonteCarloResult` stores final values only, not per-simulation curves.
-- `NumericUpDown` uses `ShowButtonSpinner="False"` to hide the up/down arrows. The spinner is not needed and clutters the toolbar.
+    - `RunAsync` iterates every non-errored batch entry, builds `TimeSlice[]` via `TimeSliceBuilder.Build`, runs `MonteCarloEngine.Run` independently per dataset, stores each result in `_resultsByIndex`. No aggregation.
+    - `McStatRow` — `Metric`, `Mean`, `Median`, `StdDev`, `P05`, `P95`. Display-only record for the selected dataset's stats.
+    - `McBatchRow` — `Symbol`, `Timeframe`, `PRuin`, `PFunded`, `PTimeout`. Display-only record for the per-dataset outcome list.
+- Toolbar controls: Iterations (`NumericUpDown`, default 1000, max 100000), Mean Block Size (default 5, max 100), Ruin Threshold % (display only — not consumed by the time-domain engine), Run button, ProgressBar (visible only while running), active account name label.
+- Stats panel layout:
+  - **Per-Dataset Outcomes** block (visible only when `HasResults`): combo box selecting the active dataset (visible only when `HasBatch`), then an `ItemsControl` of `McBatchRow` rows with `Symbol @ Timeframe` and the outcome triplet.
+  - **Selected Dataset** block: `StatusText` summary, then an `ItemsControl` of `McStatRow` rows — P(ruin)/P(funded)/P(timeout), Expected Slices, Terminal Balance, Max Drawdown %.
+- Plot panel: terminal-balance histogram (40 bins) for the currently selected dataset, via `ScottPlot.Statistics.Histogram.WithBinCount`. Vertical lines at p05 (red), median (white), p95 (green). `plt.Axes.AutoScale()` is called after adding bars and lines.
 - Tab position: `MainWindow.axaml` places Monte Carlo between Runner and Metrics.
 
 ### Deferred to a follow-up sub-phase (10.11C2)
