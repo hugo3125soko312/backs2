@@ -3,11 +3,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Models;
-using backs2.Core.Providers;
 using ScottPlot.Avalonia;
 
 namespace backs2.ViewModels;
@@ -15,14 +15,13 @@ namespace backs2.ViewModels;
 public partial class ChartViewModel : ObservableObject
 {
     private readonly DataManager _data;
+    private readonly SelectionQueue _queue;
     private readonly ChartPlotBuilder _builder = new();
     private AvaPlot? _avaPlot;
 
-    public ObservableCollection<string> AvailableSymbols { get; } = new();
-    public ObservableCollection<string> AvailableTimeframes { get; } = new(TimeframeMap.All);
+    public ObservableCollection<QueuedDataset> QueuedItems { get; } = new();
 
-    [ObservableProperty] private string _selectedSymbol = "";
-    [ObservableProperty] private string _selectedTimeframe = "1D";
+    [ObservableProperty] private QueuedDataset? _selectedDataset;
     [ObservableProperty] private string _statusText = "Chart ready.";
 
     [ObservableProperty]
@@ -51,10 +50,13 @@ public partial class ChartViewModel : ObservableObject
     public bool IsNotLoading => !IsLoading;
     public bool IsProgressIndeterminate => !IsProgressDeterminate;
 
-    public ChartViewModel(DataManager data)
+    public ChartViewModel(DataManager data, SelectionQueue queue)
     {
         _data = data;
-        RefreshSymbols();
+        _queue = queue;
+
+        _queue.Changed += OnQueueChanged;
+        SyncQueue();
     }
 
     public void SetPlotControl(AvaPlot plotView)
@@ -63,23 +65,55 @@ public partial class ChartViewModel : ObservableObject
         RebuildPlotModel();
     }
 
-    [RelayCommand]
-    private void RefreshSymbols()
+    private void OnQueueChanged(object? sender, EventArgs e)
     {
-        var previous = SelectedSymbol;
-        AvailableSymbols.Clear();
-        foreach (var s in _data.GetCachedSymbols()) AvailableSymbols.Add(s);
-
-        if (!string.IsNullOrWhiteSpace(previous)) SelectedSymbol = previous;
-        else if (AvailableSymbols.Count > 0) SelectedSymbol = AvailableSymbols[0];
+        Dispatcher.UIThread.Post(SyncQueue);
     }
 
-    partial void OnSelectedTimeframeChanged(string value) => _ = LoadAsync();
+    private void SyncQueue()
+    {
+        var previousKey = SelectedDataset?.Key;
+
+        QueuedItems.Clear();
+        foreach (var item in _queue.Snapshot())
+            QueuedItems.Add(item);
+
+        if (previousKey != null)
+        {
+            foreach (var item in QueuedItems)
+            {
+                if (string.Equals(item.Key, previousKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    SelectedDataset = item;
+                    return;
+                }
+            }
+        }
+
+        SelectedDataset = QueuedItems.Count > 0 ? QueuedItems[0] : null;
+    }
+
+    partial void OnSelectedDatasetChanged(QueuedDataset? value)
+    {
+        if (value == null)
+        {
+            Series = new List<Kline>();
+            StatusText = "Queue is empty — add data in the Data tab first.";
+            return;
+        }
+
+        _ = LoadAsync(value);
+    }
 
     [RelayCommand]
     private async Task LoadAsync()
     {
-        if (string.IsNullOrWhiteSpace(SelectedSymbol)) return;
+        if (SelectedDataset == null) return;
+        await LoadAsync(SelectedDataset);
+    }
+
+    private async Task LoadAsync(QueuedDataset dataset)
+    {
         if (IsLoading) return;
 
         try
@@ -95,17 +129,17 @@ public partial class ChartViewModel : ObservableObject
                 LoadingProgress = p.Percent;
             });
 
-            var data = await _data.GetSymbolDataAsync(SelectedSymbol, SelectedTimeframe, progress);
+            var data = await _data.GetSymbolDataAsync(dataset.Symbol, dataset.Timeframe, progress);
 
             if (data == null || data.Count == 0)
             {
-                StatusText = $"No data for {SelectedSymbol} @ {SelectedTimeframe}.";
+                StatusText = $"No data for {dataset.Symbol} @ {dataset.Timeframe}.";
                 Series = new List<Kline>();
                 return;
             }
 
             Series = data;
-            StatusText = $"Loaded {data.Count} bars — {SelectedSymbol} @ {SelectedTimeframe}";
+            StatusText = $"Loaded {data.Count} bars — {dataset.Symbol} @ {dataset.Timeframe}";
         }
         catch (Exception ex)
         {
@@ -180,7 +214,7 @@ public partial class ChartViewModel : ObservableObject
         ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
 
         HasCrosshair = true;
-        
+
         if (_avaPlot != null)
         {
             _builder.MoveCrosshair(_avaPlot, k.Timestamp.ToOADate());
@@ -204,7 +238,7 @@ public partial class ChartViewModel : ObservableObject
             if (midX < dataX) lo = mid + 1;
             else hi = mid;
         }
-        
+
         double loX = Series[lo].Timestamp.ToOADate();
         if (lo > 0)
         {

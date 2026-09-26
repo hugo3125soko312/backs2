@@ -13,8 +13,6 @@
   "ActiveAccountSize": "10K",
   "LogLevel": "Info",
   "QueuedDatasets": [
-    "XAUUSD@1D",
-    "XAUUSD@3h",
-    "XAUUSD@3m"
+    "XAUUSD@1D"
   ]
 }

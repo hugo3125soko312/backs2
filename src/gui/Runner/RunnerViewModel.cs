@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -73,17 +74,19 @@ public partial class RunnerViewModel : ObservableObject
     private readonly DataManager _data;
     private readonly PresetService _presets;
     private readonly LastRunStore _lastRun;
+    private readonly SelectionQueue _queue;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
-    public ObservableCollection<string> AvailableSymbols { get; } = new();
     public ObservableCollection<RunnerParameterViewModel> Parameters { get; } = new();
+    public ObservableCollection<QueuedDataset> QueuedItems { get; } = new();
 
     [ObservableProperty] private StrategyDescriptor? _selectedStrategy;
-    [ObservableProperty] private string _selectedSymbol = "";
     [ObservableProperty] private string _sourcePreview = "";
     [ObservableProperty] private string _statusText = "Ready";
+    [ObservableProperty] private string _queueHint = "";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _hasParameters;
+    [ObservableProperty] private bool _canRun;
 
     public event EventHandler<StrategyRunResult>? RunCompleted;
 
@@ -92,22 +95,31 @@ public partial class RunnerViewModel : ObservableObject
         StrategyManager strat,
         DataManager data,
         PresetService presets,
-        LastRunStore lastRun)
+        LastRunStore lastRun,
+        SelectionQueue queue)
     {
         _catalog = catalog;
         _strat = strat;
         _data = data;
         _presets = presets;
         _lastRun = lastRun;
+        _queue = queue;
 
         _catalog.Changed += OnCatalogChanged;
+        _queue.Changed += OnQueueChanged;
+
         SyncCatalog(_catalog.Current);
-        RefreshSymbols();
+        SyncQueue();
     }
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
         Dispatcher.UIThread.Post(() => SyncCatalog(e.Strategies));
+    }
+
+    private void OnQueueChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(SyncQueue);
     }
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
@@ -130,6 +142,19 @@ public partial class RunnerViewModel : ObservableObject
         }
     }
 
+    private void SyncQueue()
+    {
+        QueuedItems.Clear();
+        foreach (var item in _queue.Snapshot())
+            QueuedItems.Add(item);
+
+        CanRun = QueuedItems.Count > 0 && SelectedStrategy != null && !IsBusy;
+
+        QueueHint = QueuedItems.Count == 0
+            ? "Queue is empty — add data in the Data tab first."
+            : $"{QueuedItems.Count} dataset(s) queued.";
+    }
+
     partial void OnSelectedStrategyChanged(StrategyDescriptor? value)
     {
         if (value == null)
@@ -137,10 +162,14 @@ public partial class RunnerViewModel : ObservableObject
             SourcePreview = "";
             Parameters.Clear();
             HasParameters = false;
+            CanRun = false;
             return;
         }
+
         _ = LoadStrategyAsync(value);
     }
+
+    partial void OnIsBusyChanged(bool value) => SyncQueue();
 
     private async Task LoadStrategyAsync(StrategyDescriptor descriptor)
     {
@@ -155,6 +184,7 @@ public partial class RunnerViewModel : ObservableObject
 
             HasParameters = Parameters.Count > 0;
             StatusText = $"Loaded {descriptor.Name} ({Parameters.Count} params)";
+            SyncQueue();
         }
         catch (Exception ex)
         {
@@ -163,19 +193,6 @@ public partial class RunnerViewModel : ObservableObject
             HasParameters = false;
             StatusText = $"Failed to read {descriptor.Name}: {ex.Message}";
         }
-    }
-
-    [RelayCommand]
-    private void RefreshSymbols()
-    {
-        var previous = SelectedSymbol;
-
-        AvailableSymbols.Clear();
-        foreach (var s in _data.GetCachedSymbols())
-            AvailableSymbols.Add(s);
-
-        if (!string.IsNullOrWhiteSpace(previous)) SelectedSymbol = previous;
-        else if (AvailableSymbols.Count > 0) SelectedSymbol = AvailableSymbols[0];
     }
 
     [RelayCommand]
@@ -193,62 +210,148 @@ public partial class RunnerViewModel : ObservableObject
             StatusText = "No strategy selected.";
             return;
         }
-        if (string.IsNullOrWhiteSpace(SelectedSymbol))
+
+        var queued = _queue.Snapshot();
+        if (queued.Count == 0)
         {
-            StatusText = "No symbol selected.";
+            StatusText = "Queue is empty. Add data in the Data tab first.";
             return;
         }
+
         if (IsBusy) return;
+
+        if (queued.Count > 1)
+        {
+            var confirmed = await ConfirmBatchAsync(queued.Count);
+            if (!confirmed)
+            {
+                StatusText = "Batch run cancelled.";
+                return;
+            }
+        }
 
         try
         {
             IsBusy = true;
 
-            var progress = new Progress<DataProgress>(p => StatusText = p.Message);
-            var data = await _data.GetSymbolDataAsync(SelectedSymbol, "1D", progress);
-
-            if (data == null || data.Count == 0)
-            {
-                StatusText = $"No data available for {SelectedSymbol}.";
-                return;
-            }
-
             var paramValues = new Dictionary<string, string>();
             foreach (var p in Parameters)
                 paramValues[p.Name] = p.EffectiveValue;
 
-            StatusText = $"Running {SelectedStrategy.Name} on {SelectedSymbol}...";
-            var result = await _strat.RunBacktestFromFileAsync(
-                SelectedStrategy.Path,
-                data,
-                paramValues);
+            var batchResults = new List<OverviewData>();
 
-            StatusText = result.Success
-                ? $"OK  {SelectedStrategy.Name}  {SelectedSymbol}  ({result.Duration.TotalMilliseconds:F0} ms, {result.Trades.Count} trades)"
-                : $"FAIL  {SelectedStrategy.Name}  {result.Error}";
+            for (int i = 0; i < queued.Count; i++)
+            {
+                var item = queued[i];
+                StatusText = $"Running {SelectedStrategy.Name} on {item.Symbol}@{item.Timeframe} ({i + 1}/{queued.Count})...";
 
-            _lastRun.Publish(new OverviewData(
-                StrategyName: SelectedStrategy.Name,
-                StrategyPath: SelectedStrategy.Path,
-                Symbol: SelectedSymbol,
-                Timeframe: "1D",
-                RunUtc: DateTime.UtcNow,
-                Duration: result.Duration,
-                Trades: result.Trades,
-                SourceData: data,
-                Error: result.Success ? null : result.Error));
+                var progress = new Progress<DataProgress>(p =>
+                    StatusText = $"[{i + 1}/{queued.Count}] {p.Message}");
 
-            RunCompleted?.Invoke(this, result);
-            RefreshSymbols();
+                var data = await _data.GetSymbolDataAsync(item.Symbol, item.Timeframe, progress);
+                if (data == null || data.Count == 0)
+                {
+                    LogManager.Warn(LogTag.Runner, $"no data for {item.Symbol}@{item.Timeframe}, skipping");
+                    batchResults.Add(new OverviewData(
+                        StrategyName: SelectedStrategy.Name,
+                        StrategyPath: SelectedStrategy.Path,
+                        Symbol: item.Symbol,
+                        Timeframe: item.Timeframe,
+                        RunUtc: DateTime.UtcNow,
+                        Duration: TimeSpan.Zero,
+                        Trades: Array.Empty<Trade>(),
+                        SourceData: Array.Empty<Core.Models.Kline>(),
+                        Error: "No data available."));
+                    continue;
+                }
+
+                var result = await _strat.RunBacktestFromFileAsync(
+                    SelectedStrategy.Path,
+                    data,
+                    paramValues);
+
+                batchResults.Add(new OverviewData(
+                    StrategyName: SelectedStrategy.Name,
+                    StrategyPath: SelectedStrategy.Path,
+                    Symbol: item.Symbol,
+                    Timeframe: item.Timeframe,
+                    RunUtc: DateTime.UtcNow,
+                    Duration: result.Duration,
+                    Trades: result.Trades,
+                    SourceData: data,
+                    Error: result.Success ? null : result.Error));
+
+                RunCompleted?.Invoke(this, result);
+            }
+
+            _lastRun.PublishBatch(batchResults);
+
+            int ok = batchResults.Count(r => r.Error == null);
+            int total = batchResults.Count;
+            int totalTrades = batchResults.Sum(r => r.Trades.Count);
+            StatusText = $"Batch complete — {ok}/{total} succeeded, {totalTrades} trades total.";
         }
         catch (Exception ex)
         {
-            StatusText = $"Run failed: {ex.Message}";
+            LogManager.Error(LogTag.Runner, "batch run failed", ex);
+            StatusText = $"Batch failed: {ex.Message}";
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    private async Task<bool> ConfirmBatchAsync(int count)
+    {
+        var owner = GetMainWindow();
+        if (owner == null) return true;
+
+        bool confirmed = false;
+
+        var yes = new Button { Content = "Yes, continue" };
+        var no = new Button { Content = "Cancel" };
+
+        var dlg = new Window
+        {
+            Title = "Multiple Datasets",
+            Width = 460,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"You have selected {count} datasets in the queue.",
+                        FontSize = 13
+                    },
+                    new TextBlock
+                    {
+                        Text = $"Running will execute the strategy on all {count} datasets sequentially.",
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                        Opacity = 0.8,
+                        FontSize = 12
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { no, yes }
+                    }
+                }
+            }
+        };
+
+        yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
+        no.Click += (_, _) => { confirmed = false; dlg.Close(); };
+
+        await dlg.ShowDialog(owner);
+        return confirmed;
     }
 
     [RelayCommand]

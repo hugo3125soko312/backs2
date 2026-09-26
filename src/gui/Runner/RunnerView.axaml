@@ -5,37 +5,35 @@
              x:Class="backs2.Views.RunnerView"
              x:DataType="vm:RunnerViewModel">
 
-    <Grid ColumnDefinitions="280,4,*,4,280" RowDefinitions="Auto,*,Auto">
+    <Grid ColumnDefinitions="280,4,*,4,280" RowDefinitions="Auto,Auto,*,Auto">
 
+        <!-- Toolbar -->
         <StackPanel Grid.Row="0" Grid.ColumnSpan="5"
-                    Orientation="Horizontal"
-                    Spacing="8"
+                    Spacing="6"
                     Margin="8">
 
-            <TextBlock Text="Symbol:" VerticalAlignment="Center" />
-            <ComboBox Width="130"
-                      ItemsSource="{Binding AvailableSymbols}"
-                      SelectedItem="{Binding SelectedSymbol, Mode=TwoWay}" />
-            <TextBox Width="110"
-                     Watermark="or type..."
-                     Text="{Binding SelectedSymbol, Mode=TwoWay}" />
-            <Button Content="Refresh"
-                    Command="{Binding RefreshSymbolsCommand}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Run on:" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding QueueHint}"
+                           VerticalAlignment="Center"
+                           Foreground="#4FC3F7" />
 
-            <TextBlock Text="Strategy:" VerticalAlignment="Center" Margin="12,0,0,0" />
-            <Button Content="Refresh Catalog"
-                    Command="{Binding RefreshCatalogCommand}" />
+                <Button Content="Refresh Catalog"
+                        Command="{Binding RefreshCatalogCommand}"
+                        Margin="16,0,0,0" />
 
-            <Button Content="Run"
-                    Command="{Binding RunCommand}"
-                    IsEnabled="{Binding !IsBusy}" />
+                <Button Content="Run"
+                        Command="{Binding RunCommand}"
+                        IsEnabled="{Binding CanRun}" />
 
-            <Button Content="Presets..."
-                    Command="{Binding OpenPresetsCommand}" />
-            <Button Content="Save Preset..."
-                    Command="{Binding SavePresetCommand}" />
+                <Button Content="Presets..."
+                        Command="{Binding OpenPresetsCommand}" />
+                <Button Content="Save Preset..."
+                        Command="{Binding SavePresetCommand}" />
+            </StackPanel>
         </StackPanel>
 
+        <!-- Strategy list -->
         <ListBox Grid.Row="1" Grid.Column="0"
                  ItemsSource="{Binding Strategies}"
                  SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}"
@@ -60,6 +58,7 @@
                       Background="Transparent"
                       ResizeDirection="Columns" />
 
+        <!-- Source preview -->
         <Border Grid.Row="1" Grid.Column="2"
                 BorderThickness="1"
                 BorderBrush="#333">
@@ -81,6 +80,7 @@
                       Background="Transparent"
                       ResizeDirection="Columns" />
 
+        <!-- Parameter panel -->
         <Border Grid.Row="1" Grid.Column="4"
                 Margin="0,0,8,0"
                 Padding="8"
@@ -125,7 +125,8 @@
             </ScrollViewer>
         </Border>
 
-        <TextBox Grid.Row="2" Grid.ColumnSpan="5"
+        <!-- Status line -->
+        <TextBox Grid.Row="3" Grid.ColumnSpan="5"
                  Text="{Binding StatusText}"
                  IsReadOnly="True"
                  BorderThickness="0"

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,8 +28,12 @@ public partial class MonteCarloViewModel : ObservableObject
 
     private AvaPlot? _plot;
     private MonteCarloResult? _lastResult;
+    private IReadOnlyList<OverviewData> _batch = Array.Empty<OverviewData>();
 
     public ObservableCollection<McStatRow> Stats { get; } = new();
+    public ObservableCollection<OverviewData> BatchItems { get; } = new();
+
+    [ObservableProperty] private OverviewData? _selectedBatchItem;
 
     [ObservableProperty] private int _iterations = 1000;
     [ObservableProperty] private int _meanBlockSize = 5;
@@ -41,6 +46,7 @@ public partial class MonteCarloViewModel : ObservableObject
     [ObservableProperty] private string _activeAccountName = "(none)";
     [ObservableProperty] private string _sourceInfo = "No run data yet.";
     [ObservableProperty] private bool _hasRunData;
+    [ObservableProperty] private bool _hasBatch;
 
     public MonteCarloViewModel(
         LastRunStore lastRun,
@@ -55,10 +61,9 @@ public partial class MonteCarloViewModel : ObservableObject
         _accounts.ActiveChanged += OnActiveChanged;
 
         ApplyAccountDefaults();
-        RefreshSourceInfo();
 
-        if (_lastRun.Current != null)
-            OnLastRunChanged(this, _lastRun.Current);
+        if (_lastRun.Batch.Count > 0)
+            OnLastRunChanged(this, _lastRun.Batch);
     }
 
     public void SetPlotControl(AvaPlot plot)
@@ -67,25 +72,43 @@ public partial class MonteCarloViewModel : ObservableObject
         if (_lastResult != null) RenderPlots(_lastResult);
     }
 
-    private void OnLastRunChanged(object? sender, OverviewData data)
+    private void OnLastRunChanged(object? sender, IReadOnlyList<OverviewData> batch)
     {
         Dispatcher.UIThread.Post(() =>
         {
-            RefreshSourceInfo();
+            _batch = batch ?? Array.Empty<OverviewData>();
+
+            BatchItems.Clear();
+            foreach (var item in _batch)
+                BatchItems.Add(item);
+
+            HasBatch = _batch.Count > 1;
+
+            // Select the most recent entry by default.
+            SelectedBatchItem = _batch.Count > 0 ? _batch[_batch.Count - 1] : null;
+
             // Stale results — the trades changed.
             _lastResult = null;
             Stats.Clear();
             _plot?.Plot.Clear();
             _plot?.Refresh();
+
+            RefreshSourceInfo();
         });
+    }
+
+    partial void OnSelectedBatchItemChanged(OverviewData? value)
+    {
+        _lastResult = null;
+        Stats.Clear();
+        _plot?.Plot.Clear();
+        _plot?.Refresh();
+        RefreshSourceInfo();
     }
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
-        Dispatcher.UIThread.Post(() =>
-        {
-            ApplyAccountDefaults();
-        });
+        Dispatcher.UIThread.Post(() => ApplyAccountDefaults());
     }
 
     private void ApplyAccountDefaults()
@@ -105,24 +128,31 @@ public partial class MonteCarloViewModel : ObservableObject
         }
     }
 
+    private OverviewData? CurrentData => SelectedBatchItem ?? _lastRun.Current;
+
     private void RefreshSourceInfo()
     {
-        var data = _lastRun.Current;
+        var data = CurrentData;
         if (data == null)
         {
             SourceInfo = "No run data yet.";
             HasRunData = false;
             return;
         }
-
+    
         if (data.Error != null)
         {
-            SourceInfo = $"Last run failed — {data.Error}";
+            SourceInfo = $"Run failed — {data.Error}";
             HasRunData = false;
             return;
         }
-
-        SourceInfo = $"{data.StrategyName} · {data.Symbol} @ {data.Timeframe} · {data.Trades.Count} trades";
+    
+        int idx = BatchItems.IndexOf(data);
+        var prefix = HasBatch && BatchItems.Count > 1 && idx >= 0
+            ? $"({idx + 1}/{BatchItems.Count}) "
+            : "";
+    
+        SourceInfo = $"{prefix}{data.StrategyName} · {data.Symbol} @ {data.Timeframe} · {data.Trades.Count} trades";
         HasRunData = data.Trades.Count >= 2;
     }
 
@@ -131,7 +161,7 @@ public partial class MonteCarloViewModel : ObservableObject
     {
         if (IsBusy) return;
 
-        var data = _lastRun.Current;
+        var data = CurrentData;
         if (data == null || data.Trades.Count < 2)
         {
             StatusText = "No run data available. Run a strategy in the Runner tab first.";
@@ -244,12 +274,10 @@ public partial class MonteCarloViewModel : ObservableObject
         var plt = _plot.Plot;
         plt.Clear();
 
-        // Histogram of Net Profit
         var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.NetProfits);
         var bars = plt.Add.Bars(hist.Bins, hist.Counts);
         bars.Color = ScottPlot.Color.FromHex("#4FC3F7");
 
-        // Percentile lines
         double p05 = r.NetProfitP05;
         double p50 = r.NetProfitMedian;
         double p95 = r.NetProfitP95;

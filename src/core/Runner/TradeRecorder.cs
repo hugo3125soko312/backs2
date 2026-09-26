@@ -1,4 +1,3 @@
-// src/core/Runner/TradeRecorder.cs
 using System;
 using System.Collections.Generic;
 using backs2.Core.Models;
@@ -14,7 +13,9 @@ public sealed class TradeRecorder
     private bool _hasOpen;
     private string _openSide = "";
     private DateTime _openTime;
+    private int _openIndex;
     private double _openPrice;
+    private double _openSize = 1.0;
 
     public TradeRecorder(List<Kline> data)
     {
@@ -29,13 +30,17 @@ public sealed class TradeRecorder
             _cursor = index;
     }
 
-    public void Enter(string side, double price)
+    public void Enter(string side, double price, double size = 1.0)
     {
         if (_hasOpen) return;
+        if (size <= 0) size = 1.0;
+
         _hasOpen = true;
         _openSide = side;
         _openPrice = price;
+        _openSize = size;
         _openTime = CurrentTime();
+        _openIndex = _cursor;
     }
 
     public void Exit(double price)
@@ -43,20 +48,29 @@ public sealed class TradeRecorder
         if (!_hasOpen) return;
 
         var exitTime = CurrentTime();
-        double rawPnl = _openSide == "Long"
-            ? price - _openPrice
-            : _openPrice - price;
+        int exitIndex = _cursor;
 
-        double pct = _openPrice != 0 ? rawPnl / _openPrice : 0;
+        double rawPnl = _openSide == "Long"
+            ? (price - _openPrice) * _openSize
+            : (_openPrice - price) * _openSize;
+
+        double pct = _openPrice != 0
+            ? (_openSide == "Long"
+                ? (price - _openPrice) / _openPrice
+                : (_openPrice - price) / _openPrice)
+            : 0;
 
         _closed.Add(new Trade(
-            _openTime,
-            exitTime,
-            _openPrice,
-            price,
-            _openSide,
-            rawPnl,
-            pct));
+            EntryTime: _openTime,
+            ExitTime: exitTime,
+            EntryIndex: _openIndex,
+            ExitIndex: exitIndex,
+            EntryPrice: _openPrice,
+            ExitPrice: price,
+            Size: _openSize,
+            Side: _openSide,
+            PnL: rawPnl,
+            PnLPercent: pct));
 
         _hasOpen = false;
     }

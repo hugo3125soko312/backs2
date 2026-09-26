@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
+             xmlns:core="using:backs2.Core.Overview"
              xmlns:ScottPlot="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
              x:Class="backs2.Views.MonteCarloView"
              x:DataType="vm:MonteCarloViewModel">
@@ -9,6 +10,25 @@
 
         <!-- Toolbar -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+
+            <TextBlock Text="Dataset:"
+                       VerticalAlignment="Center"
+                       IsVisible="{Binding HasBatch}" />
+            <ComboBox Width="220"
+                      ItemsSource="{Binding BatchItems}"
+                      SelectedItem="{Binding SelectedBatchItem, Mode=TwoWay}"
+                      IsVisible="{Binding HasBatch}"
+                      PlaceholderText="(auto)">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="core:OverviewData">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Symbol}" FontWeight="SemiBold" />
+                            <TextBlock Text="@" Opacity="0.5" />
+                            <TextBlock Text="{Binding Timeframe}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
 
             <TextBlock Text="Iterations:" VerticalAlignment="Center" />
             <NumericUpDown Value="{Binding Iterations, Mode=TwoWay}"
