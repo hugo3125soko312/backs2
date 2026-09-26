@@ -23,11 +23,11 @@ This protocol fires whenever ANY of the following is completed:
 - A core script / module (a new or substantially rewritten file under src/core/ or src/gui/).
 - Any change set the user explicitly describes as "done".
 
-When the protocol fires, the response must end with, IN THIS ORDER:
+When the protocol fires:
 
 ### Step 1 — Update the docs to match the shipped code
 Update the following, only for sections the change actually affected:
-- `docs/ROADMAP.md` — move completed phase/sub-phase to `docs/ROADMAP_ARCHIVE.md`, mark it `[COMPLETED]`. If the change is a feature or script not tied to a numbered phase, append a bullet to the closest phase or create a new phase entry.
+- `docs/ROADMAP.md` — move completed phase/sub-phase to `docs/ROADMAP_ARCHIVE.md`, mark it `[COMPLETED]`.
 - `docs/ROADMAP_ARCHIVE.md` — receive the completed phase/sub-phase, frozen at the state it shipped in.
 - `docs/ARCHITECTURE.md` — new services, new flows, new file formats, new tabs, changed interfaces.
 - `docs/PROJECT_CONTEXT.md` — dependencies, rules, or structure if the change altered them.
@@ -35,26 +35,20 @@ Update the following, only for sections the change actually affected:
 
 Docs must be written as if the code already exists in its final form. Never leave a doc describing a "planned" state for something that just shipped.
 
-### Step 2 — Stage everything
-A single PowerShell command staging all changes (code + docs):
+### Step 2 — Stage, commit, verify
     git add -A
-
-### Step 3 — Commit with the project's message convention
     git commit -m "<type>(<scope>): <summary>" -m "- <bullet>" -m "- <bullet>"
+    git status
 
 Types: feat, fix, perf, docs, refactor, chore, wip.
-Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets.
+Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue.
 Summary: one line, imperative mood, no trailing period, under 72 characters.
 
 The commit is atomic: code and docs land together for a feature / script completion. Do NOT split into a code commit and a docs commit unless the change set is a numbered ROADMAP phase, in which case the split (code first, docs second) is acceptable.
 
-### Step 4 — Verify
-    git log --oneline -3
-    git status
-
 `git status` must be clean. If it shows untracked or modified files, either stage them or add them to .gitignore before finalizing.
 
-### Step 5 — One-line note
+### Step 3 — One-line note
 Close the response with a single sentence confirming what the commit covers.
 
 ## When NOT to fire the Completion Protocol
