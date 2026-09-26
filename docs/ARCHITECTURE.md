@@ -254,3 +254,39 @@
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
   - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
 - Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. No consumer wiring has landed yet — that is Phase 10.14B/C.
+
+## 16. Time-Domain Monte Carlo (Phase 10.15)
+
+Replaces the original trade-shuffling Monte Carlo engine. The trade domain is statistically invalid for prop-firm evaluation because it destroys intra-trade equity paths, ignores trailing drawdown, and treats time as irrelevant.
+
+### Data model
+- `TimeSlice` (`src/core/Overview/TimeSlice.cs`) — readonly struct. `Timestamp` (Unix ms), `MtmHigh`, `MtmLow`, `RealizedPnl`, `IsEodReset`. One slice per Kline. `LayoutKind.Sequential`. `double` not `float` — 5000 bars × 1000 paths is small enough that float's precision loss is not worth the marginal speed.
+- `TimeSliceBuilder` (`src/core/Overview/TimeSliceBuilder.cs`) — pure static function `Build(IReadOnlyList<Trade>, IReadOnlyList<Kline>) → TimeSlice[]`. Per-slice MTM reflects intra-candle excursion of the open position. RealizedPnl is written only on the trade's exit slice. EOD flag is set on the first slice of each new day (day-of-year transition). Allocation-free: one array, no LINQ, no lists in the hot path.
+
+### Trade record extension (Phase 10.15A)
+- `Trade` gains `EntryIndex`, `ExitIndex`, `Size`.
+- `TradeRecorder.Enter(side, price, size = 1.0)` — size defaults to 1.0. Existing strategies compile unchanged.
+- `PnL` is now size-scaled (`(exit - entry) * size` for long). `PnLPercent` remains per-unit (`(exit - entry) / entry`).
+
+### Trade → TimeSlice relationship
+For each trade, every slice between `EntryIndex` and `ExitIndex` carries:
+- `MtmHigh = (High - entryPrice) * size` for long, `(entryPrice - Low) * size` for short.
+- `MtmLow = (Low - entryPrice) * size` for long, `(entryPrice - High) * size` for short.
+- `RealizedPnl = trade.PnL` on the exit slice only, 0 elsewhere.
+
+Trades cannot overlap today — `TradeRecorder._hasOpen` enforces it. If multi-position strategies are added later, the accumulator in `TimeSliceBuilder` sums MTM across simultaneous trades.
+
+### Pending engine (Phase 10.15C)
+The new `MonteCarloEngine` will consume the `TimeSlice[]` and implement:
+- Stationary block bootstrap (Politis & Romano): block length drawn from a geometric distribution with mean `ExpectedBlockSize`. Circular wrap.
+- Flat-bet absolute PnL compounding (`CurrentBalance += RealizedPnl`), not percentage. Prop firm capital is nominal and fixed-lot.
+- State machine per slice: MTM low check against daily floor and max-DD floor, then realize PnL, then update HWM, then EOD reset.
+- `DrawdownType` from the active account: `static`, `trailing-eod`, `trailing-intraday`. The HWM update semantics differ per type.
+- Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin.
+- Target duration from `AccountPhase.TradingPeriodDays` (fallback 90 days).
+- Independent Monte Carlo runs per queued dataset. Aggregation sums expectations, does not pool trades.
+
+### Why the old engine is being replaced
+- Trade shuffling destroys volatility clustering and return autocorrelation.
+- Intra-trade equity excursions are invisible. A position that spikes to -5.1% intra-candle but closes at +2% is scored a win, when the prop firm would have terminated the account.
+- Static ruin thresholds understate risk on trailing-drawdown accounts like FTMO 1-Step.

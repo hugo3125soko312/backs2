@@ -274,3 +274,28 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Pending removal visual: dimmed to 45% opacity.
 - [x] `SelectionQueue` registered as singleton in `App.axaml.cs`.
 - [x] Runner and Chart still use their own pickers; migrate in 10.14B/C.
+
+## Phase 10.14B: Runner Batch Execution [COMPLETED]
+- [x] `RunnerViewModel` reads the `SelectionQueue` instead of its own symbol/timeframe pickers.
+- [x] `RunAsync` iterates every queued dataset, runs the strategy against each.
+- [x] Confirmation modal shown when queue has more than one dataset.
+- [x] `LastRunStore` holds `IReadOnlyList<OverviewData>`; `Changed` event passes the batch.
+- [x] `RunnerView.axaml` toolbar replaced with `Run on: N dataset(s) queued.` display.
+- [x] Verified: 3 queued datasets → 3 strategy executions, three log entries.
+
+## Phase 10.14C: Chart Consumption [COMPLETED]
+- [x] `ChartViewModel` reads queue; single `Dataset` dropdown bound to `QueuedItems`.
+- [x] `ChartView.axaml` toolbar reduced to `Dataset` picker + `Reload` + `ProgressBar`.
+- [x] Removed `AvailableSymbols`, `AvailableTimeframes`, `RefreshSymbolsCommand`.
+- [x] Removed dead `src/gui/Strats` folder.
+- [x] Renamed `OverviewModel.cs` → `OverviewViewModel.cs` (cosmetic; class was already correct).
+
+## Phase 10.15A: Trade extension [COMPLETED]
+- [x] `Trade` record gains `EntryIndex`, `ExitIndex`, `Size`.
+- [x] `TradeRecorder.Enter(side, price, size = 1.0)` — backward compatible.
+- [x] `PnL` is size-scaled; `PnLPercent` is per-unit.
+
+## Phase 10.15B: TimeSlice + builder [COMPLETED]
+- [x] `TimeSlice` readonly struct — `Timestamp`, `MtmHigh`, `MtmLow`, `RealizedPnl`, `IsEodReset`.
+- [x] `TimeSliceBuilder.Build(trades, klines)` — per-slice intra-trade MTM, exit-slice realized PnL, day-boundary EOD flag.
+- [x] Allocation-free: one array, no LINQ, no lists.

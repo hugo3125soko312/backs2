@@ -13,70 +13,68 @@ ONLY SPEAK IN ENGLISH
     - UI progress via IProgress<T>.
     - Strictly typed bindings required for all AXAML.
 - Metrics:
-    - Every `IMetric` must return a defined value for degenerate inputs (empty list, flat series, single bar) and must never throw.
-    - Metrics are pure and stateless: same input, same output. No memoisation, no caches, no cross-call state inside a metric or the engine.
-    - `MetricRegistry.GetMetric` returns `NullMetric.Instance` on a miss (`Calculate => 0`). It never throws and never returns null, so strategy scripts can call `.Calculate(...)` unconditionally.
+    - Every `IMetric` must return a defined value for degenerate inputs and must never throw.
+    - Metrics are pure and stateless.
+    - `MetricRegistry.GetMetric` returns `NullMetric.Instance` on a miss.
     - New metrics: subclass `BaseMetric`, supply `Name`, `Lag`, `Category`, `Description`, register in `MetricRegistry`.
 - Settings & Dynamic UI:
-    - To add an engine setting, simply declare a public property on `AppSettings`.
-    - Supported types (`int`, `double`, `bool`, `string`, `Color`) auto-render into appropriate controls in Config tab (`NumericUpDown`, `ToggleSwitch`, `TextBox`, `ColorPicker Ring`).
+    - To add an engine setting, declare a public property on `AppSettings`. It auto-renders in the Config tab.
+    - Supported types (`int`, `double`, `bool`, `string`, `Color`) auto-render.
     - Do NOT hardcode XAML controls for `AppSettings` properties.
-    - For non-secret on-disk state that is not an `AppSettings` property, resolve the config root via `ConfigManager.ConfigDirectory`. Do not hardcode `"config"` outside `ConfigManager`.
+    - For non-secret on-disk state, resolve the config root via `ConfigManager.ConfigDirectory`.
 - Secrets:
-    - Never hard-code API keys.
-    - Never write secrets to config/settings.json.
+    - Never hard-code API keys. Never write secrets to config/settings.json.
     - Read from ConfigManager read-only properties, sourced from .env.
 - Providers:
     - Implement IDataProvider; register as keyed transient in App.axaml.cs.
-    - Providers are automatically discovered by `ConfigViewModel` via assembly reflection.
-    - Do symbol resolution inside the provider. Do not add symbol translation to DataManager or IDataProvider.
-    - Do timeframe wire-format mapping inside TimeframeMap, not inside individual providers.
-    - Return an empty List<Kline> on failure; never throw — DataManager uses empty as the signal to fall back.
+    - Symbol resolution inside the provider. Timeframe mapping inside TimeframeMap.
+    - Return an empty List<Kline> on failure; never throw.
     - Name is human-readable and shown in the Config tab.
 - Caching:
-    - Disk format is KlineCompact[], serialized via KlineJsonContext.
-    - Never add a new cache format without a schema/version detection path in LoadCacheAsync.
-    - Cache keys are symbol@timeframe.
+    - Disk format is `CacheEnvelope` wrapping `KlineCompact[]`, serialized via `KlineJsonContext`.
+    - Never add a new cache format without a schema/version detection path in `LoadCacheAsync`.
+    - Cache keys are `symbol@timeframe`.
 - Strategies:
     - Live in data/strategies/, one file per strategy, top-level statements.
-    - Globals: Engine (MetricRegistry), Data (List<Kline>), Log(string), Trades (TradeRecorder), Params (Dictionary<string,string>).
+    - Globals: Engine, Data, Log, Trades, Params.
     - Parameters declared at the top of the file with `// @param <Name> <Type> = <Default> [options: "A", "B"]`.
-    - Supported types: int, double, bool, string. `options:` is only valid on string params; it renders a ComboBox.
     - Never place a strategy .cs outside data/strategies/.
-    - Never add a strategy file to a Compile item. Strategies are Roslyn-evaluated, not compiled.
-    - Trade recording: call `Trades.Advance(index)` before `Enter` / `Exit` so timestamps come from the correct Kline. Do not write trades to disk manually.
+    - Trade recording: `Trades.Advance(index)` before `Enter` / `Exit`. `Enter(side, price, size = 1.0)`.
 - Presets:
     - Live in config/presets/{StrategyName}_{PresetName}.preset.json.
-    - Manage exclusively through PresetService. Do not write preset files directly.
-    - The filename is a lossy transport; the JSON payload is the source of truth for the preset name.
+    - Manage exclusively through PresetService.
 - Accounts:
-    - One JSON per firm at data/accounts/{Firm}.account.json. Contains ALL plans and ALL sizes for that firm.
-    - Manage exclusively through AccountService. Do not read account JSONs directly in ViewModels.
-    - Active selection is a triple (ActiveAccountFirmFile, ActiveAccountPlan, ActiveAccountSize) stored in config/settings.json.
-    - Never split a firm across multiple files. Never rename account files outside the app.
-    - Use AccountService.ResolvePlanSize(descriptor) to read a specific size's phases and starting capital.
-    - `data/accounts/_TEMPLATE.account.json` is the schema reference. Do not delete it.
-- Runner:
-    - Runner GUI lives in src/gui/Runner/.
-    - Runner core types live in src/core/Runner/.
-    - RunnerScriptGlobals is the script contract. Add new globals there, not in StrategyManager.
-    - Parameter parsing never executes the strategy file; it only reads `// @param` lines up to the first non-comment line.
-- Overview & Monte Carlo:
-    - LastRunStore is the handoff point between Runner and every downstream consumer.
-    - MonteCarloEngine reads trades as IReadOnlyList<Trade>. It does not fetch data, does not resolve accounts, does not touch the UI. It is a pure function of (trades, duration, params, seed).
-    - Use Random.Shared in parallel loops. Do not add an RNG NuGet package.
-    - No allocations inside the Parallel.For loop. Pre-allocate result arrays, no List<T>.Add, no LINQ.
+    - One JSON per firm at data/accounts/{Firm}.account.json.
+    - Manage exclusively through AccountService.
+    - Active selection is a triple in settings.json.
+    - Never split a firm across multiple files.
+- Selection Queue:
+    - `SelectionQueue` is the only place enabled-dataset state lives.
+    - `DataRowViewModel.IsQueued` is the only writer.
+    - Queue modal pending-removal is committed on Done, discarded on Cancel.
+- Monte Carlo:
+    - Operates in the time domain. Never scramble trades directly.
+    - Build `TimeSlice[]` via `TimeSliceBuilder.Build(trades, klines)`. One slice per Kline.
+    - Block bootstrap: stationary (Politis & Romano), geometric block length, circular wrap.
+    - Compound as `CurrentBalance += RealizedPnl`. Never percentage-compound. Prop firm capital is nominal.
+    - Evaluate prop-firm rules per slice against MTM low, not closed-trade PnL.
+    - `DrawdownType` from the active account: `static`, `trailing-eod`, `trailing-intraday`. Never ignore it.
+    - Batch: independent runs per queued dataset. Aggregate by summing expectations, not by pooling trades.
+- Logging:
+    - Write via `LogManager.Info(LogTag.X, msg)` / `Warn` / `Debug` / `Error`.
+    - `LogManager` is static. Never register it in DI. Never pass it as a ctor parameter.
+    - Tags: App, Cache, Data, Provider, Strategy, Runner, Account, MonteCarlo, Overview, Chart, Config, Metric.
+    - Debug for troubleshooting-only lines. Info for main flow. Warn for recoverable abnormal. Error for exceptions with `ex`.
 - XAML binding inside templates:
     - Use Binding DataContext.Prop with RelativeSource AncestorType=UserControl.
-    - Do not use $parent[UserControl].((vm:Type)DataContext).Prop — fails at runtime inside templates.
-- Selecting text in the UI:
-    - TextBlock for clickable list rows.
-    - Read-only TextBox only where copy/paste is required (source preview, log output, status line).
-- Logs:
-    - Write via LogManager.Info / LogManager.Error.
-    - logs/ is git-ignored. One log file per app run: runtime-{timestamp}.log.
+    - Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 - Charting:
-    - ScottPlot.Avalonia 5.0.55 is the standard for hardware-accelerated SkiaSharp charting.
+    - ScottPlot.Avalonia 5.0.55 is the standard.
+- Build vs Run Protocol:
+    - Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
+    - Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
+    - Ask for build OR run, never both.
+    - If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.
 
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:
@@ -85,27 +83,15 @@ When a phase is completed, ship a commit with the message format:
 
     - <bullet 1>
     - <bullet 2>
-    ...
 
-Types:
-- feat      new functionality
-- fix       bug fix
-- perf      performance work
-- docs      documentation only
-- refactor  internal restructuring, no behavior change
-- chore     build, deps, config, non-code
-- wip       work in progress, not yet complete (used for blocked phases)
-
-Scope:
-- The affected subsystem: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo.
+Types: feat, fix, perf, docs, refactor, chore, wip.
+Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue.
 
 Summary: one line, imperative mood, no trailing period. Under 72 characters.
 
-Body: optional bullets listing the concrete changes. Include phase references when applicable, e.g. "(Phase 10.5)".
-
-After the commit, print the last three log lines to confirm:
+After the commit, print the last three log lines:
 
     git log --oneline -3
     git status
 
-The working tree must be clean. If git status shows untracked or modified files, either stage them or add them to .gitignore before finalizing.
+The working tree must be clean.

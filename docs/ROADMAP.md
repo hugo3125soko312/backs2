@@ -4,89 +4,70 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-## Phase 10.10: Account Configuration [COMPLETED]
+## Phase 10.15: Time-Domain Monte Carlo [IN PROGRESS]
+
+Replaces the trade-shuffling Monte Carlo engine. See `docs/ARCHITECTURE.md` §16 for the full specification.
+
+### Phase 10.15A -- Trade extension [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-## Phase 10.11: Monte Carlo [IN PROGRESS]
-
-### Phase 10.11A -- LastRunStore & OverviewData [COMPLETED]
+### Phase 10.15B -- TimeSlice + builder [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.11B -- Monte Carlo Core [COMPLETED]
-See `docs/ROADMAP_ARCHIVE.md`.
+### Phase 10.15C -- New MonteCarloEngine [NEXT]
+- [ ] Delete the trade-shuffling simulation. `MonteCarloEngine.Run` takes `TimeSlice[]`, `targetDurationSlices`, `startingCapital`, `DrawdownType`, `MaxDailyLossPercent`, `MaxLossPercent`, `ProfitTargetPercent`, `ExpectedBlockSize`, `seed`, `IProgress<int>`.
+- [ ] Stationary block bootstrap: block start uniform, block length geometric with mean `ExpectedBlockSize`, circular wrap.
+- [ ] State machine per slice: MTM low check (daily and max), PnL realization, HWM update per `DrawdownType`, EOD reset.
+- [ ] `DrawdownType` handling: `static` (fixed floor from initial), `trailing-eod` (floor from HWM updated at EOD), `trailing-intraday` (floor from HWM updated continuously).
+- [ ] Early exit on blown or passed. `SlicesElapsed` recorded at termination.
+- [ ] Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin, per-path terminal balance array.
+- [ ] `Random.Shared` for parallel, per-iteration seed for reproducibility.
+- [ ] Pre-allocated result arrays. No `List<T>.Add`, no LINQ in the hot loop.
+- [ ] Target duration from `AccountPhase.TradingPeriodDays`, fallback 90 days.
 
-### Phase 10.11C -- Monte Carlo Tab GUI [COMPLETED]
-See `docs/ROADMAP_ARCHIVE.md`.
+### Phase 10.15D -- MonteCarloViewModel rework
+- [ ] Read active account rules from `AccountService.Active`. Last phase's `MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`.
+- [ ] Build `TimeSlice[]` via `TimeSliceBuilder.Build(data.Trades, data.SourceData)`.
+- [ ] Independent run per queued dataset when `LastRunStore.Batch.Count > 1`.
+- [ ] Display `P(ruin)`, `P(funded)`, `P(timeout)` in the summary panel — replace `Risk of Ruin`.
+- [ ] Replace `Net Profit Distribution` histogram with terminal-balance distribution colored by outcome (blown, passed, timeout).
+- [ ] Fix `Annual Return` and `Sharpe` computations: use wall-clock duration from `SourceData` span, not `result.Duration`.
+- [ ] Fix histogram rendering: `plt.Axes.AutoScale()` after adding bars, then add percentile lines.
 
-### Phase 10.11C2 -- Equity Curve Rendering [PENDING]
-- [ ] Extend `MonteCarloEngine` to store per-simulation equity curves (`double[][]`).
-- [ ] Spaghetti plot: base, p05, p95 + configurable straw broom.
-- [ ] Render only fixed lines + straw broom sample, never all 1000.
-
-### Phase 10.11D -- Overview Tab (Full)
-- [ ] Full in-sample metrics table: CAGR, Expectancy, Sharpe, Sortino, Profit Factor, Win Rate, Avg Duration, Max DD.
-- [ ] Monte Carlo summary: Risk of Ruin, p05/p50/p95 for Net Profit and Max DD.
-- [ ] Three-column header (In-Sample / Monte Carlo / Out-of-Sample).
-- [ ] Color-coded cells.
-
----
-
-## Phase 10.12: Tagged Logging Refactor [COMPLETED]
-See `docs/ROADMAP_ARCHIVE.md`.
-
----
-
-## Phase 10.13: VWAP Zero-Volume Fallback [COMPLETED]
-See `docs/ROADMAP_ARCHIVE.md`.
+### Phase 10.15E -- Overview batch summary
+- [ ] `OverviewViewModel` reads `LastRunStore.Batch` and displays per-dataset outcomes.
+- [ ] Aggregate metrics computed by summing expectations, not pooling trades.
 
 ---
 
 ## Phase 10.14: Selection Queue [IN PROGRESS]
 
-The Data tab is the single source of truth for "which datasets are enabled." Consumer tabs read from the queue instead of maintaining their own pickers.
-
-### Phase 10.14A -- Queue Model + Data Tab [COMPLETED]
+### Phase 10.14A -- Queue model + Data tab [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.14B -- Runner Batch Execution [PENDING]
-- [ ] `RunnerViewModel` reads the queue instead of its own symbol/timeframe ComboBoxes.
-- [ ] `RunAsync` iterates every queued dataset, runs the strategy against each, and produces N `StrategyRunResult`s.
-- [ ] Before running with >1 queued dataset, show a modal confirmation: "You have selected N datasets. Running will execute the strategy on all N datasets sequentially. [Yes, continue] [Cancel]."
-- [ ] `LastRunStore.Publish` extended to hold a batch — either `IReadOnlyList<OverviewData>` or a single `Current` plus a `Batch` list.
-- [ ] Empty queue: Run button disabled, hint shows "Add data in the Data tab first."
-- [ ] Runner's own symbol/timeframe ComboBoxes removed.
+### Phase 10.14B -- Runner batch execution [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.14C -- Chart Consumption [PENDING]
-- [ ] `ChartViewModel` reads the queue.
-- [ ] Chart has a small dropdown at the top to pick which queued dataset to display.
-- [ ] Chart's own symbol/timeframe ComboBoxes removed.
+### Phase 10.14C -- Chart consumption [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.14D -- Monte Carlo + Overview Batch Awareness [PENDING]
-- [ ] Monte Carlo tab gains a dataset picker when `LastRunStore.Batch` has more than one entry.
-- [ ] Overview tab does the same.
-- [ ] If `LastRunStore.Batch` has exactly one entry, no picker is shown — behavior unchanged.
+### Phase 10.14D -- Monte Carlo + Overview batch awareness [IN PROGRESS]
+Being absorbed into Phase 10.15D/E.
 
-### Dependencies
-- 10.14A before 10.14B and 10.14C.
-- 10.14B before 10.14D.
+---
+
+## Phase 10.11C2: Equity Curve Rendering [PENDING]
+- [ ] Extend Monte Carlo result to store per-simulation equity curves.
+- [ ] Spaghetti plot on the Monte Carlo tab.
 
 ---
 
 ## Phase 10.7: Chart Tab [IN PROGRESS]
-See `docs/ROADMAP_ARCHIVE.md` for completed sub-phases.
+See `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 10.7C -- Timeframe Switching [PENDING]
-- [ ] Timeframe picker: `1m`, `5m`, `15m`, `1h`, `4h`, `1D`, `1W`.
-- [ ] Fetch per-timeframe from provider, cache under `symbol@timeframe`.
-
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
-- [ ] Mouse crosshair tracking.
-- [ ] O/H/L/C/Volume/timestamp readout box.
-
 ### Phase 10.7E -- Polish [IN PROGRESS]
-- [ ] Save/restore last symbol + timeframe.
-- [ ] Empty state, error state, selectable error texts.
-- [ ] Lock price-to-bar ratio.
 
 ---
 

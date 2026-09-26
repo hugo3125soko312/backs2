@@ -15,8 +15,8 @@
     - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
-    - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine.
-    - src/core/SelectionQueue.cs: the enabled-dataset singleton. Persisted to settings.json.
+    - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
+    - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
@@ -25,7 +25,7 @@
     - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe.
-    - Monte Carlo: src/core/Overview/MonteCarloEngine.cs — stationary block bootstrap, Random.Shared, Parallel.For.
+    - Monte Carlo: transitioning from trade-shuffling to time-domain block bootstrap. See ARCHITECTURE §16.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY.
@@ -44,8 +44,10 @@
     - Preset filenames encode the strategy name.
     - Account JSON filenames encode the firm name. One firm per file.
     - Active account is set only via `AccountService.SetActive`.
-    - The SelectionQueue is the source of truth for enabled datasets. Do not maintain parallel enabled-state anywhere else.
-    - Queue persistence is `"symbol@timeframe"` strings in `settings.json`. Provider is not persisted.
+    - The SelectionQueue is the source of truth for enabled datasets. No parallel enabled-state anywhere else.
+    - Queue persistence is `"symbol@timeframe"` strings in `settings.json`.
+    - Monte Carlo operates in the time domain. Never scramble trades. Use `TimeSlice[]` from `TimeSliceBuilder`. Compound as flat-bet absolute PnL, not percentages.
+    - Position size defaults to 1.0 in `Trades.Enter`. Strategies that need a different size pass it explicitly.
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/).
     - `data/`: engine-managed (cache/, strategies/, accounts/).
