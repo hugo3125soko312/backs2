@@ -10,6 +10,8 @@ namespace backs2.Core;
 
 public sealed record CacheLoadResult(List<Kline> Bars, string Source);
 
+public sealed record CacheMetadata(string Symbol, string Timeframe, string Source);
+
 public class CacheManager
 {
     private readonly string _cacheDir = "data/cache";
@@ -142,23 +144,43 @@ public class CacheManager
             $"benchmark loaded {loaded?.Bars.Count ?? 0} bars in {sw.ElapsedMilliseconds} ms");
     }
 
-    public string? ReadSourceFromCacheFile(string path)
+    public CacheMetadata? ReadCacheMetadata(string path)
     {
         try
         {
             if (!File.Exists(path)) return null;
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             using var doc = JsonDocument.Parse(fs);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
-            if (!doc.RootElement.TryGetProperty("source", out var src)) return null;
-            var s = src.GetString();
-            return string.IsNullOrWhiteSpace(s) ? null : s;
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var symbol = root.TryGetProperty("symbol", out var s) ? s.GetString() : null;
+            var timeframe = root.TryGetProperty("timeframe", out var t) ? t.GetString() : null;
+            var source = root.TryGetProperty("source", out var src) ? src.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))
+                return null;
+
+            return new CacheMetadata(
+                symbol!,
+                timeframe!,
+                string.IsNullOrWhiteSpace(source) ? "Unknown" : source!);
         }
         catch
         {
             return null;
         }
     }
+
+    public string? ReadSourceFromCacheFile(string path)
+        => ReadCacheMetadata(path)?.Source;
+
+    public string? ReadSymbolFromCacheFile(string path)
+        => ReadCacheMetadata(path)?.Symbol;
+
+    public string? ReadTimeframeFromCacheFile(string path)
+        => ReadCacheMetadata(path)?.Timeframe;
 
     private string PathFor(string key)
     {

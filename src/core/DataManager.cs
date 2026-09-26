@@ -12,6 +12,7 @@ namespace backs2.Core;
 
 public record DataEntry(
     string Symbol,
+    string Timeframe,
     string Tier,
     string Provider,
     string Path,
@@ -166,12 +167,13 @@ public class DataManager
             foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
             {
                 var info = new FileInfo(file);
-                var provider = _diskCache.ReadSourceFromCacheFile(info.FullName) ?? "Unknown";
+                var meta = _diskCache.ReadCacheMetadata(file);
 
                 entries.Add(new DataEntry(
-                    Symbol: Path.GetFileNameWithoutExtension(info.Name),
+                    Symbol: meta?.Symbol ?? Path.GetFileNameWithoutExtension(info.Name),
+                    Timeframe: meta?.Timeframe ?? "",
                     Tier: "Cache",
-                    Provider: provider,
+                    Provider: meta?.Source ?? "Unknown",
                     Path: info.FullName,
                     SizeBytes: info.Length,
                     LastModifiedUtc: info.LastWriteTimeUtc));
@@ -185,6 +187,7 @@ public class DataManager
                 var info = new FileInfo(file);
                 entries.Add(new DataEntry(
                     Symbol: Path.GetFileNameWithoutExtension(info.Name),
+                    Timeframe: "",
                     Tier: "CSV",
                     Provider: "Unknown",
                     Path: info.FullName,
@@ -194,8 +197,8 @@ public class DataManager
         }
 
         return entries
-            .OrderBy(e => e.Tier)
-            .ThenBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Timeframe, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -204,12 +207,56 @@ public class DataManager
         const string cacheDir = "data/cache";
         if (!Directory.Exists(cacheDir)) return new List<string>();
 
-        return Directory.GetFiles(cacheDir, "*.json")
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Select(n => n!.Split('@')[0])
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
+        {
+            var symbol = _diskCache.ReadSymbolFromCacheFile(file);
+            if (!string.IsNullOrWhiteSpace(symbol))
+                seen.Add(symbol);
+        }
+
+        return seen
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    public List<string> GetCachedTimeframes(string symbol)
+    {
+        const string cacheDir = "data/cache";
+        if (!Directory.Exists(cacheDir) || string.IsNullOrWhiteSpace(symbol))
+            return new List<string>();
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
+        {
+            var meta = _diskCache.ReadCacheMetadata(file);
+            if (meta == null) continue;
+            if (!string.Equals(meta.Symbol, symbol, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(meta.Timeframe))
+                seen.Add(meta.Timeframe);
+        }
+
+        var ordered = new List<string>();
+        foreach (var tf in TimeframeMap.All)
+            if (seen.Contains(tf))
+            {
+                ordered.Add(tf);
+                seen.Remove(tf);
+            }
+
+        ordered.AddRange(seen.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        return ordered;
+    }
+
+    public (bool Cached, string Provider)? GetCacheInfo(string symbol, string timeframe)
+    {
+        var cacheKey = $"{symbol}@{timeframe}";
+        var path = Path.Combine("data/cache",
+            cacheKey.Replace('@', '_').Replace('/', '_').Replace('\\', '_') + ".json");
+
+        if (!File.Exists(path)) return null;
+
+        var meta = _diskCache.ReadCacheMetadata(path);
+        return (true, meta?.Source ?? "Unknown");
     }
 }

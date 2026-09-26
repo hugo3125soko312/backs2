@@ -226,3 +226,31 @@
 - Spaghetti equity curve rendering. Requires `MonteCarloEngine` to store per-simulation equity curves (`double[][]`). Memory cost ~4 MB per 1000×500 run.
 - Out-of-sample / in-sample split (moved to 10.11D).
 - CSV / JSON export of results.
+
+## 15. Selection Queue
+
+- Purpose: the single source of truth for "which cached datasets are enabled for use" across all data-consuming tabs.
+- Core type: `SelectionQueue` (`src/core/SelectionQueue.cs`), a singleton. Holds `ObservableCollection<QueuedDataset>` where each entry is `(Symbol, Timeframe, Provider)`.
+- Persistence: written to `AppSettings.QueuedDatasets` as `"symbol@timeframe"` strings in `config/settings.json`. Loaded on `ConfigManager` construction. Restored entries get `Provider = "Unknown"` — the provider is only correct at the moment of queueing.
+- API:
+  - `Add(symbol, timeframe, provider)` — no-op if the pair is already queued.
+  - `Remove(symbol, timeframe)` — no-op if not queued.
+  - `Clear()`.
+  - `Contains(symbol, timeframe)`.
+  - `Snapshot()` — returns a copy for modal use.
+  - `Changed` event — raised after every mutation.
+- Consumer wiring (`src/gui/Data/`):
+  - `DataRowViewModel` wraps each `DataEntry` with an `IsQueued` observable property. Checking the box calls `SelectionQueue.Add`. Unchecking calls `SelectionQueue.Remove`. One write-through per toggle, no batching.
+  - `DataViewModel.OpenQueueCommand` raises `OpenQueueRequested`. `DataView.axaml.cs` handles it by opening `QueueWindow` modally.
+- Modal behavior (`QueueWindow.axaml` + `QueueViewModel`):
+  - Opens with a snapshot of the current queue. Every row starts checked.
+  - Unchecking a row marks it `PendingRemoval` but does NOT remove it. Row dims to 45% opacity.
+  - `Done` iterates rows and calls `Remove` on every row with `PendingRemoval == true`. Closes with result `true`.
+  - `Cancel` closes with result `false` and commits nothing.
+  - Window close button (X) behaves like Done — commits pending removals.
+  - Two rows cannot be in-flight simultaneously — the modal owns a snapshot, mutations happen only on Done.
+- Data tab layout:
+  - Leftmost column: `On` checkbox (`DataGridTemplateColumn` with a `CheckBox` in the cell template).
+  - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
+  - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
+- Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. No consumer wiring has landed yet — that is Phase 10.14B/C.

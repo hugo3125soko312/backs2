@@ -20,21 +20,38 @@ public partial class App : Application
 
     public override void Initialize()
     {
+        LogManager.Debug(LogTag.App, "App.Initialize → loading XAML");
         AvaloniaXamlLoader.Load(this);
+        LogManager.Debug(LogTag.App, "App.Initialize complete");
     }
 
     public override void OnFrameworkInitializationCompleted()
     {
+        LogManager.Debug(LogTag.App, "OnFrameworkInitializationCompleted → building DI container");
+
         var collection = new ServiceCollection();
         ConfigureServices(collection);
         Services = collection.BuildServiceProvider();
 
+        var cfg = Services.GetRequiredService<ConfigManager>();
+        LogManager.SetMinimumLevel(cfg.Settings.LogLevel);
+        LogManager.Info(LogTag.App, $"Log level set to {cfg.Settings.LogLevel}");
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow
+            try
             {
-                DataContext = Services.GetRequiredService<MainViewModel>()
-            };
+                desktop.MainWindow = new MainWindow
+                {
+                    DataContext = Services.GetRequiredService<MainViewModel>()
+                };
+                LogManager.Info(LogTag.App, "MainWindow constructed");
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error(LogTag.App, "MainWindow construction failed", ex);
+                throw;
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -42,13 +59,10 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
-        // Caching
         services.AddMemoryCache();
         services.AddSingleton<CacheManager>();
 
-        // Core Services
         services.AddSingleton<ConfigManager>();
-        //logmanag deleted cause of static beforeinit service
         services.AddSingleton<DataManager>();
         services.AddSingleton<MetricRegistry>();
         services.AddSingleton<StrategyManager>();
@@ -57,8 +71,8 @@ public partial class App : Application
         services.AddSingleton<AccountService>();
         services.AddSingleton<LastRunStore>();
         services.AddSingleton<MonteCarloEngine>();
+        services.AddSingleton<SelectionQueue>();
 
-        // ViewModels
         services.AddTransient<MainViewModel>();
         services.AddTransient<ChartViewModel>();
         services.AddTransient<DataViewModel>();
@@ -70,7 +84,6 @@ public partial class App : Application
         services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
 
-        // HttpClient Resilience
         services.AddHttpClient("ResilientClient")
             .AddStandardResilienceHandler(options =>
             {
@@ -78,7 +91,6 @@ public partial class App : Application
                 options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(30);
             });
 
-        // Keyed Providers
         services.AddKeyedTransient<IDataProvider, TwelveDataProvider>("Twelve Data");
         services.AddKeyedTransient<IDataProvider, TiingoProvider>("Tiingo");
         services.AddKeyedTransient<IDataProvider, YahooProvider>("Yahoo");

@@ -1,9 +1,7 @@
 using System;
-using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
+using backs2.Core;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,47 +15,24 @@ public partial class DataView : UserControl
 
         if (Application.Current is App app)
         {
-            DataContext = app.Services.GetRequiredService<DataViewModel>();
-        }
-    }
+            var vm = app.Services.GetRequiredService<DataViewModel>();
+            DataContext = vm;
 
-    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
-    {
-        base.OnAttachedToVisualTree(e);
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            var grid = this.FindControl<DataGrid>("TheGrid");
-
-            if (grid == null)
+            vm.OpenQueueRequested += async (_, _) =>
             {
-                Console.WriteLine("GRID NOT FOUND");
-                return;
-            }
+                var queueVm = new QueueViewModel(app.Services.GetRequiredService<SelectionQueue>());
+                var window = new QueueWindow(queueVm);
 
-            Console.WriteLine($"GRID BOUNDS: {grid.Bounds}");
-            Console.WriteLine($"GRID VISIBLE: {grid.IsVisible}");
-            Console.WriteLine($"COLUMNS: {grid.Columns.Count}");
-            Console.WriteLine($"ITEMS: {grid.ItemsSource?.Cast<object>().Count() ?? -1}");
+                var owner = TopLevel.GetTopLevel(this) as Window;
+                if (owner == null) return;
 
-            var first = grid.ItemsSource?.Cast<object>().FirstOrDefault();
-            Console.WriteLine($"ITEM TYPE: {first?.GetType().FullName ?? "<null>"}");
+                await window.ShowDialog<bool>(owner);
 
-            var rows = grid.GetVisualDescendants().OfType<DataGridRow>().Count();
-            Console.WriteLine($"REALIZED ROWS: {rows}");
-
-            var headers = grid.GetVisualDescendants().OfType<DataGridColumnHeader>().Count();
-            Console.WriteLine($"REALIZED HEADERS: {headers}");
-
-            var theme = grid.GetType().GetProperty("Theme")?.GetValue(grid);
-            Console.WriteLine($"GRID THEME: {theme?.GetType().Name ?? "<null>"}");
-
-            var template = grid.GetType().GetProperty("Template")?.GetValue(grid);
-            Console.WriteLine($"GRID TEMPLATE: {template?.GetType().Name ?? "<null>"}");
-
-            // Count children directly under the grid — the ScrollViewer the template should have produced.
-            var directChildren = grid.GetVisualChildren().Select(c => c.GetType().Name).ToList();
-            Console.WriteLine($"GRID VISUAL CHILDREN: [{string.Join(", ", directChildren)}]");
-        });
+                // QueueViewModel already committed changes on Done.
+                // Force the DataViewModel to refresh queued state in case
+                // the modal removed entries.
+                vm.RefreshDataCommand.Execute(null);
+            };
+        }
     }
 }

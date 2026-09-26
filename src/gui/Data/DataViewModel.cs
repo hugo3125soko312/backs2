@@ -11,11 +11,11 @@ namespace backs2.ViewModels;
 public partial class DataViewModel : ObservableObject
 {
     private readonly DataManager _dataManager;
-    private readonly List<DataEntry> _all = new();
+    private readonly SelectionQueue _queue;
+    private readonly List<DataRowViewModel> _all = new();
 
-    public ObservableCollection<DataEntry> Rows { get; } = new();
+    public ObservableCollection<DataRowViewModel> Rows { get; } = new();
 
-    // Filter inputs — one per column.
     [ObservableProperty] private string _filterSymbol = "";
     [ObservableProperty] private string _filterTier = "";
     [ObservableProperty] private string _filterProvider = "";
@@ -23,22 +23,20 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private string _filterModified = "";
     [ObservableProperty] private string _filterPath = "";
 
-    // Sort state.
     [ObservableProperty] private string _sortColumn = "Symbol";
     [ObservableProperty] private bool _sortAscending = true;
 
-    // Status bar.
     [ObservableProperty] private string _statusText = "";
+    [ObservableProperty] private int _queuedCount;
 
-    // ---- Sort glyph indicators (one per column) ----
     public string SymbolSortGlyph   => GlyphFor("Symbol");
+    public string TimeframeSortGlyph => GlyphFor("Timeframe");
     public string TierSortGlyph     => GlyphFor("Tier");
     public string ProviderSortGlyph => GlyphFor("Provider");
     public string SizeSortGlyph     => GlyphFor("SizeBytes");
     public string ModifiedSortGlyph => GlyphFor("LastModifiedUtc");
     public string PathSortGlyph     => GlyphFor("Path");
 
-    // ---- Filter-active indicators (one per column) ----
     public bool HasFilterSymbol   => !string.IsNullOrWhiteSpace(FilterSymbol);
     public bool HasFilterTier     => !string.IsNullOrWhiteSpace(FilterTier);
     public bool HasFilterProvider => !string.IsNullOrWhiteSpace(FilterProvider);
@@ -46,10 +44,22 @@ public partial class DataViewModel : ObservableObject
     public bool HasFilterModified => !string.IsNullOrWhiteSpace(FilterModified);
     public bool HasFilterPath     => !string.IsNullOrWhiteSpace(FilterPath);
 
-    public DataViewModel(DataManager dataManager)
+    public DataViewModel(DataManager dataManager, SelectionQueue queue)
     {
         _dataManager = dataManager;
+        _queue = queue;
+
+        _queue.Changed += OnQueueChanged;
+
         RefreshData();
+    }
+
+    private void OnQueueChanged(object? sender, EventArgs e)
+    {
+        QueuedCount = _queue.Items.Count;
+
+        foreach (var row in _all)
+            row.RefreshQueuedState();
     }
 
     [RelayCommand]
@@ -58,7 +68,10 @@ public partial class DataViewModel : ObservableObject
         try
         {
             _all.Clear();
-            _all.AddRange(_dataManager.GetAvailableData());
+            foreach (var entry in _dataManager.GetAvailableData())
+                _all.Add(new DataRowViewModel(entry, _queue));
+
+            QueuedCount = _queue.Items.Count;
             ApplyView();
         }
         catch (Exception ex)
@@ -83,41 +96,20 @@ public partial class DataViewModel : ObservableObject
         ApplyView();
     }
 
-    partial void OnFilterSymbolChanged(string value)
+    public event EventHandler? OpenQueueRequested;
+
+    [RelayCommand]
+    private void OpenQueue()
     {
-        OnPropertyChanged(nameof(HasFilterSymbol));
-        ApplyView();
+        OpenQueueRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    partial void OnFilterTierChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasFilterTier));
-        ApplyView();
-    }
-
-    partial void OnFilterProviderChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasFilterProvider));
-        ApplyView();
-    }
-
-    partial void OnFilterSizeChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasFilterSize));
-        ApplyView();
-    }
-
-    partial void OnFilterModifiedChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasFilterModified));
-        ApplyView();
-    }
-
-    partial void OnFilterPathChanged(string value)
-    {
-        OnPropertyChanged(nameof(HasFilterPath));
-        ApplyView();
-    }
+    partial void OnFilterSymbolChanged(string value)   { OnPropertyChanged(nameof(HasFilterSymbol));   ApplyView(); }
+    partial void OnFilterTierChanged(string value)     { OnPropertyChanged(nameof(HasFilterTier));     ApplyView(); }
+    partial void OnFilterProviderChanged(string value) { OnPropertyChanged(nameof(HasFilterProvider)); ApplyView(); }
+    partial void OnFilterSizeChanged(string value)     { OnPropertyChanged(nameof(HasFilterSize));     ApplyView(); }
+    partial void OnFilterModifiedChanged(string value) { OnPropertyChanged(nameof(HasFilterModified)); ApplyView(); }
+    partial void OnFilterPathChanged(string value)     { OnPropertyChanged(nameof(HasFilterPath));     ApplyView(); }
 
     partial void OnSortColumnChanged(string value) => RaiseSortGlyphs();
     partial void OnSortAscendingChanged(bool value) => RaiseSortGlyphs();
@@ -125,6 +117,7 @@ public partial class DataViewModel : ObservableObject
     private void RaiseSortGlyphs()
     {
         OnPropertyChanged(nameof(SymbolSortGlyph));
+        OnPropertyChanged(nameof(TimeframeSortGlyph));
         OnPropertyChanged(nameof(TierSortGlyph));
         OnPropertyChanged(nameof(ProviderSortGlyph));
         OnPropertyChanged(nameof(SizeSortGlyph));
@@ -141,7 +134,7 @@ public partial class DataViewModel : ObservableObject
 
     private void ApplyView()
     {
-        IEnumerable<DataEntry> query = _all;
+        IEnumerable<DataRowViewModel> query = _all;
 
         if (!string.IsNullOrWhiteSpace(FilterSymbol))
             query = query.Where(e => Contains(e.Symbol, FilterSymbol));
@@ -158,6 +151,7 @@ public partial class DataViewModel : ObservableObject
 
         query = SortColumn switch
         {
+            "Timeframe"       => SortAscending ? query.OrderBy(e => e.Timeframe)       : query.OrderByDescending(e => e.Timeframe),
             "Tier"            => SortAscending ? query.OrderBy(e => e.Tier)            : query.OrderByDescending(e => e.Tier),
             "Provider"        => SortAscending ? query.OrderBy(e => e.Provider)        : query.OrderByDescending(e => e.Provider),
             "SizeBytes"       => SortAscending ? query.OrderBy(e => e.SizeBytes)       : query.OrderByDescending(e => e.SizeBytes),
@@ -170,7 +164,7 @@ public partial class DataViewModel : ObservableObject
         foreach (var row in query)
             Rows.Add(row);
 
-        StatusText = $"{Rows.Count} of {_all.Count} dataset(s) shown.";
+        StatusText = $"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued.";
     }
 
     private static bool Contains(string haystack, string needle)

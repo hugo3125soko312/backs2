@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
-             xmlns:core="using:backs2.Core"
              x:Class="backs2.Views.DataView"
              x:DataType="vm:DataViewModel">
 
@@ -36,6 +35,13 @@
                     Margin="8">
             <Button Content="Refresh"
                     Command="{Binding RefreshDataCommand}" />
+            <Button Content="Queue…"
+                    Command="{Binding OpenQueueCommand}" />
+            <TextBlock Text="{Binding QueuedCount, StringFormat='{}{0} queued'}"
+                       VerticalAlignment="Center"
+                       Opacity="0.7"
+                       FontSize="11"
+                       Margin="8,0,0,0" />
         </StackPanel>
 
         <Border Grid.Row="1"
@@ -46,15 +52,25 @@
                       AutoGenerateColumns="False"
                       CanUserResizeColumns="True"
                       CanUserSortColumns="False"
-                      IsReadOnly="True"
                       GridLinesVisibility="All"
                       HeadersVisibility="Column"
                       RowHeight="22">
 
                 <DataGrid.Columns>
 
+                    <!-- ===== Enabled (checkbox) ===== -->
+                    <DataGridTemplateColumn Header="On" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="vm:DataRowViewModel">
+                                <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <!-- ===== Symbol ===== -->
-                    <DataGridTemplateColumn Header="Symbol" Width="150">
+                    <DataGridTemplateColumn Header="Symbol" Width="140">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -82,14 +98,38 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding Symbol}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- ===== Timeframe ===== -->
+                    <DataGridTemplateColumn Header="TF" Width="70">
+                        <DataGridTemplateColumn.HeaderTemplate>
+                            <DataTemplate>
+                                <Button Classes="sortHeader"
+                                        Command="{Binding DataContext.SortByCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="Timeframe">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="TF" />
+                                        <TextBlock Classes="sortGlyph"
+                                                   Text="{Binding DataContext.TimeframeSortGlyph,
+                                                                  RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.HeaderTemplate>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="vm:DataRowViewModel">
+                                <TextBlock Text="{Binding Timeframe}" VerticalAlignment="Center" Margin="4,0" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <!-- ===== Tier ===== -->
-                    <DataGridTemplateColumn Header="Tier" Width="80">
+                    <DataGridTemplateColumn Header="Tier" Width="70">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -117,14 +157,14 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding Tier}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
                     <!-- ===== Provider ===== -->
-                    <DataGridTemplateColumn Header="Provider" Width="130">
+                    <DataGridTemplateColumn Header="Provider" Width="120">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -152,14 +192,14 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding Provider}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
                     <!-- ===== Size ===== -->
-                    <DataGridTemplateColumn Header="Size" Width="100">
+                    <DataGridTemplateColumn Header="Size" Width="90">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -187,14 +227,14 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding SizeDisplay}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
                     <!-- ===== Last Modified ===== -->
-                    <DataGridTemplateColumn Header="Modified" Width="150">
+                    <DataGridTemplateColumn Header="Modified" Width="140">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -222,7 +262,7 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}"
                                            VerticalAlignment="Center"
                                            Margin="4,0" />
@@ -259,7 +299,7 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="core:DataEntry">
+                            <DataTemplate DataType="vm:DataRowViewModel">
                                 <TextBlock Text="{Binding Path}"
                                            VerticalAlignment="Center"
                                            Margin="4,0"

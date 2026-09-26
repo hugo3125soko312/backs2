@@ -79,3 +79,7 @@ Close the response with a single sentence confirming what the commit covers.
 - Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running dotnet build --no-incremental. Do not propose code changes to those symptoms until a clean rebuild has been tried.
 - Diagnosis first: When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes. Exception: when the error message itself identifies a specific missing file (e.g. "Unable to resolve type X", "Root element is missing"), rewrite the file directly instead of running a diagnostic loop.
 - Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes. Repeated speculative changes waste the user's time.
+- Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15` — success ends with `Build succeeded`.
+- Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
+- Ask for build OR run, never both. Compile-only change → build. Runtime change → run.
+- If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.

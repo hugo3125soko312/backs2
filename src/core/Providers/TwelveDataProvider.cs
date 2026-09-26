@@ -35,7 +35,7 @@ public class TwelveDataProvider : IDataProvider
         var mappedTf = TimeframeMap.ToTwelveData(timeframe);
         if (mappedTf == null)
         {
-            LogManager.Error(LogTag.Provider, $"{Name}: timeframe {timeframe} not supported natively");
+            LogManager.Warn(LogTag.Provider, $"{Name}: timeframe {timeframe} not supported natively, skipping provider");
             return new List<Kline>();
         }
 
@@ -73,6 +73,8 @@ public class TwelveDataProvider : IDataProvider
             }
 
             var result = new List<Kline>();
+            long totalVolume = 0;
+
             foreach (var item in valuesArray.EnumerateArray())
             {
                 var tStr = item.GetProperty("datetime").GetString();
@@ -101,10 +103,25 @@ public class TwelveDataProvider : IDataProvider
                     }
                 }
 
+                totalVolume += v;
                 result.Add(new Kline(dt, o, h, l, c, v));
             }
 
             result.Reverse();
+
+            if (result.Count == 0)
+            {
+                LogManager.Warn(LogTag.Provider, $"{Name}: {cleanSymbol}@{timeframe} parsed zero bars");
+                return new List<Kline>();
+            }
+
+            if (totalVolume == 0)
+            {
+                LogManager.Warn(LogTag.Provider,
+                    $"{Name}: {cleanSymbol}@{timeframe} → {result.Count} bars but volume is 0 across all bars, rejecting");
+                return new List<Kline>();
+            }
+
             LogManager.Info(LogTag.Provider, $"{Name}: {cleanSymbol}@{timeframe} → {result.Count} bars");
             return result;
         }

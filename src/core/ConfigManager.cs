@@ -17,6 +17,10 @@ public class AppSettings
     public string ActiveAccountFirmFile { get; set; } = "";
     public string ActiveAccountPlan { get; set; } = "";
     public string ActiveAccountSize { get; set; } = "";
+
+    public string LogLevel { get; set; } = "Info";
+
+    public List<string> QueuedDatasets { get; set; } = new();
 }
 
 public class ConfigManager
@@ -97,6 +101,8 @@ public class ConfigManager
         Settings.ActiveAccountFirmFile ??= "";
         Settings.ActiveAccountPlan ??= "";
         Settings.ActiveAccountSize ??= "";
+        Settings.LogLevel ??= "Info";
+        Settings.QueuedDatasets ??= new List<string>();
     }
 
     public void SaveConfig()

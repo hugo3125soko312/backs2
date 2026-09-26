@@ -10,22 +10,21 @@
     - Microsoft.Extensions.Http.Resilience
     - Avalonia.Controls.DataGrid 11.0.11
     - Avalonia.Controls.ColorPicker 11.0.11
-    - ScottPlot.Avalonia 5.0.55 (chart + Monte Carlo histogram)
+    - ScottPlot.Avalonia 5.0.55
 - Architecture:
-    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview.
+    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine.
+    - src/core/SelectionQueue.cs: the enabled-dataset singleton. Persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
-    - Resilience: Automatic retries via IHttpClientFactory and "ResilientClient".
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder.
-    - Strategy parameters: declared with `// @param Name Type = Default [options: ...]` at the top of the file. Parsed, not compiled.
-    - Presets: JSON files at config/presets/{Strategy}_{Preset}.preset.json.
-    - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Contains plans[] -> sizes[] -> phases[]. Active selection is a triple (firm, plan, size) in config/settings.json.
-    - Trade recording: RunnerScriptGlobals.Trades (TradeRecorder). Strategy calls Enter/Exit.
-    - Caching: Compact KlineCompact[] JSON in data/cache/, source-generated serializer.
+    - Strategy parameters: `// @param Name Type = Default [options: ...]` at the top of the file. Parsed, not compiled.
+    - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
+    - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.
+    - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe.
     - Monte Carlo: src/core/Overview/MonteCarloEngine.cs — stationary block bootstrap, Random.Shared, Parallel.For.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
@@ -41,11 +40,12 @@
     - LogManager is the only static class allowed. Never register it in DI. Never pass it as a ctor parameter. Call the static API directly with a LogTag.
     - data/strategies/*.cs must never be compiled into the app (Compile Remove for data\**\*.cs in backs2.csproj).
     - logs/ and .env are git-ignored; never commit secrets or log output.
-    - Strategy parameters live in the source file as `// @param` lines, not in a separate manifest.
-    - Preset filenames encode the strategy name; do not rename presets outside the app.
-    - Account JSON filenames encode the firm name; do not rename accounts outside the app.
-    - Account JSONs contain ALL plans and sizes for that firm. Do not split a firm across multiple files.
-    - The active account is set only via `AccountService.SetActive`.
+    - Strategy parameters live in the source file as `// @param` lines.
+    - Preset filenames encode the strategy name.
+    - Account JSON filenames encode the firm name. One firm per file.
+    - Active account is set only via `AccountService.SetActive`.
+    - The SelectionQueue is the source of truth for enabled datasets. Do not maintain parallel enabled-state anywhere else.
+    - Queue persistence is `"symbol@timeframe"` strings in `settings.json`. Provider is not persisted.
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/).
     - `data/`: engine-managed (cache/, strategies/, accounts/).
@@ -53,7 +53,6 @@
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".
-    - Automatically discovered by ConfigViewModel via reflection on IDataProvider.
-    - Each provider resolves symbols on its own.
+    - Automatically discovered by ConfigViewModel via reflection.
     - Timeframe wire-format mapping lives in TimeframeMap.
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.

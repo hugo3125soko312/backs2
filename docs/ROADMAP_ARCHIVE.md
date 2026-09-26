@@ -255,3 +255,22 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Call sites tagged and migrated in: `CacheManager`, `DataManager`, `StrategyManager`, `AccountService`, all four providers, `ConfigViewModel`, `MainViewModel`, `LogsViewModel`.
 - [x] Debug-level coverage added: RAM hit/miss, provider attempt index, firm file expansion counts, compile cache hits, provider discovery.
 - [x] Verified: run a strategy → log shows full pipeline trace from Process start through Process exit (clean).
+
+## Phase 10.13: VWAP Zero-Volume Fallback [COMPLETED]
+- [x] `VwapMetric.Calculate` falls back to arithmetic mean of typical prices when total volume is 0.
+- [x] `TwelveDataProvider` rejects results where all bars have volume=0, forcing fallback to the next provider.
+- [x] Downgraded unsupported timeframe and empty-response log lines from Error to Warn.
+- [x] Metric stays pure: no logging inside Calculate.
+- [x] Confirmed root cause by inspecting cache: Twelve Data returns `"v":0` for XAU/USD on all timeframes.
+- [x] Envelope format change: `CacheEnvelope` wrapper persists source, fetchedUtc, symbol, timeframe.
+
+## Phase 10.14A: Queue Model + Data Tab [COMPLETED]
+- [x] `SelectionQueue` singleton (`src/core/SelectionQueue.cs`) — `ObservableCollection<QueuedDataset>` with Add/Remove/Clear/Contains/Snapshot/Changed.
+- [x] `AppSettings.QueuedDatasets` — list of `"symbol@timeframe"` strings in `config/settings.json`.
+- [x] Persistence verified: `restored 3 queued dataset(s) from settings` on startup.
+- [x] `DataRowViewModel` — wraps `DataEntry`, adds `IsQueued` observable write-through to `SelectionQueue`.
+- [x] `DataView.axaml` — leftmost `On` checkbox column, `Queue…` toolbar button, `N queued` counter.
+- [x] `QueueViewModel` + `QueueWindow` — modal with snapshot of queue. Unchecking marks `PendingRemoval`. `Done` commits, `Cancel` reverts, X button behaves like Done.
+- [x] Pending removal visual: dimmed to 45% opacity.
+- [x] `SelectionQueue` registered as singleton in `App.axaml.cs`.
+- [x] Runner and Chart still use their own pickers; migrate in 10.14B/C.

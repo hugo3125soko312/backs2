@@ -22,7 +22,7 @@ public sealed class VwapMetric : BaseMetric
     public override string Name => "VWAP";
     public override MetricLag Lag => MetricLag.Lagging;
     public override MetricCategory Category => MetricCategory.Volume;
-    public override string Description => "Volume Weighted Average Price for the provided period.";
+    public override string Description => "Volume Weighted Average Price. Falls back to the arithmetic mean of typical prices when the input series has no volume.";
 
     public override double Calculate(List<Kline> data)
     {
@@ -30,6 +30,7 @@ public sealed class VwapMetric : BaseMetric
 
         double cumVol = 0;
         double cumVolPrice = 0;
+        double cumTypical = 0;
 
         for (int i = 0; i < data.Count; i++)
         {
@@ -37,9 +38,18 @@ public sealed class VwapMetric : BaseMetric
             double typicalPrice = (k.High + k.Low + k.Close) / 3.0;
             cumVol += k.Volume;
             cumVolPrice += typicalPrice * k.Volume;
+            cumTypical += typicalPrice;
         }
 
-        return cumVol == 0 ? 0 : cumVolPrice / cumVol;
+        // Volume-weighted when available.
+        if (cumVol > 0)
+            return cumVolPrice / cumVol;
+
+        // Fallback: arithmetic mean of typical prices. Used when the provider
+        // returns bars with volume = 0 (Twelve Data for XAU/USD and similar
+        // synthetic instruments). The result is still a defined value, so
+        // strategy scripts never see a meaningless 0.
+        return cumTypical / data.Count;
     }
 }
 

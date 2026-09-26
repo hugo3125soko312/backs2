@@ -10,5 +10,11 @@
   ],
   "ActiveAccountFirmFile": "FTMO",
   "ActiveAccountPlan": "1-Step",
-  "ActiveAccountSize": "10K"
+  "ActiveAccountSize": "10K",
+  "LogLevel": "Info",
+  "QueuedDatasets": [
+    "XAUUSD@1D",
+    "XAUUSD@3h",
+    "XAUUSD@3m"
+  ]
 }
