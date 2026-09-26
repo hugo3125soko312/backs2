@@ -117,7 +117,7 @@
 ## 9. Tabs
 - Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.
 - Metrics — metric catalog browser.
-- Data — Access-style datasheet with column filters and sort indicators.
+- Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
@@ -258,7 +258,8 @@
   - Leftmost column: `On` checkbox (`DataGridTemplateColumn` with a `CheckBox` in the cell template).
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
   - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
-- Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. No consumer wiring has landed yet — that is Phase 10.14B/C.
+- Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. 
+  - `DataViewModel` gains `FetchCommand` and `FetchAndQueueCommand`. Fetch calls `DataManager.GetSymbolDataAsync` and reloads the row list. Fetch & Queue additionally writes to the `SelectionQueue` with the provider resolved from the cache metadata of the freshly written file.
 
 ## 16. Time-Domain Monte Carlo (Phase 10.15)
 

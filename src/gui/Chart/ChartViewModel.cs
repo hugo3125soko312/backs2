@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -18,10 +19,13 @@ public partial class ChartViewModel : ObservableObject
     private readonly SelectionQueue _queue;
     private readonly ChartPlotBuilder _builder = new();
     private AvaPlot? _avaPlot;
+    private bool _suppressTimeframeReload;
 
     public ObservableCollection<QueuedDataset> QueuedItems { get; } = new();
+    public ObservableCollection<string> AvailableTimeframes { get; } = new();
 
     [ObservableProperty] private QueuedDataset? _selectedDataset;
+    [ObservableProperty] private string _selectedTimeframe = "1D";
     [ObservableProperty] private string _statusText = "Chart ready.";
 
     [ObservableProperty]
@@ -97,12 +101,62 @@ public partial class ChartViewModel : ObservableObject
     {
         if (value == null)
         {
+            AvailableTimeframes.Clear();
             Series = new List<Kline>();
             StatusText = "Queue is empty — add data in the Data tab first.";
             return;
         }
 
+        RefreshAvailableTimeframes(value);
         _ = LoadAsync(value);
+    }
+
+    partial void OnSelectedTimeframeChanged(string value)
+    {
+        if (_suppressTimeframeReload) return;
+        if (SelectedDataset == null) return;
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        _ = LoadAsync(SelectedDataset);
+    }
+
+    private void RefreshAvailableTimeframes(QueuedDataset dataset)
+    {
+        var cached = _data.GetCachedTimeframes(dataset.Symbol);
+
+        _suppressTimeframeReload = true;
+        try
+        {
+            AvailableTimeframes.Clear();
+            foreach (var tf in cached)
+                AvailableTimeframes.Add(tf);
+
+            if (AvailableTimeframes.Count == 0)
+            {
+                // No cached timeframes — fall back to the dataset's own timeframe.
+                AvailableTimeframes.Add(dataset.Timeframe);
+                SelectedTimeframe = dataset.Timeframe;
+                return;
+            }
+
+            // Prefer the dataset's own timeframe when present.
+            if (cached.Any(tf => string.Equals(tf, dataset.Timeframe, StringComparison.OrdinalIgnoreCase)))
+            {
+                SelectedTimeframe = dataset.Timeframe;
+                return;
+            }
+
+            // Keep the current selection if it is still valid for this symbol.
+            if (cached.Any(tf => string.Equals(tf, SelectedTimeframe, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            // Otherwise pick the first cached timeframe.
+            SelectedTimeframe = cached[0];
+        }
+        finally
+        {
+            _suppressTimeframeReload = false;
+        }
     }
 
     [RelayCommand]
@@ -122,6 +176,10 @@ public partial class ChartViewModel : ObservableObject
             IsProgressDeterminate = false;
             LoadingProgress = 0;
 
+            string timeframe = string.IsNullOrWhiteSpace(SelectedTimeframe)
+                ? dataset.Timeframe
+                : SelectedTimeframe;
+
             var progress = new Progress<DataProgress>(p =>
             {
                 StatusText = p.Message;
@@ -129,17 +187,17 @@ public partial class ChartViewModel : ObservableObject
                 LoadingProgress = p.Percent;
             });
 
-            var data = await _data.GetSymbolDataAsync(dataset.Symbol, dataset.Timeframe, progress);
+            var data = await _data.GetSymbolDataAsync(dataset.Symbol, timeframe, progress);
 
             if (data == null || data.Count == 0)
             {
-                StatusText = $"No data for {dataset.Symbol} @ {dataset.Timeframe}.";
+                StatusText = $"No data for {dataset.Symbol} @ {timeframe}.";
                 Series = new List<Kline>();
                 return;
             }
 
             Series = data;
-            StatusText = $"Loaded {data.Count} bars — {dataset.Symbol} @ {dataset.Timeframe}";
+            StatusText = $"Loaded {data.Count} bars — {dataset.Symbol} @ {timeframe}";
         }
         catch (Exception ex)
         {

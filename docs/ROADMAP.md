@@ -37,11 +37,19 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.14D -- Monte Carlo + Overview batch awareness [COMPLETED]
 Absorbed into Phase 10.15D/E.
 
+### Phase 10.14E -- Data tab fetch form [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
+
 ---
 
 ## Phase 10.11C2: Equity Curve Rendering [PENDING]
 - [ ] Extend Monte Carlo result to store per-simulation equity curves.
 - [ ] Spaghetti plot on the Monte Carlo tab.
+
+## Phase 10.11C3: Monte Carlo Toggle Performance [PENDING]
+- [ ] Toggling between Histogram and Equity Curves re-renders from scratch every time. With ~1000 curves the switch is visibly slow.
+- [ ] Investigate: cache the rendered plot for each mode per selected dataset, invalidate only on new run or dataset switch.
+- [ ] Alternatively, keep two `AvaPlot` controls and toggle visibility instead of re-rendering.
 
 ---
 

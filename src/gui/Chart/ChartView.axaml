@@ -49,6 +49,12 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
+            <TextBlock Text="Timeframe:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" />
+            <ComboBox Width="100"
+                      ItemsSource="{Binding AvailableTimeframes}"
+                      SelectedItem="{Binding SelectedTimeframe, Mode=TwoWay}"
+                      PlaceholderText="1D" />
+
             <Button Content="Reload"
                     Command="{Binding LoadCommand}"
                     IsEnabled="{Binding IsNotLoading}" />

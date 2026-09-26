@@ -4,318 +4,116 @@
              x:Class="backs2.Views.DataView"
              x:DataType="vm:DataViewModel">
 
-    <UserControl.Styles>
-        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="8">
 
-        <Style Selector="TextBox.filtered">
-            <Setter Property="BorderBrush" Value="#4FC3F7" />
-            <Setter Property="Foreground" Value="#4FC3F7" />
-        </Style>
+        <!-- Row 0: fetch form -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <TextBlock Text="Symbol:" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <TextBox Width="140"
+                     Text="{Binding FetchSymbol, Mode=TwoWay}"
+                     Watermark="XAUUSD"
+                     VerticalAlignment="Center" />
 
-        <Style Selector="TextBlock.sortGlyph">
-            <Setter Property="Foreground" Value="#4FC3F7" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Margin" Value="4,0,0,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
+            <TextBlock Text="Timeframe:" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <ComboBox Width="90"
+                      ItemsSource="{Binding AvailableTimeframes}"
+                      SelectedItem="{Binding FetchTimeframe, Mode=TwoWay}"
+                      VerticalAlignment="Center" />
 
-        <Style Selector="Button.sortHeader">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Padding" Value="4,0" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-        </Style>
-    </UserControl.Styles>
+            <Button Content="Fetch"
+                    Command="{Binding FetchCommand}"
+                    IsEnabled="{Binding !IsFetching}" />
+            <Button Content="Fetch &amp; Queue"
+                    Command="{Binding FetchAndQueueCommand}"
+                    IsEnabled="{Binding !IsFetching}" />
 
-    <Grid RowDefinitions="Auto,*,Auto">
+            <ProgressBar Width="160"
+                         Minimum="0" Maximum="100"
+                         Value="{Binding FetchProgress}"
+                         IsIndeterminate="{Binding IsFetchProgressIndeterminate}"
+                         IsVisible="{Binding IsFetching}"
+                         VerticalAlignment="Center" />
 
-        <StackPanel Grid.Row="0"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    Margin="8">
-            <Button Content="Refresh"
-                    Command="{Binding RefreshDataCommand}" />
-            <Button Content="Queue…"
-                    Command="{Binding OpenQueueCommand}" />
-            <TextBlock Text="{Binding QueuedCount, StringFormat='{}{0} queued'}"
+            <TextBlock Text="{Binding FetchStatus}"
                        VerticalAlignment="Center"
-                       Opacity="0.7"
                        FontSize="11"
-                       Margin="8,0,0,0" />
+                       Opacity="0.7" />
         </StackPanel>
 
-        <Border Grid.Row="1"
-                Margin="8,0,8,8"
-                BorderThickness="1"
-                BorderBrush="#333">
-            <DataGrid ItemsSource="{Binding Rows}"
-                      AutoGenerateColumns="False"
-                      CanUserResizeColumns="True"
-                      CanUserSortColumns="False"
-                      GridLinesVisibility="All"
-                      HeadersVisibility="Column"
-                      RowHeight="22">
+        <!-- Row 1: existing toolbar -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <Button Content="Refresh" Command="{Binding RefreshDataCommand}" />
+            <Button Content="Queue..." Command="{Binding OpenQueueCommand}" />
+            <TextBlock Text="{Binding QueuedCount, StringFormat='{}{0} queued'}"
+                       VerticalAlignment="Center"
+                       Foreground="#4FC3F7" />
+        </StackPanel>
 
-                <DataGrid.Columns>
+        <!-- Row 2: filter row -->
+        <Grid Grid.Row="2" ColumnDefinitions="2*,1.2*,1.2*,1*,1.5*,3*" Margin="0,0,0,4">
+            <TextBox Grid.Column="0" Text="{Binding FilterSymbol, Mode=TwoWay}" Watermark="Symbol" Margin="0,0,4,0" />
+            <TextBox Grid.Column="1" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
+            <TextBox Grid.Column="2" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
+            <TextBox Grid.Column="3" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
+            <TextBox Grid.Column="4" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
+            <TextBox Grid.Column="5" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
+        </Grid>
 
-                    <!-- ===== Enabled (checkbox) ===== -->
-                    <DataGridTemplateColumn Header="On" Width="40">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
+        <!-- Row 3: data grid -->
+        <DataGrid Grid.Row="3"
+                  ItemsSource="{Binding Rows}"
+                  IsReadOnly="True"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="False"
+                  CanUserReorderColumns="False"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="On" Width="44">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
+                                      HorizontalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
 
-                    <!-- ===== Symbol ===== -->
-                    <DataGridTemplateColumn Header="Symbol" Width="140">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Symbol">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Symbol" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.SymbolSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSymbol,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterSymbol,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding Symbol}" VerticalAlignment="Center" Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Symbol" Width="*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="Symbol">
+                                <TextBlock Text="{Binding DataContext.SymbolSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Symbol {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding Symbol}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
 
-                    <!-- ===== Timeframe ===== -->
-                    <DataGridTemplateColumn Header="TF" Width="70">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <Button Classes="sortHeader"
-                                        Command="{Binding DataContext.SortByCommand,
-                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                        CommandParameter="Timeframe">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="TF" />
-                                        <TextBlock Classes="sortGlyph"
-                                                   Text="{Binding DataContext.TimeframeSortGlyph,
-                                                                  RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                    </StackPanel>
-                                </Button>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding Timeframe}" VerticalAlignment="Center" Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Timeframe" Binding="{Binding Timeframe}" Width="90" />
+                <DataGridTextColumn Header="Tier" Binding="{Binding Tier}" Width="80" />
+                <DataGridTextColumn Header="Provider" Binding="{Binding Provider}" Width="120" />
+                <DataGridTextColumn Header="Size" Binding="{Binding SizeDisplay}" Width="90" />
+                <DataGridTextColumn Header="Modified" Binding="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="140" />
+                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="3*" />
+            </DataGrid.Columns>
+        </DataGrid>
 
-                    <!-- ===== Tier ===== -->
-                    <DataGridTemplateColumn Header="Tier" Width="70">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Tier">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Tier" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.TierSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterTier,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterTier,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding Tier}" VerticalAlignment="Center" Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <!-- ===== Provider ===== -->
-                    <DataGridTemplateColumn Header="Provider" Width="120">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Provider">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Provider" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.ProviderSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterProvider,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterProvider,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding Provider}" VerticalAlignment="Center" Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <!-- ===== Size ===== -->
-                    <DataGridTemplateColumn Header="Size" Width="90">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="SizeBytes">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Size" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.SizeSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSize,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterSize,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding SizeDisplay}" VerticalAlignment="Center" Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <!-- ===== Last Modified ===== -->
-                    <DataGridTemplateColumn Header="Modified" Width="140">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="LastModifiedUtc">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Modified" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.ModifiedSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterModified,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterModified,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}"
-                                           VerticalAlignment="Center"
-                                           Margin="4,0" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <!-- ===== Path ===== -->
-                    <DataGridTemplateColumn Header="Path" Width="*">
-                        <DataGridTemplateColumn.HeaderTemplate>
-                            <DataTemplate>
-                                <StackPanel Spacing="2" Margin="0,2">
-                                    <Button Classes="sortHeader"
-                                            Command="{Binding DataContext.SortByCommand,
-                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Path">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Path" />
-                                            <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.PathSortGlyph,
-                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterPath,
-                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterPath,
-                                                            RelativeSource={RelativeSource AncestorType=UserControl},
-                                                            Mode=TwoWay}"
-                                             Watermark="filter…"
-                                             FontSize="11"
-                                             Padding="2,0"
-                                             MinHeight="18" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.HeaderTemplate>
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate DataType="vm:DataRowViewModel">
-                                <TextBlock Text="{Binding Path}"
-                                           VerticalAlignment="Center"
-                                           Margin="4,0"
-                                           TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                </DataGrid.Columns>
-            </DataGrid>
-        </Border>
-
-        <TextBlock Grid.Row="2"
-                   Text="{Binding StatusText}"
-                   Margin="8,0,8,8"
-                   FontSize="11"
-                   Opacity="0.8" />
+        <!-- Row 4: status line -->
+        <TextBox Grid.Row="4"
+                 Text="{Binding StatusText}"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 Margin="0,6,0,0"
+                 FontSize="11"
+                 Opacity="0.8" />
     </Grid>
 </UserControl>

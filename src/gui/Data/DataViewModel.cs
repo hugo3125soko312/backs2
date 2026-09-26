@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using backs2.Core.Providers;
 
 namespace backs2.ViewModels;
 
@@ -15,6 +17,7 @@ public partial class DataViewModel : ObservableObject
     private readonly List<DataRowViewModel> _all = new();
 
     public ObservableCollection<DataRowViewModel> Rows { get; } = new();
+    public ObservableCollection<string> AvailableTimeframes { get; } = new();
 
     [ObservableProperty] private string _filterSymbol = "";
     [ObservableProperty] private string _filterTier = "";
@@ -28,6 +31,13 @@ public partial class DataViewModel : ObservableObject
 
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private int _queuedCount;
+
+    [ObservableProperty] private string _fetchSymbol = "";
+    [ObservableProperty] private string _fetchTimeframe = "1D";
+    [ObservableProperty] private bool _isFetching;
+    [ObservableProperty] private double _fetchProgress;
+    [ObservableProperty] private bool _isFetchProgressIndeterminate;
+    [ObservableProperty] private string _fetchStatus = "";
 
     public string SymbolSortGlyph   => GlyphFor("Symbol");
     public string TimeframeSortGlyph => GlyphFor("Timeframe");
@@ -50,6 +60,9 @@ public partial class DataViewModel : ObservableObject
         _queue = queue;
 
         _queue.Changed += OnQueueChanged;
+
+        foreach (var tf in TimeframeMap.All)
+            AvailableTimeframes.Add(tf);
 
         RefreshData();
     }
@@ -78,6 +91,80 @@ public partial class DataViewModel : ObservableObject
         {
             StatusText = $"Refresh failed: {ex.Message}";
         }
+    }
+
+    [RelayCommand]
+    private Task Fetch() => FetchInternal(queueAfter: false);
+
+    [RelayCommand]
+    private Task FetchAndQueue() => FetchInternal(queueAfter: true);
+
+    private async Task FetchInternal(bool queueAfter)
+    {
+        if (IsFetching) return;
+
+        var symbol = FetchSymbol?.Trim() ?? "";
+        var timeframe = string.IsNullOrWhiteSpace(FetchTimeframe) ? "1D" : FetchTimeframe;
+
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            FetchStatus = "Enter a symbol.";
+            return;
+        }
+
+        try
+        {
+            IsFetching = true;
+            FetchProgress = 0;
+            IsFetchProgressIndeterminate = false;
+            FetchStatus = queueAfter
+                ? $"Fetching {symbol}@{timeframe} for queue..."
+                : $"Fetching {symbol}@{timeframe}...";
+
+            var progress = new Progress<DataProgress>(p =>
+            {
+                FetchStatus = p.Message;
+                IsFetchProgressIndeterminate = !p.IsDeterminate;
+                FetchProgress = p.Percent;
+            });
+
+            var data = await _dataManager.GetSymbolDataAsync(symbol, timeframe, progress);
+
+            if (data == null || data.Count == 0)
+            {
+                FetchStatus = $"No data for {symbol}@{timeframe}.";
+                return;
+            }
+
+            RefreshData();
+
+            if (queueAfter)
+            {
+                string provider = ResolveProviderFromCache(symbol, timeframe);
+                _queue.Add(symbol, timeframe, provider);
+                FetchStatus = $"Fetched and queued {symbol}@{timeframe} ({data.Count} bars, {provider}).";
+            }
+            else
+            {
+                FetchStatus = $"Fetched {symbol}@{timeframe} ({data.Count} bars).";
+            }
+        }
+        catch (Exception ex)
+        {
+            FetchStatus = $"Fetch failed: {ex.Message}";
+        }
+        finally
+        {
+            IsFetching = false;
+            FetchProgress = 100;
+            IsFetchProgressIndeterminate = false;
+        }
+    }
+
+    private string ResolveProviderFromCache(string symbol, string timeframe)
+    {
+        var info = _dataManager.GetCacheInfo(symbol, timeframe);
+        return info?.Provider ?? "Unknown";
     }
 
     [RelayCommand]

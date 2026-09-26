@@ -290,6 +290,16 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Removed dead `src/gui/Strats` folder.
 - [x] Renamed `OverviewModel.cs` → `OverviewViewModel.cs` (cosmetic; class was already correct).
 
+
+## Phase 10.14E: Data Tab Fetch Form [COMPLETED]
+- [x] `DataViewModel` gains `FetchSymbol`, `FetchTimeframe`, `IsFetching`, `FetchProgress`, `IsFetchProgressIndeterminate`, `FetchStatus`.
+- [x] `AvailableTimeframes` populated from `TimeframeMap.All` in the constructor.
+- [x] `FetchCommand` — calls `DataManager.GetSymbolDataAsync`, refreshes the row list on success, does not touch the queue.
+- [x] `FetchAndQueueCommand` — same fetch, then writes to `SelectionQueue` with the provider name resolved from the cache metadata of the freshly written file.
+- [x] Both commands guard on `IsFetching` and on empty symbol; progress marshalled via `Progress<DataProgress>`.
+- [x] `DataView.axaml` gains a fetch row above the existing toolbar: symbol TextBox, timeframe ComboBox, Fetch and Fetch & Queue buttons, progress bar, status text.
+- [x] Verified: fetch a cache-miss symbol/timeframe, row appears in the grid, Fetch & Queue increments the queue counter.
+
 ## Phase 10.15A: Trade extension [COMPLETED]
 - [x] `Trade` record gains `EntryIndex`, `ExitIndex`, `Size`.
 - [x] `TradeRecorder.Enter(side, price, size = 1.0)` — backward compatible.
