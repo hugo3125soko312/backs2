@@ -17,7 +17,8 @@ public partial class DataViewModel : ObservableObject
 
     // Filter inputs — one per column.
     [ObservableProperty] private string _filterSymbol = "";
-    [ObservableProperty] private string _filterSource = "";
+    [ObservableProperty] private string _filterTier = "";
+    [ObservableProperty] private string _filterProvider = "";
     [ObservableProperty] private string _filterSize = "";
     [ObservableProperty] private string _filterModified = "";
     [ObservableProperty] private string _filterPath = "";
@@ -31,14 +32,16 @@ public partial class DataViewModel : ObservableObject
 
     // ---- Sort glyph indicators (one per column) ----
     public string SymbolSortGlyph   => GlyphFor("Symbol");
-    public string SourceSortGlyph   => GlyphFor("Source");
+    public string TierSortGlyph     => GlyphFor("Tier");
+    public string ProviderSortGlyph => GlyphFor("Provider");
     public string SizeSortGlyph     => GlyphFor("SizeBytes");
     public string ModifiedSortGlyph => GlyphFor("LastModifiedUtc");
     public string PathSortGlyph     => GlyphFor("Path");
 
     // ---- Filter-active indicators (one per column) ----
     public bool HasFilterSymbol   => !string.IsNullOrWhiteSpace(FilterSymbol);
-    public bool HasFilterSource   => !string.IsNullOrWhiteSpace(FilterSource);
+    public bool HasFilterTier     => !string.IsNullOrWhiteSpace(FilterTier);
+    public bool HasFilterProvider => !string.IsNullOrWhiteSpace(FilterProvider);
     public bool HasFilterSize     => !string.IsNullOrWhiteSpace(FilterSize);
     public bool HasFilterModified => !string.IsNullOrWhiteSpace(FilterModified);
     public bool HasFilterPath     => !string.IsNullOrWhiteSpace(FilterPath);
@@ -86,9 +89,15 @@ public partial class DataViewModel : ObservableObject
         ApplyView();
     }
 
-    partial void OnFilterSourceChanged(string value)
+    partial void OnFilterTierChanged(string value)
     {
-        OnPropertyChanged(nameof(HasFilterSource));
+        OnPropertyChanged(nameof(HasFilterTier));
+        ApplyView();
+    }
+
+    partial void OnFilterProviderChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasFilterProvider));
         ApplyView();
     }
 
@@ -116,7 +125,8 @@ public partial class DataViewModel : ObservableObject
     private void RaiseSortGlyphs()
     {
         OnPropertyChanged(nameof(SymbolSortGlyph));
-        OnPropertyChanged(nameof(SourceSortGlyph));
+        OnPropertyChanged(nameof(TierSortGlyph));
+        OnPropertyChanged(nameof(ProviderSortGlyph));
         OnPropertyChanged(nameof(SizeSortGlyph));
         OnPropertyChanged(nameof(ModifiedSortGlyph));
         OnPropertyChanged(nameof(PathSortGlyph));
@@ -135,8 +145,10 @@ public partial class DataViewModel : ObservableObject
 
         if (!string.IsNullOrWhiteSpace(FilterSymbol))
             query = query.Where(e => Contains(e.Symbol, FilterSymbol));
-        if (!string.IsNullOrWhiteSpace(FilterSource))
-            query = query.Where(e => Contains(e.Source, FilterSource));
+        if (!string.IsNullOrWhiteSpace(FilterTier))
+            query = query.Where(e => Contains(e.Tier, FilterTier));
+        if (!string.IsNullOrWhiteSpace(FilterProvider))
+            query = query.Where(e => Contains(e.Provider, FilterProvider));
         if (!string.IsNullOrWhiteSpace(FilterSize))
             query = query.Where(e => Contains(e.SizeBytes.ToString(), FilterSize));
         if (!string.IsNullOrWhiteSpace(FilterModified))
@@ -146,7 +158,8 @@ public partial class DataViewModel : ObservableObject
 
         query = SortColumn switch
         {
-            "Source"          => SortAscending ? query.OrderBy(e => e.Source)          : query.OrderByDescending(e => e.Source),
+            "Tier"            => SortAscending ? query.OrderBy(e => e.Tier)            : query.OrderByDescending(e => e.Tier),
+            "Provider"        => SortAscending ? query.OrderBy(e => e.Provider)        : query.OrderByDescending(e => e.Provider),
             "SizeBytes"       => SortAscending ? query.OrderBy(e => e.SizeBytes)       : query.OrderByDescending(e => e.SizeBytes),
             "LastModifiedUtc" => SortAscending ? query.OrderBy(e => e.LastModifiedUtc) : query.OrderByDescending(e => e.LastModifiedUtc),
             "Path"            => SortAscending ? query.OrderBy(e => e.Path)            : query.OrderByDescending(e => e.Path),

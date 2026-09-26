@@ -8,13 +8,11 @@
     <UserControl.Styles>
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
 
-        <!-- Filter-active: accent the TextBox border + text when it has content. -->
         <Style Selector="TextBox.filtered">
             <Setter Property="BorderBrush" Value="#4FC3F7" />
             <Setter Property="Foreground" Value="#4FC3F7" />
         </Style>
 
-        <!-- Sort glyph: accent color, small, tight. -->
         <Style Selector="TextBlock.sortGlyph">
             <Setter Property="Foreground" Value="#4FC3F7" />
             <Setter Property="FontSize" Value="11" />
@@ -22,7 +20,6 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-        <!-- Header button content: label + glyph on one line. -->
         <Style Selector="Button.sortHeader">
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Padding" Value="4,0" />
@@ -33,7 +30,6 @@
 
     <Grid RowDefinitions="Auto,*,Auto">
 
-        <!-- Toolbar -->
         <StackPanel Grid.Row="0"
                     Orientation="Horizontal"
                     Spacing="8"
@@ -42,7 +38,6 @@
                     Command="{Binding RefreshDataCommand}" />
         </StackPanel>
 
-        <!-- Datasheet: filters live inside the column headers -->
         <Border Grid.Row="1"
                 Margin="8,0,8,8"
                 BorderThickness="1"
@@ -59,7 +54,7 @@
                 <DataGrid.Columns>
 
                     <!-- ===== Symbol ===== -->
-                    <DataGridTemplateColumn Header="Symbol" Width="180">
+                    <DataGridTemplateColumn Header="Symbol" Width="150">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -93,25 +88,25 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- ===== Source ===== -->
-                    <DataGridTemplateColumn Header="Source" Width="100">
+                    <!-- ===== Tier ===== -->
+                    <DataGridTemplateColumn Header="Tier" Width="80">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
                                     <Button Classes="sortHeader"
                                             Command="{Binding DataContext.SortByCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="Source">
+                                            CommandParameter="Tier">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="Source" />
+                                            <TextBlock Text="Tier" />
                                             <TextBlock Classes="sortGlyph"
-                                                       Text="{Binding DataContext.SourceSortGlyph,
+                                                       Text="{Binding DataContext.TierSortGlyph,
                                                                       RelativeSource={RelativeSource AncestorType=UserControl}}" />
                                         </StackPanel>
                                     </Button>
-                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterSource,
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterTier,
                                                                         RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                             Text="{Binding DataContext.FilterSource,
+                                             Text="{Binding DataContext.FilterTier,
                                                             RelativeSource={RelativeSource AncestorType=UserControl},
                                                             Mode=TwoWay}"
                                              Watermark="filter…"
@@ -123,13 +118,48 @@
                         </DataGridTemplateColumn.HeaderTemplate>
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="core:DataEntry">
-                                <TextBlock Text="{Binding Source}" VerticalAlignment="Center" Margin="4,0" />
+                                <TextBlock Text="{Binding Tier}" VerticalAlignment="Center" Margin="4,0" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- ===== Provider ===== -->
+                    <DataGridTemplateColumn Header="Provider" Width="130">
+                        <DataGridTemplateColumn.HeaderTemplate>
+                            <DataTemplate>
+                                <StackPanel Spacing="2" Margin="0,2">
+                                    <Button Classes="sortHeader"
+                                            Command="{Binding DataContext.SortByCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="Provider">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Provider" />
+                                            <TextBlock Classes="sortGlyph"
+                                                       Text="{Binding DataContext.ProviderSortGlyph,
+                                                                      RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBox Classes.filtered="{Binding DataContext.HasFilterProvider,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                             Text="{Binding DataContext.FilterProvider,
+                                                            RelativeSource={RelativeSource AncestorType=UserControl},
+                                                            Mode=TwoWay}"
+                                             Watermark="filter…"
+                                             FontSize="11"
+                                             Padding="2,0"
+                                             MinHeight="18" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.HeaderTemplate>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="core:DataEntry">
+                                <TextBlock Text="{Binding Provider}" VerticalAlignment="Center" Margin="4,0" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
                     <!-- ===== Size ===== -->
-                    <DataGridTemplateColumn Header="Size (bytes)" Width="120">
+                    <DataGridTemplateColumn Header="Size" Width="100">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -164,7 +194,7 @@
                     </DataGridTemplateColumn>
 
                     <!-- ===== Last Modified ===== -->
-                    <DataGridTemplateColumn Header="Last Modified" Width="160">
+                    <DataGridTemplateColumn Header="Modified" Width="150">
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
                                 <StackPanel Spacing="2" Margin="0,2">
@@ -242,7 +272,6 @@
             </DataGrid>
         </Border>
 
-        <!-- Status bar -->
         <TextBlock Grid.Row="2"
                    Text="{Binding StatusText}"
                    Margin="8,0,8,8"

@@ -8,6 +8,8 @@ using backs2.Core.Models;
 
 namespace backs2.Core;
 
+public sealed record CacheLoadResult(List<Kline> Bars, string Source);
+
 public class CacheManager
 {
     private readonly string _cacheDir = "data/cache";
@@ -17,7 +19,7 @@ public class CacheManager
         Directory.CreateDirectory(_cacheDir);
     }
 
-    public async Task<List<Kline>?> LoadCacheAsync(string key)
+    public async Task<CacheLoadResult?> LoadCacheAsync(string key)
     {
         var path = PathFor(key);
         if (!File.Exists(path)) return null;
@@ -35,15 +37,16 @@ public class CacheManager
 
             if (fs.Length == 0) return null;
 
-            var compact = await JsonSerializer.DeserializeAsync(
+            var envelope = await JsonSerializer.DeserializeAsync(
                 fs,
-                KlineJsonContext.Default.KlineCompactArray);
+                KlineJsonContext.Default.CacheEnvelope);
 
-            if (compact == null || compact.Length == 0) return null;
+            if (envelope == null || envelope.Bars == null || envelope.Bars.Length == 0)
+                return null;
 
-            var list = new List<Kline>(compact.Length);
+            var list = new List<Kline>(envelope.Bars.Length);
             bool allZero = true;
-            foreach (var c in compact)
+            foreach (var c in envelope.Bars)
             {
                 if (c.O != 0 || c.H != 0 || c.L != 0 || c.C != 0) allZero = false;
                 list.Add(new Kline(
@@ -54,8 +57,11 @@ public class CacheManager
             if (allZero) return null;
 
             sw.Stop();
-            LogManager.Info(LogTag.Cache, $"loaded {key} ({list.Count} bars, {sw.ElapsedMilliseconds} ms)");
-            return list;
+            var src = string.IsNullOrWhiteSpace(envelope.Source) ? "Unknown" : envelope.Source;
+            LogManager.Info(LogTag.Cache,
+                $"loaded {key} from {src} ({list.Count} bars, {sw.ElapsedMilliseconds} ms)");
+
+            return new CacheLoadResult(list, src);
         }
         catch (Exception ex)
         {
@@ -64,7 +70,7 @@ public class CacheManager
         }
     }
 
-    public async Task SaveCacheAsync(string key, List<Kline> data)
+    public async Task SaveCacheAsync(string key, List<Kline> data, string source)
     {
         if (data == null || data.Count == 0) return;
 
@@ -80,6 +86,17 @@ public class CacheManager
                     k.Open, k.High, k.Low, k.Close, k.Volume);
             }
 
+            var at = key.IndexOf('@');
+            var symbol = at > 0 ? key.Substring(0, at) : key;
+            var timeframe = at > 0 ? key.Substring(at + 1) : "";
+
+            var envelope = new CacheEnvelope(
+                Source: source ?? "Unknown",
+                FetchedUtc: DateTime.UtcNow,
+                Symbol: symbol,
+                Timeframe: timeframe,
+                Bars: compact);
+
             var path = PathFor(key);
             await using var fs = new FileStream(
                 path,
@@ -91,11 +108,12 @@ public class CacheManager
 
             await JsonSerializer.SerializeAsync(
                 fs,
-                compact,
-                KlineJsonContext.Default.KlineCompactArray);
+                envelope,
+                KlineJsonContext.Default.CacheEnvelope);
 
             sw.Stop();
-            LogManager.Info(LogTag.Cache, $"saved {key} ({data.Count} bars, {sw.ElapsedMilliseconds} ms)");
+            LogManager.Info(LogTag.Cache,
+                $"saved {key} from {source} ({data.Count} bars, {sw.ElapsedMilliseconds} ms)");
         }
         catch (Exception ex)
         {
@@ -113,14 +131,33 @@ public class CacheManager
         }
 
         var sw = Stopwatch.StartNew();
-        await SaveCacheAsync("__benchmark", synthetic);
+        await SaveCacheAsync("__benchmark", synthetic, "Benchmark");
         sw.Stop();
         LogManager.Info(LogTag.Cache, $"benchmark saved {barCount} bars in {sw.ElapsedMilliseconds} ms");
 
         sw.Restart();
         var loaded = await LoadCacheAsync("__benchmark");
         sw.Stop();
-        LogManager.Info(LogTag.Cache, $"benchmark loaded {loaded?.Count ?? 0} bars in {sw.ElapsedMilliseconds} ms");
+        LogManager.Info(LogTag.Cache,
+            $"benchmark loaded {loaded?.Bars.Count ?? 0} bars in {sw.ElapsedMilliseconds} ms");
+    }
+
+    public string? ReadSourceFromCacheFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var doc = JsonDocument.Parse(fs);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (!doc.RootElement.TryGetProperty("source", out var src)) return null;
+            var s = src.GetString();
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private string PathFor(string key)

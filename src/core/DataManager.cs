@@ -12,7 +12,8 @@ namespace backs2.Core;
 
 public record DataEntry(
     string Symbol,
-    string Source,
+    string Tier,
+    string Provider,
     string Path,
     long SizeBytes,
     DateTime LastModifiedUtc)
@@ -83,13 +84,13 @@ public class DataManager
 
         LogManager.Debug(LogTag.Data, $"RAM miss for {cacheKey}");
 
-        var diskData = await _diskCache.LoadCacheAsync(cacheKey);
-        if (diskData != null && diskData.Count > 0)
+        var disk = await _diskCache.LoadCacheAsync(cacheKey);
+        if (disk != null && disk.Bars.Count > 0)
         {
-            LogManager.Info(LogTag.Data, $"disk hit for {cacheKey} ({diskData.Count} bars)");
-            progress?.Report(new DataProgress("Loaded from Disk.", false, 100));
-            _memoryCache.Set(cacheKey, diskData, TimeSpan.FromMinutes(10));
-            return diskData;
+            LogManager.Info(LogTag.Data, $"disk hit for {cacheKey} from {disk.Source} ({disk.Bars.Count} bars)");
+            progress?.Report(new DataProgress($"Loaded from Disk ({disk.Source}).", false, 100));
+            _memoryCache.Set(cacheKey, disk.Bars, TimeSpan.FromMinutes(10));
+            return disk.Bars;
         }
 
         var order = _config.Settings.ProviderOrder ?? new List<string>();
@@ -142,7 +143,7 @@ public class DataManager
                 LogManager.Info(LogTag.Data, $"{provider.Name} returned {fetched.Count} bars for {cacheKey}");
                 progress?.Report(new DataProgress($"{provider.Name} returned {fetched.Count} bars. Saving...", true, 100));
                 _memoryCache.Set(cacheKey, fetched, TimeSpan.FromMinutes(10));
-                await _diskCache.SaveCacheAsync(cacheKey, fetched);
+                await _diskCache.SaveCacheAsync(cacheKey, fetched, provider.Name);
                 return fetched;
             }
 
@@ -165,9 +166,12 @@ public class DataManager
             foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
             {
                 var info = new FileInfo(file);
+                var provider = _diskCache.ReadSourceFromCacheFile(info.FullName) ?? "Unknown";
+
                 entries.Add(new DataEntry(
                     Symbol: Path.GetFileNameWithoutExtension(info.Name),
-                    Source: "Cache",
+                    Tier: "Cache",
+                    Provider: provider,
                     Path: info.FullName,
                     SizeBytes: info.Length,
                     LastModifiedUtc: info.LastWriteTimeUtc));
@@ -181,7 +185,8 @@ public class DataManager
                 var info = new FileInfo(file);
                 entries.Add(new DataEntry(
                     Symbol: Path.GetFileNameWithoutExtension(info.Name),
-                    Source: "CSV",
+                    Tier: "CSV",
+                    Provider: "Unknown",
                     Path: info.FullName,
                     SizeBytes: info.Length,
                     LastModifiedUtc: info.LastWriteTimeUtc));
@@ -189,7 +194,7 @@ public class DataManager
         }
 
         return entries
-            .OrderBy(e => e.Source)
+            .OrderBy(e => e.Tier)
             .ThenBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
