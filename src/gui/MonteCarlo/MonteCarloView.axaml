@@ -13,7 +13,7 @@
 
             <TextBlock Text="Iterations:" VerticalAlignment="Center" />
             <NumericUpDown Value="{Binding Iterations, Mode=TwoWay}"
-                           Minimum="10" Maximum="100000"
+                           Minimum="10"
                            Increment="100"
                            Width="110"
                            FormatString="0"
