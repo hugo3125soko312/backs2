@@ -12,6 +12,7 @@ public sealed record MonteCarloResult(
     byte[] Outcomes,
     int[] SlicesElapsed,
     double[] MaxDrawdowns,
+    double[][] EquityCurves,
 
     int Iterations,
     int ExpectedBlockSize,
@@ -34,5 +35,7 @@ public sealed record MonteCarloResult(
     double MaxDrawdownMean,
     double MaxDrawdownMedian,
     double MaxDrawdownP05,
-    double MaxDrawdownP95
+    double MaxDrawdownP95,
+
+    long CurveMemoryBytes
 );

@@ -51,7 +51,8 @@ public partial class MonteCarloViewModel : ObservableObject
     [ObservableProperty] private int _iterations = 1000;
     [ObservableProperty] private int _meanBlockSize = 5;
     [ObservableProperty] private double _ruinThresholdPercent = 50;
-    [ObservableProperty] private int _progressIntervalPercent = 10;
+    [ObservableProperty] private bool _showEquityCurves;
+    [ObservableProperty] private string _curveMemoryLabel = "";
 
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private double _progress;
@@ -112,6 +113,11 @@ public partial class MonteCarloViewModel : ObservableObject
         RenderForSelection();
     }
 
+    partial void OnShowEquityCurvesChanged(bool value)
+    {
+        RenderForSelection();
+    }
+
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
         Dispatcher.UIThread.Post(() => ApplyAccountDefaults());
@@ -142,6 +148,7 @@ public partial class MonteCarloViewModel : ObservableObject
         BatchResults.Clear();
         Stats.Clear();
         HasResults = false;
+        CurveMemoryLabel = "";
         _plot?.Plot.Clear();
         ApplyPlotTheme();
         _plot?.Refresh();
@@ -320,6 +327,7 @@ public partial class MonteCarloViewModel : ObservableObject
         if (r == null)
         {
             Stats.Clear();
+            CurveMemoryLabel = "";
             _plot?.Plot.Clear();
             ApplyPlotTheme();
             _plot?.Refresh();
@@ -327,7 +335,11 @@ public partial class MonteCarloViewModel : ObservableObject
         }
 
         PopulateStats(r);
-        RenderPlots(r);
+
+        if (ShowEquityCurves)
+            RenderEquityCurves(r);
+        else
+            RenderPlots(r);
     }
 
     private void ApplyPlotTheme()
@@ -379,6 +391,8 @@ public partial class MonteCarloViewModel : ObservableObject
             "—",
             r.MaxDrawdownP05.ToString("0.00") + "%",
             r.MaxDrawdownP95.ToString("0.00") + "%"));
+
+        CurveMemoryLabel = $"Curves: {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB ({r.Iterations} × {r.TargetDurationSlices} doubles)";
     }
 
     private void RenderPlots(MonteCarloResult r)
@@ -407,6 +421,61 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Title("Terminal Balance Distribution");
         plt.Axes.Bottom.Label.Text = "Terminal Balance";
         plt.Axes.Left.Label.Text = "Frequency";
+
+        ApplyPlotTheme();
+
+        _plot.Refresh();
+    }
+
+    private void RenderEquityCurves(MonteCarloResult r)
+    {
+        if (_plot == null) return;
+        if (r.EquityCurves.Length == 0) return;
+        if (r.TargetDurationSlices < 2) return;
+
+        var data = CurrentData;
+        if (data?.SourceData == null || data.SourceData.Count < 2) return;
+
+        var plt = _plot.Plot;
+        plt.Clear();
+
+        ApplyPlotTheme();
+
+        double t0 = data.SourceData[0].Timestamp.ToOADate();
+        double t1 = data.SourceData[data.SourceData.Count - 1].Timestamp.ToOADate();
+        double step = (t1 - t0) / (r.TargetDurationSlices - 1);
+
+        var xs = new double[r.TargetDurationSlices];
+        for (int k = 0; k < r.TargetDurationSlices; k++)
+            xs[k] = t0 + step * k;
+
+        var red = ScottPlot.Color.FromHex("#EF5350").WithAlpha(0.15);
+        var green = ScottPlot.Color.FromHex("#26A69A").WithAlpha(0.15);
+        var blue = ScottPlot.Color.FromHex("#4FC3F7").WithAlpha(0.10);
+
+        for (int i = 0; i < r.EquityCurves.Length; i++)
+        {
+            var curve = r.EquityCurves[i];
+            int elapsed = r.SlicesElapsed[i];
+            if (elapsed < 2) continue;
+
+            var line = plt.Add.ScatterLine(xs, curve);
+            line.LineWidth = 1;
+            line.MarkerSize = 0;
+            line.Color = r.Outcomes[i] switch
+            {
+                MonteCarloOutcome.Blown => red,
+                MonteCarloOutcome.Funded => green,
+                _ => blue
+            };
+        }
+
+        plt.Axes.DateTimeTicksBottom();
+        plt.Axes.AutoScale();
+
+        plt.Title($"Equity Curves — {r.Iterations} paths");
+        plt.Axes.Bottom.Label.Text = "Date";
+        plt.Axes.Left.Label.Text = "Balance";
 
         ApplyPlotTheme();
 

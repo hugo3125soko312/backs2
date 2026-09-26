@@ -10,7 +10,7 @@ public sealed class MonteCarloEngine
     private const int OutcomeFunded = MonteCarloOutcome.Funded;
     private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
 
-    private const int MaxIterations = 100_000_000;
+    private const int MaxIterations = 1_000_000;
 
     public MonteCarloResult Run(
         TimeSlice[] slices,
@@ -40,6 +40,7 @@ public sealed class MonteCarloEngine
         var outcomes = new byte[iterations];
         var slicesElapsed = new int[iterations];
         var maxDrawdowns = new double[iterations];
+        var equityCurves = new double[iterations][];
 
         int dailyFloorLoss = (int)Math.Round(startingCapital * (maxDailyLossPercent / 100.0));
         int maxFloorLoss = (int)Math.Round(startingCapital * (maxLossPercent / 100.0));
@@ -60,6 +61,8 @@ public sealed class MonteCarloEngine
         {
             var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
 
+            var curve = new double[targetDurationSlices];
+
             SimulateOnce(
                 slices,
                 n,
@@ -72,6 +75,7 @@ public sealed class MonteCarloEngine
                 trailingIntraday,
                 expectedBlockSize,
                 rng,
+                curve,
                 out var terminal,
                 out var outcome,
                 out var elapsed,
@@ -81,6 +85,7 @@ public sealed class MonteCarloEngine
             outcomes[i] = outcome;
             slicesElapsed[i] = elapsed;
             maxDrawdowns[i] = maxDd;
+            equityCurves[i] = curve;
 
             if (progress != null)
             {
@@ -90,16 +95,20 @@ public sealed class MonteCarloEngine
             }
         });
 
+        long curveBytes = (long)iterations * targetDurationSlices * sizeof(double);
+
         return BuildResult(
             terminalBalances,
             outcomes,
             slicesElapsed,
             maxDrawdowns,
+            equityCurves,
             iterations,
             expectedBlockSize,
             startingCapital,
             targetDurationSlices,
-            drawdownType ?? "static");
+            drawdownType ?? "static",
+            curveBytes);
     }
 
     private static void SimulateOnce(
@@ -114,6 +123,7 @@ public sealed class MonteCarloEngine
         bool trailingIntraday,
         int expectedBlockSize,
         Random rng,
+        double[] curve,
         out double terminalBalance,
         out byte outcome,
         out int slicesElapsed,
@@ -166,6 +176,7 @@ public sealed class MonteCarloEngine
                 {
                     double worst = Math.Min(dailyFloor, maxFloor);
                     balance = worst;
+                    curve[produced] = balance;
                     result = OutcomeBlown;
                     elapsed = produced + 1;
                     goto done;
@@ -180,6 +191,8 @@ public sealed class MonteCarloEngine
 
                 double dd = peak > 0 ? (peak - balance) / peak : 0;
                 if (dd > maxDd) maxDd = dd;
+
+                curve[produced] = balance;
 
                 if (profitTarget > 0 && balance - startingCapital >= profitTarget)
                 {
@@ -204,11 +217,13 @@ public sealed class MonteCarloEngine
         byte[] outcomes,
         int[] slicesElapsed,
         double[] maxDrawdowns,
+        double[][] equityCurves,
         int iterations,
         int expectedBlockSize,
         double startingCapital,
         int targetDurationSlices,
-        string drawdownType)
+        string drawdownType,
+        long curveMemoryBytes)
     {
         int blown = 0, funded = 0, timeout = 0;
         double sumElapsedFund = 0;
@@ -243,6 +258,7 @@ public sealed class MonteCarloEngine
             Outcomes: outcomes,
             SlicesElapsed: slicesElapsed,
             MaxDrawdowns: maxDrawdowns,
+            EquityCurves: equityCurves,
 
             Iterations: iterations,
             ExpectedBlockSize: expectedBlockSize,
@@ -265,7 +281,9 @@ public sealed class MonteCarloEngine
             MaxDrawdownMean: Mean(maxDrawdowns),
             MaxDrawdownMedian: Percentile(sortedDd, 50),
             MaxDrawdownP05: Percentile(sortedDd, 5),
-            MaxDrawdownP95: Percentile(sortedDd, 95));
+            MaxDrawdownP95: Percentile(sortedDd, 95),
+
+            CurveMemoryBytes: curveMemoryBytes);
     }
 
     private static MonteCarloResult EmptyResult(
@@ -276,6 +294,7 @@ public sealed class MonteCarloEngine
             Outcomes: Array.Empty<byte>(),
             SlicesElapsed: Array.Empty<int>(),
             MaxDrawdowns: Array.Empty<double>(),
+            EquityCurves: Array.Empty<double[]>(),
 
             Iterations: 0,
             ExpectedBlockSize: expectedBlockSize,
@@ -289,7 +308,9 @@ public sealed class MonteCarloEngine
             TerminalBalanceMean: 0, TerminalBalanceMedian: 0, TerminalBalanceStdDev: 0,
             TerminalBalanceP05: 0, TerminalBalanceP95: 0,
 
-            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownP05: 0, MaxDrawdownP95: 0);
+            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownP05: 0, MaxDrawdownP95: 0,
+
+            CurveMemoryBytes: 0);
     }
 
     private static double Mean(double[] values)
