@@ -26,6 +26,13 @@
                         Command="{Binding RunCommand}"
                         IsEnabled="{Binding CanRun}" />
 
+                <ProgressBar Value="{Binding Progress}"
+                             Minimum="0" Maximum="100"
+                             Width="180"
+                             IsVisible="{Binding IsProgressVisible}"
+                             IsIndeterminate="{Binding IsProgressIndeterminate}"
+                             VerticalAlignment="Center" />
+
                 <Button Content="Presets..."
                         Command="{Binding OpenPresetsCommand}" />
                 <Button Content="Save Preset..."

@@ -88,6 +88,10 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private bool _hasParameters;
     [ObservableProperty] private bool _canRun;
 
+    [ObservableProperty] private double _progress;
+    [ObservableProperty] private bool _isProgressVisible;
+    [ObservableProperty] private bool _isProgressIndeterminate;
+
     public event EventHandler<StrategyRunResult>? RunCompleted;
 
     public RunnerViewModel(
@@ -233,20 +237,47 @@ public partial class RunnerViewModel : ObservableObject
         try
         {
             IsBusy = true;
+            Progress = 0;
+            IsProgressVisible = true;
+            IsProgressIndeterminate = false;
 
             var paramValues = new Dictionary<string, string>();
             foreach (var p in Parameters)
                 paramValues[p.Name] = p.EffectiveValue;
 
             var batchResults = new List<OverviewData>();
+            int totalDatasets = queued.Count;
 
-            for (int i = 0; i < queued.Count; i++)
+            for (int i = 0; i < totalDatasets; i++)
             {
                 var item = queued[i];
-                StatusText = $"Running {SelectedStrategy.Name} on {item.Symbol}@{item.Timeframe} ({i + 1}/{queued.Count})...";
+                int datasetIndex = i;
+
+                StatusText = $"Running {SelectedStrategy.Name} on {item.Symbol}@{item.Timeframe} ({datasetIndex + 1}/{totalDatasets})...";
 
                 var progress = new Progress<DataProgress>(p =>
-                    StatusText = $"[{i + 1}/{queued.Count}] {p.Message}");
+                {
+                    double datasetFraction = p.IsDeterminate
+                        ? p.Percent / 100.0
+                        : 0.0;
+
+                    Progress = ((datasetIndex + datasetFraction) / totalDatasets) * 100.0;
+
+                    if (p.IsDeterminate)
+                    {
+                        IsProgressIndeterminate = false;
+                    }
+                    else if (p.Percent >= 100)
+                    {
+                        IsProgressIndeterminate = false;
+                    }
+                    else
+                    {
+                        IsProgressIndeterminate = true;
+                    }
+
+                    StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {p.Message}";
+                });
 
                 var data = await _data.GetSymbolDataAsync(item.Symbol, item.Timeframe, progress);
                 if (data == null || data.Count == 0)
@@ -265,6 +296,9 @@ public partial class RunnerViewModel : ObservableObject
                     continue;
                 }
 
+                IsProgressIndeterminate = false;
+                StatusText = $"[{datasetIndex + 1}/{totalDatasets}] Running strategy on {item.Symbol}@{item.Timeframe}...";
+
                 var result = await _strat.RunBacktestFromFileAsync(
                     SelectedStrategy.Path,
                     data,
@@ -282,6 +316,8 @@ public partial class RunnerViewModel : ObservableObject
                     Error: result.Success ? null : result.Error));
 
                 RunCompleted?.Invoke(this, result);
+
+                Progress = ((datasetIndex + 1.0) / totalDatasets) * 100.0;
             }
 
             _lastRun.PublishBatch(batchResults);
@@ -299,6 +335,8 @@ public partial class RunnerViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            IsProgressVisible = false;
+            IsProgressIndeterminate = false;
         }
     }
 
