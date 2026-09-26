@@ -21,15 +21,13 @@ public class MassiveProvider : IDataProvider
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ConfigManager _config;
-    private readonly LogManager _logger;
 
     public string Name => "Massive";
 
-    public MassiveProvider(IHttpClientFactory httpClientFactory, ConfigManager config, LogManager logger)
+    public MassiveProvider(IHttpClientFactory httpClientFactory, ConfigManager config)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
-        _logger = logger;
     }
 
     public Task<List<Kline>> FetchAsync(string symbol) => FetchAsync(symbol, "1D");
@@ -39,14 +37,14 @@ public class MassiveProvider : IDataProvider
         var apiKey = _config.MassiveApiKey;
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.Error("MassiveProvider: MASSIVE_PROVIDER_API_KEY missing in .env");
+            LogManager.Error(LogTag.Provider, "Massive: MASSIVE_PROVIDER_API_KEY missing in .env");
             return new List<Kline>();
         }
 
         var tf = TimeframeMap.ToMassive(timeframe);
         if (tf == null)
         {
-            _logger.Error($"MassiveProvider: unsupported timeframe '{timeframe}'");
+            LogManager.Error(LogTag.Provider, $"Massive: unsupported timeframe '{timeframe}'");
             return new List<Kline>();
         }
 
@@ -59,6 +57,8 @@ public class MassiveProvider : IDataProvider
                   $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}" +
                   $"?adjusted=true&sort=asc&limit=50000&apiKey={Uri.EscapeDataString(apiKey)}";
 
+        LogManager.Debug(LogTag.Provider, $"Massive: GET {resolved}@{timeframe} from={from:yyyy-MM-dd} to={to:yyyy-MM-dd}");
+
         try
         {
             var client = _httpClientFactory.CreateClient("ResilientClient");
@@ -67,7 +67,8 @@ public class MassiveProvider : IDataProvider
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.Error($"MassiveProvider: HTTP {(int)response.StatusCode} for {resolved}@{timeframe} — {Truncate(body, 200)}");
+                LogManager.Error(LogTag.Provider,
+                    $"Massive: HTTP {(int)response.StatusCode} for {resolved}@{timeframe} — {Truncate(body, 200)}");
                 return new List<Kline>();
             }
 
@@ -82,13 +83,15 @@ public class MassiveProvider : IDataProvider
             if (status != null && FatalStatuses.Contains(status))
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "unknown";
-                _logger.Error($"MassiveProvider: status '{status}' for {resolved}@{timeframe} — {msg}");
+                LogManager.Error(LogTag.Provider,
+                    $"Massive: status '{status}' for {resolved}@{timeframe} — {msg}");
                 return new List<Kline>();
             }
 
             if (!root.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
             {
-                _logger.Info($"MassiveProvider: no results for {resolved}@{timeframe} (status '{status ?? "none"}')");
+                LogManager.Warn(LogTag.Provider,
+                    $"Massive: no results for {resolved}@{timeframe} (status '{status ?? "none"}')");
                 return new List<Kline>();
             }
 
@@ -112,12 +115,13 @@ public class MassiveProvider : IDataProvider
             }
 
             var delayNote = string.Equals(status, "DELAYED", StringComparison.OrdinalIgnoreCase) ? " (delayed)" : "";
-            _logger.Info($"MassiveProvider: {resolved}@{timeframe} → {klines.Count} bars{delayNote}");
+            LogManager.Info(LogTag.Provider, $"Massive: {resolved}@{timeframe} → {klines.Count} bars{delayNote}");
             return klines;
         }
         catch (Exception ex)
         {
-            _logger.Error($"MassiveProvider: {symbol}@{timeframe} ({resolved}) failed — {ex.Message}");
+            LogManager.Error(LogTag.Provider,
+                $"Massive: {symbol}@{timeframe} ({resolved}) failed", ex);
             return new List<Kline>();
         }
     }

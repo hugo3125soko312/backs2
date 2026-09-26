@@ -1,71 +1,33 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Serilog;
+using Serilog.Events;
 
 namespace backs2.Core;
 
-public sealed record LogEntry(DateTime TimestampUtc, string Level, string Message)
+public enum LogTag
 {
-    public string Formatted =>
-        $"{TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss.fff} [{Level}] {Message}";
+    App, Cache, Data, Provider, Strategy, Runner,
+    Account, MonteCarlo, Overview, Chart, Config, Metric
 }
 
-public class LogManager
+public static class LogManager
 {
-    private const int RingBufferSize = 1000;
+    private const int RingBufferCapacity = 1000;
 
-    private readonly object _gate = new();
-    private readonly Queue<LogEntry> _recent = new(RingBufferSize);
-    private readonly string _logDirectory = "logs";
-    private readonly string _logFilePath;
+    private static readonly object _gate = new();
+    private static readonly Queue<LogEntry> _recent = new(RingBufferCapacity);
 
-    public LogManager()
-    {
-        Directory.CreateDirectory(_logDirectory);
+    private static ILogger? _logger;
 
-        // One file per app run.
-        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        _logFilePath = Path.Combine(_logDirectory, $"runtime-{stamp}.log");
+    public static string CurrentLogFilePath { get; private set; } = "";
 
-        Log.Logger = new LoggerConfiguration()
-            .WriteTo.File(
-                _logFilePath,
-                shared: true,
-                flushToDiskInterval: TimeSpan.FromMilliseconds(500))
-            .CreateLogger();
-    }
+    public sealed record LogEntry(DateTime Timestamp, string Level, LogTag Tag, string Message);
 
-    public event EventHandler<LogEntry>? Logged;
+    public static event EventHandler<LogEntry>? Logged;
 
-    public string CurrentLogFilePath => _logFilePath;
-
-    public void Info(string message) => Write("INF", message);
-
-    public void Error(string message) => Write("ERR", message);
-
-    private void Write(string level, string message)
-    {
-        var entry = new LogEntry(DateTime.UtcNow, level, message);
-
-        lock (_gate)
-        {
-            _recent.Enqueue(entry);
-            while (_recent.Count > RingBufferSize)
-                _recent.Dequeue();
-        }
-
-        if (level == "ERR")
-            Log.Error(message);
-        else
-            Log.Information(message);
-
-        Logged?.Invoke(this, entry);
-    }
-
-    // Snapshot of the in-memory ring buffer, oldest → newest.
-    public IReadOnlyList<LogEntry> GetRecentEntries()
+    public static IReadOnlyList<LogEntry> GetRecentEntries()
     {
         lock (_gate)
         {
@@ -73,35 +35,103 @@ public class LogManager
         }
     }
 
-    // File-based fallback: reads the current run's file (last 100 lines, oldest → newest).
-    public List<string> GetLatestLogs()
+    public static void Initialize(string minimumLevel = "Info")
     {
-        if (!File.Exists(_logFilePath))
-            return new List<string>();
-
-        try
+        lock (_gate)
         {
-            using var stream = new FileStream(
-                _logFilePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
+            if (_logger != null) return;
 
-            using var reader = new StreamReader(stream);
+            Directory.CreateDirectory("logs");
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            CurrentLogFilePath = Path.Combine("logs", $"runtime-{stamp}.log");
 
-            var all = new List<string>();
-            string? line;
-            while ((line = reader.ReadLine()) != null)
-                all.Add(line);
-
-            if (all.Count <= 100)
-                return all;
-
-            return all.Skip(all.Count - 100).ToList();
+            _logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.File(
+                    CurrentLogFilePath,
+                    outputTemplate:
+                        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{Tag}] {Message:lj}{NewLine}{Exception}",
+                    flushToDiskInterval: TimeSpan.FromMilliseconds(500))
+                .CreateLogger();
         }
-        catch
-        {
-            return new List<string>();
-        }
+
+        Info(LogTag.App, $"LogManager initialized → {CurrentLogFilePath}");
     }
+
+    public static void SetMinimumLevel(string level)
+    {
+        // Filtering disabled — every log line is written and displayed.
+        // Kept for API compatibility with App.axaml.cs.
+    }
+
+    public static void Shutdown()
+    {
+        ILogger? logger;
+        lock (_gate)
+        {
+            logger = _logger;
+            _logger = null;
+        }
+
+        if (logger == null) return;
+
+        try { logger.ForContext("Tag", "App").Information("LogManager shutdown"); } catch { }
+        (logger as IDisposable)?.Dispose();
+    }
+
+    public static void Info(LogTag tag, string message)
+        => Write(LogEventLevel.Information, tag, message, null);
+
+    public static void Warn(LogTag tag, string message)
+        => Write(LogEventLevel.Warning, tag, message, null);
+
+    public static void Debug(LogTag tag, string message)
+        => Write(LogEventLevel.Debug, tag, message, null);
+
+    public static void Error(LogTag tag, string message, Exception? ex = null)
+        => Write(LogEventLevel.Error, tag, message, ex);
+
+    private static void Write(LogEventLevel level, LogTag tag, string message, Exception? ex)
+    {
+        var entry = new LogEntry(
+            DateTime.Now,
+            LevelCode(level),
+            tag,
+            message);
+
+        lock (_gate)
+        {
+            _recent.Enqueue(entry);
+            while (_recent.Count > RingBufferCapacity)
+                _recent.Dequeue();
+        }
+
+        var logger = _logger;
+        if (logger != null)
+        {
+            try
+            {
+                var ctx = logger.ForContext("Tag", tag.ToString());
+                if (ex != null) ctx.Write(level, ex, message);
+                else ctx.Write(level, message);
+            }
+            catch
+            {
+                // File writer failed — swallow. Ring buffer still has the entry.
+            }
+        }
+
+        Logged?.Invoke(null, entry);
+    }
+
+    private static string LevelCode(LogEventLevel level) => level switch
+    {
+        LogEventLevel.Verbose     => "VRB",
+        LogEventLevel.Debug       => "DBG",
+        LogEventLevel.Information => "INF",
+        LogEventLevel.Warning     => "WRN",
+        LogEventLevel.Error       => "ERR",
+        LogEventLevel.Fatal       => "FTL",
+        _                         => "???"
+    };
 }

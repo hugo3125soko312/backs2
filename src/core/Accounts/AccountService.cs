@@ -28,17 +28,15 @@ public sealed class AccountService
     private const string Extension = ".account.json";
 
     private readonly ConfigManager _cfg;
-    private readonly LogManager _log;
     private readonly object _gate = new();
 
     private List<AccountDescriptor> _descriptors = new();
     private readonly Dictionary<string, FirmConfig> _firmCache = new(StringComparer.OrdinalIgnoreCase);
     private AccountDescriptor? _active;
 
-    public AccountService(ConfigManager cfg, LogManager log)
+    public AccountService(ConfigManager cfg)
     {
         _cfg = cfg;
-        _log = log;
 
         Directory.CreateDirectory(AccountsFolder);
         Refresh();
@@ -74,11 +72,13 @@ public sealed class AccountService
         }
         catch (Exception ex)
         {
-            _log.Error($"Account scan failed: {ex.Message}");
+            LogManager.Error(LogTag.Account, "account scan failed", ex);
             snapshot = new List<AccountDescriptor>();
         }
 
         lock (_gate) { _descriptors = snapshot; }
+
+        LogManager.Info(LogTag.Account, $"scanned {snapshot.Count} descriptors from {AccountsFolder}");
     }
 
     private IEnumerable<AccountDescriptor> ExpandFirmFile(string path)
@@ -87,11 +87,13 @@ public sealed class AccountService
         if (firm == null) yield break;
 
         var stem = Path.GetFileName(path)[..^Extension.Length];
+        int count = 0;
 
         foreach (var plan in firm.Plans)
         {
             foreach (var size in plan.Sizes)
             {
+                count++;
                 yield return new AccountDescriptor(
                     FilePath: path,
                     FileStem: stem,
@@ -101,6 +103,8 @@ public sealed class AccountService
                     StartingCapital: size.StartingCapital);
             }
         }
+
+        LogManager.Debug(LogTag.Account, $"firm file {stem} → {count} descriptors");
     }
 
     public FirmConfig? LoadFirm(string filePath)
@@ -125,7 +129,7 @@ public sealed class AccountService
         }
         catch (Exception ex)
         {
-            _log.Error($"Firm load failed: {Path.GetFileName(filePath)} - {ex.Message}");
+            LogManager.Error(LogTag.Account, $"firm load failed: {Path.GetFileName(filePath)}", ex);
             return null;
         }
     }
@@ -148,7 +152,8 @@ public sealed class AccountService
         var size = ResolvePlanSize(descriptor);
         if (size == null)
         {
-            _log.Error($"SetActive failed: could not resolve {descriptor.Firm} {descriptor.Plan} {descriptor.Size}");
+            LogManager.Error(LogTag.Account,
+                $"SetActive failed: could not resolve {descriptor.Firm} {descriptor.Plan} {descriptor.Size}");
             return;
         }
 
@@ -159,7 +164,8 @@ public sealed class AccountService
         _cfg.Settings.ActiveAccountSize = descriptor.Size;
         _cfg.SaveConfig();
 
-        _log.Info($"Account active: {descriptor.Firm} · {descriptor.Plan} · {descriptor.Size}");
+        LogManager.Info(LogTag.Account,
+            $"active: {descriptor.Firm} · {descriptor.Plan} · {descriptor.Size}");
         ActiveChanged?.Invoke(this, descriptor);
     }
 
@@ -183,10 +189,12 @@ public sealed class AccountService
 
         if (match == null)
         {
-            _log.Info($"Active account '{stem} / {plan} / {size}' referenced in settings but not found on disk.");
+            LogManager.Warn(LogTag.Account,
+                $"active account '{stem} / {plan} / {size}' referenced in settings but not found on disk");
             return;
         }
 
         lock (_gate) { _active = match; }
+        LogManager.Debug(LogTag.Account, $"restored active from settings: {match.Firm} {match.Plan} {match.Size}");
     }
 }

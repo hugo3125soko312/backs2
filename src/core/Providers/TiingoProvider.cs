@@ -12,15 +12,13 @@ public class TiingoProvider : IDataProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ConfigManager _config;
-    private readonly LogManager _log;
 
     public string Name => "Tiingo";
 
-    public TiingoProvider(IHttpClientFactory httpClientFactory, ConfigManager config, LogManager log)
+    public TiingoProvider(IHttpClientFactory httpClientFactory, ConfigManager config)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
-        _log = log;
     }
 
     public Task<List<Kline>> FetchAsync(string symbol) => FetchAsync(symbol, "1D");
@@ -29,14 +27,14 @@ public class TiingoProvider : IDataProvider
     {
         if (string.IsNullOrWhiteSpace(_config.TiingoApiKey))
         {
-            _log.Error($"[{Name}] API key missing. Add TIINGO_API_KEY to .env");
+            LogManager.Error(LogTag.Provider, $"{Name}: API key missing. Add TIINGO_API_KEY to .env");
             return new List<Kline>();
         }
 
         var mappedTf = TimeframeMap.ToTiingo(timeframe);
         if (mappedTf == null)
         {
-            _log.Error($"[{Name}] Timeframe {timeframe} not supported natively.");
+            LogManager.Error(LogTag.Provider, $"{Name}: timeframe {timeframe} not supported natively");
             return new List<Kline>();
         }
 
@@ -54,6 +52,8 @@ public class TiingoProvider : IDataProvider
             url = $"https://api.tiingo.com/tiingo/daily/{symbol}/prices?startDate={startDate}&token={_config.TiingoApiKey}";
         }
 
+        LogManager.Debug(LogTag.Provider, $"{Name}: GET {symbol}@{timeframe} intraday={isIntraday} start={startDate}");
+
         try
         {
             var client = _httpClientFactory.CreateClient("ResilientClient");
@@ -68,11 +68,11 @@ public class TiingoProvider : IDataProvider
             {
                 if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("detail", out var detail))
                 {
-                    _log.Error($"[{Name}] API returned error: {detail.GetString()}");
+                    LogManager.Error(LogTag.Provider, $"{Name}: API returned error: {detail.GetString()}");
                 }
                 else
                 {
-                    _log.Error($"[{Name}] Unexpected JSON structure. Expected an array.");
+                    LogManager.Error(LogTag.Provider, $"{Name}: unexpected JSON structure, expected array");
                 }
                 return new List<Kline>();
             }
@@ -97,11 +97,12 @@ public class TiingoProvider : IDataProvider
                 result.Add(new Kline(dt, o, h, l, c, v));
             }
 
+            LogManager.Info(LogTag.Provider, $"{Name}: {symbol}@{timeframe} → {result.Count} bars");
             return result;
         }
         catch (Exception ex)
         {
-            _log.Error($"[{Name}] Error fetching data: {ex.Message}");
+            LogManager.Error(LogTag.Provider, $"{Name}: {symbol}@{timeframe} failed", ex);
             return new List<Kline>();
         }
     }

@@ -11,14 +11,12 @@ namespace backs2.Core.Providers;
 public class YahooProvider : IDataProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly LogManager _logger;
 
     public string Name => "Yahoo";
 
-    public YahooProvider(IHttpClientFactory httpClientFactory, LogManager logger)
+    public YahooProvider(IHttpClientFactory httpClientFactory)
     {
         _httpClientFactory = httpClientFactory;
-        _logger = logger;
     }
 
     public Task<List<Kline>> FetchAsync(string symbol) => FetchAsync(symbol, "1D");
@@ -28,7 +26,7 @@ public class YahooProvider : IDataProvider
         var yahooInterval = TimeframeMap.ToYahoo(timeframe);
         if (yahooInterval == null)
         {
-            _logger.Error($"YahooProvider: unsupported timeframe '{timeframe}'");
+            LogManager.Error(LogTag.Provider, $"Yahoo: unsupported timeframe '{timeframe}'");
             return new List<Kline>();
         }
 
@@ -36,6 +34,8 @@ public class YahooProvider : IDataProvider
         var range = RangeForTimeframe(timeframe);
         var url = $"https://query1.finance.yahoo.com/v8/finance/chart/{resolved}" +
                   $"?interval={yahooInterval}&range={range}";
+
+        LogManager.Debug(LogTag.Provider, $"Yahoo: GET {resolved}@{timeframe} range={range}");
 
         try
         {
@@ -85,12 +85,12 @@ public class YahooProvider : IDataProvider
                     vol));
             }
 
-            _logger.Info($"YahooProvider: {resolved}@{timeframe} → {klines.Count} bars");
+            LogManager.Info(LogTag.Provider, $"Yahoo: {resolved}@{timeframe} → {klines.Count} bars");
             return klines;
         }
         catch (Exception ex)
         {
-            _logger.Error($"YahooProvider: {symbol}@{timeframe} ({resolved}) failed — {ex.Message}");
+            LogManager.Error(LogTag.Provider, $"Yahoo: {symbol}@{timeframe} ({resolved}) failed", ex);
             return new List<Kline>();
         }
     }

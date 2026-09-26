@@ -23,17 +23,15 @@ public sealed class StrategyRunResult
 public class StrategyManager
 {
     private readonly MetricRegistry _registry;
-    private readonly LogManager _log;
     private readonly SemaphoreSlim _throttle = new(1, 1);
 
     private readonly ConcurrentDictionary<string, CachedScript> _cache = new(StringComparer.OrdinalIgnoreCase);
 
     private sealed record CachedScript(DateTime LastWriteUtc, long Size, ScriptRunner<object?> Runner);
 
-    public StrategyManager(MetricRegistry registry, LogManager log)
+    public StrategyManager(MetricRegistry registry)
     {
         _registry = registry;
-        _log = log;
     }
 
     public async Task<StrategyRunResult> RunBacktestFromFileAsync(
@@ -68,14 +66,14 @@ public class StrategyManager
             {
                 Engine = _registry,
                 Data = data,
-                Log = _log.Info,
+                Log = msg => LogManager.Info(LogTag.Strategy, msg),
                 Trades = recorder,
                 Params = parameters ?? new Dictionary<string, string>()
             };
 
             await runner(globals).ConfigureAwait(false);
 
-            _log.Info($"Strategy executed: {System.IO.Path.GetFileName(path)}");
+            LogManager.Info(LogTag.Strategy, $"executed {System.IO.Path.GetFileName(path)}");
 
             return new StrategyRunResult
             {
@@ -87,7 +85,7 @@ public class StrategyManager
         }
         catch (Exception ex)
         {
-            _log.Error($"Strategy failed: {System.IO.Path.GetFileName(path)} - {ex.Message}");
+            LogManager.Error(LogTag.Strategy, $"failed {System.IO.Path.GetFileName(path)}", ex);
             return new StrategyRunResult
             {
                 Path = path,
@@ -113,7 +111,7 @@ public class StrategyManager
             {
                 Engine = _registry,
                 Data = data,
-                Log = _log.Info,
+                Log = msg => LogManager.Info(LogTag.Strategy, msg),
                 Trades = recorder,
                 Params = new Dictionary<string, string>()
             };
@@ -140,8 +138,11 @@ public class StrategyManager
             && existing.LastWriteUtc == lastWriteUtc
             && existing.Size == size)
         {
+            LogManager.Debug(LogTag.Strategy, $"compile cache hit: {System.IO.Path.GetFileName(path)}");
             return existing.Runner;
         }
+
+        LogManager.Debug(LogTag.Strategy, $"compile: {System.IO.Path.GetFileName(path)}");
 
         var options = ScriptOptions.Default
             .AddReferences(typeof(IMetric).Assembly)

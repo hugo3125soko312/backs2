@@ -1,12 +1,12 @@
 {
-  "MaxThreads": 8,
-  "MaxRetries": 2,
+  "MaxThreads": 5,
+  "MaxRetries": 3,
   "TimeoutSeconds": 30,
   "ProviderOrder": [
-    "Tiingo",
-    "Massive",
     "Twelve Data",
-    "Yahoo"
+    "Tiingo",
+    "Yahoo",
+    "Massive"
   ],
   "ActiveAccountFirmFile": "FTMO",
   "ActiveAccountPlan": "1-Step",

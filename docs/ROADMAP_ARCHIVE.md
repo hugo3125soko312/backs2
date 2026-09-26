@@ -239,3 +239,19 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `MonteCarloViewModel` registered as transient in `App.axaml.cs`.
 - [x] Equity curve spaghetti plot deferred to 10.11C2 — `MonteCarloResult` stores final values only.
 - [x] Verified: run ParamTest with 10 trades → MC tab renders histogram + summary stats.
+
+## Phase 10.12A: LogManager Core [COMPLETED]
+- [x] `LogManager` becomes static. The only static class in the codebase.
+- [x] Initialized in `Program.Main` before `BuildAvaloniaApp()` — logging works even if Avalonia XAML or `MainWindow` construction fails.
+- [x] `LogTag` enum: App, Cache, Data, Provider, Strategy, Runner, Account, MonteCarlo, Overview, Chart, Config, Metric.
+- [x] Severity API: `Info`, `Warn`, `Debug`, `Error(tag, msg, ex)`. All static.
+- [x] Serilog output format: `{Timestamp} [{Level:u3}] [{Tag}] {Message}`.
+- [x] `flushToDiskInterval: 500ms`, one file per run at `logs/runtime-{yyyyMMdd-HHmmss}.log`.
+- [x] Ring buffer (1000 entries) exposed via `GetRecentEntries()`. `Logged` event fires after every write with `LogEntry(Timestamp, Level, Tag, Message)`.
+- [x] `CurrentLogFilePath` exposed for the Logs tab's Refresh-from-file.
+- [x] No filtering. `MinimumLevel.Verbose()` on Serilog. `SetMinimumLevel` kept as no-op for API compatibility.
+- [x] Top-level exception in `Program.Main` writes to log then rethrows.
+- [x] `LogManager` removed from DI. All consumers call the static API directly.
+- [x] Call sites tagged and migrated in: `CacheManager`, `DataManager`, `StrategyManager`, `AccountService`, all four providers, `ConfigViewModel`, `MainViewModel`, `LogsViewModel`.
+- [x] Debug-level coverage added: RAM hit/miss, provider attempt index, firm file expansion counts, compile cache hits, provider discovery.
+- [x] Verified: run a strategy → log shows full pipeline trace from Process start through Process exit (clean).

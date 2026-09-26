@@ -13,15 +13,13 @@ public class TwelveDataProvider : IDataProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ConfigManager _config;
-    private readonly LogManager _log;
 
     public string Name => "Twelve Data";
 
-    public TwelveDataProvider(IHttpClientFactory httpClientFactory, ConfigManager config, LogManager log)
+    public TwelveDataProvider(IHttpClientFactory httpClientFactory, ConfigManager config)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
-        _log = log;
     }
 
     public Task<List<Kline>> FetchAsync(string symbol) => FetchAsync(symbol, "1D");
@@ -30,14 +28,14 @@ public class TwelveDataProvider : IDataProvider
     {
         if (string.IsNullOrWhiteSpace(_config.TwelveDataApiKey))
         {
-            _log.Error($"[{Name}] API key missing. Add TWELVEDATA_API_KEY to .env");
+            LogManager.Error(LogTag.Provider, $"{Name}: API key missing. Add TWELVEDATA_API_KEY to .env");
             return new List<Kline>();
         }
 
         var mappedTf = TimeframeMap.ToTwelveData(timeframe);
         if (mappedTf == null)
         {
-            _log.Error($"[{Name}] Timeframe {timeframe} not supported natively.");
+            LogManager.Error(LogTag.Provider, $"{Name}: timeframe {timeframe} not supported natively");
             return new List<Kline>();
         }
 
@@ -48,6 +46,8 @@ public class TwelveDataProvider : IDataProvider
         }
 
         string url = $"https://api.twelvedata.com/time_series?symbol={cleanSymbol}&interval={mappedTf}&outputsize=5000&apikey={_config.TwelveDataApiKey}";
+
+        LogManager.Debug(LogTag.Provider, $"{Name}: GET {cleanSymbol}@{timeframe} interval={mappedTf}");
 
         try
         {
@@ -62,13 +62,13 @@ public class TwelveDataProvider : IDataProvider
             if (root.TryGetProperty("status", out var statusProp) && statusProp.GetString() == "error")
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "Unknown API error";
-                _log.Error($"[{Name}] API returned error: {msg}");
+                LogManager.Error(LogTag.Provider, $"{Name}: API returned error: {msg}");
                 return new List<Kline>();
             }
 
             if (!root.TryGetProperty("values", out var valuesArray))
             {
-                _log.Error($"[{Name}] Empty values array or invalid JSON format.");
+                LogManager.Warn(LogTag.Provider, $"{Name}: empty values array or invalid JSON format");
                 return new List<Kline>();
             }
 
@@ -105,11 +105,12 @@ public class TwelveDataProvider : IDataProvider
             }
 
             result.Reverse();
+            LogManager.Info(LogTag.Provider, $"{Name}: {cleanSymbol}@{timeframe} → {result.Count} bars");
             return result;
         }
         catch (Exception ex)
         {
-            _log.Error($"[{Name}] Error fetching data: {ex.Message}");
+            LogManager.Error(LogTag.Provider, $"{Name}: {cleanSymbol}@{timeframe} failed", ex);
             return new List<Kline>();
         }
     }

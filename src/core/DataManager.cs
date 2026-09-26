@@ -12,7 +12,7 @@ namespace backs2.Core;
 
 public record DataEntry(
     string Symbol,
-    string Source,          // "Cache" or "CSV"
+    string Source,
     string Path,
     long SizeBytes,
     DateTime LastModifiedUtc)
@@ -39,20 +39,17 @@ public class DataManager
     private readonly IMemoryCache _memoryCache;
     private readonly IServiceProvider _serviceProvider;
     private readonly ConfigManager _config;
-    private readonly LogManager _logger;
 
     public DataManager(
         CacheManager diskCache,
         IMemoryCache memoryCache,
         IServiceProvider serviceProvider,
-        ConfigManager config,
-        LogManager logger)
+        ConfigManager config)
     {
         _diskCache = diskCache;
         _memoryCache = memoryCache;
         _serviceProvider = serviceProvider;
         _config = config;
-        _logger = logger;
     }
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
@@ -79,16 +76,17 @@ public class DataManager
 
         if (_memoryCache.TryGetValue(cacheKey, out List<Kline>? memData) && memData != null)
         {
-            _logger.Info($"DataManager: RAM hit for {cacheKey} ({memData.Count} bars)");
+            LogManager.Debug(LogTag.Data, $"RAM hit for {cacheKey} ({memData.Count} bars)");
             progress?.Report(new DataProgress("Loaded from RAM.", false, 100));
             return memData;
         }
 
-        _logger.Info($"DataManager: RAM miss for {cacheKey}");
+        LogManager.Debug(LogTag.Data, $"RAM miss for {cacheKey}");
 
         var diskData = await _diskCache.LoadCacheAsync(cacheKey);
         if (diskData != null && diskData.Count > 0)
         {
+            LogManager.Info(LogTag.Data, $"disk hit for {cacheKey} ({diskData.Count} bars)");
             progress?.Report(new DataProgress("Loaded from Disk.", false, 100));
             _memoryCache.Set(cacheKey, diskData, TimeSpan.FromMinutes(10));
             return diskData;
@@ -97,9 +95,12 @@ public class DataManager
         var order = _config.Settings.ProviderOrder ?? new List<string>();
         if (order.Count == 0)
         {
+            LogManager.Warn(LogTag.Data, "no providers configured in ProviderOrder");
             progress?.Report(new DataProgress("No providers configured.", false, 0));
             return new List<Kline>();
         }
+
+        LogManager.Info(LogTag.Data, $"network fetch for {cacheKey}, {order.Count} providers in chain");
 
         int total = order.Count;
         int index = 0;
@@ -116,10 +117,12 @@ public class DataManager
             }
             catch (Exception ex)
             {
-                _logger.Error($"DataManager: provider '{key}' not registered — {ex.Message}");
+                LogManager.Error(LogTag.Data, $"provider '{key}' not registered", ex);
                 progress?.Report(new DataProgress($"Provider '{key}' not registered.", true, pct));
                 continue;
             }
+
+            LogManager.Debug(LogTag.Data, $"attempt {index}/{total}: {provider.Name} for {cacheKey}");
 
             progress?.Report(new DataProgress($"Trying {provider.Name}...", true, pct));
             List<Kline> fetched;
@@ -129,23 +132,25 @@ public class DataManager
             }
             catch (Exception ex)
             {
-                _logger.Error($"DataManager: {provider.Name} threw — {ex.Message}");
+                LogManager.Error(LogTag.Data, $"{provider.Name} threw for {cacheKey}", ex);
                 progress?.Report(new DataProgress($"{provider.Name} failed. Trying next...", true, pct));
                 continue;
             }
 
             if (fetched != null && fetched.Count > 0)
             {
+                LogManager.Info(LogTag.Data, $"{provider.Name} returned {fetched.Count} bars for {cacheKey}");
                 progress?.Report(new DataProgress($"{provider.Name} returned {fetched.Count} bars. Saving...", true, 100));
                 _memoryCache.Set(cacheKey, fetched, TimeSpan.FromMinutes(10));
                 await _diskCache.SaveCacheAsync(cacheKey, fetched);
                 return fetched;
             }
 
-            _logger.Info($"DataManager: {provider.Name} returned no data for {cacheKey}.");
+            LogManager.Warn(LogTag.Data, $"{provider.Name} returned empty for {cacheKey}, falling back");
             progress?.Report(new DataProgress($"{provider.Name} returned no data. Trying next...", true, pct));
         }
 
+        LogManager.Warn(LogTag.Data, $"all providers exhausted for {cacheKey}, no data");
         progress?.Report(new DataProgress("All providers exhausted — no data.", false, 0));
         return new List<Kline>();
     }

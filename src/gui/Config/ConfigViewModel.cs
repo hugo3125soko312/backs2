@@ -33,11 +33,10 @@ public partial class SettingItem : ObservableObject
     public SettingItem(PropertyInfo prop, object instance)
     {
         Property = prop;
-        // Turn "MaxThreads" into "Max Threads"
         DisplayName = Regex.Replace(prop.Name, "([A-Z])", " $1").Trim();
 
         var val = prop.GetValue(instance);
-        
+
         if (IsInt) IntValue = (int)(val ?? 0);
         else if (IsDouble) DoubleValue = (double)(val ?? 0.0);
         else if (IsBool) BoolValue = (bool)(val ?? false);
@@ -62,7 +61,6 @@ public partial class SettingItem : ObservableObject
 public partial class ConfigViewModel : ObservableObject
 {
     private readonly ConfigManager _config;
-    private readonly LogManager _log;
 
     public ObservableCollection<SettingItem> DynamicSettings { get; } = new();
     public ObservableCollection<string> ProviderOrder { get; } = new();
@@ -71,12 +69,10 @@ public partial class ConfigViewModel : ObservableObject
     [ObservableProperty] private string _selectedAvailable = "";
     [ObservableProperty] private string? _selectedInOrder;
 
-    public ConfigViewModel(ConfigManager config, LogManager log, IServiceProvider serviceProvider)
+    public ConfigViewModel(ConfigManager config, IServiceProvider serviceProvider)
     {
         _config = config;
-        _log = log;
 
-        // Automatically populate all settings except the ProviderOrder list
         foreach (var prop in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (prop.Name == nameof(AppSettings.ProviderOrder)) continue;
@@ -103,6 +99,7 @@ public partial class ConfigViewModel : ObservableObject
                     if (!string.IsNullOrEmpty(provider.Name) && !AvailableProviders.Contains(provider.Name))
                     {
                         AvailableProviders.Add(provider.Name);
+                        LogManager.Debug(LogTag.Config, $"discovered provider: {provider.Name}");
                     }
                 }
             }
@@ -161,6 +158,6 @@ public partial class ConfigViewModel : ObservableObject
         _config.Settings.ProviderOrder = new List<string>(ProviderOrder);
 
         _config.SaveConfig();
-        _log.Info("ConfigManager: settings saved.");
+        LogManager.Info(LogTag.Config, "settings saved");
     }
 }

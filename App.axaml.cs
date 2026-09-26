@@ -48,7 +48,7 @@ public partial class App : Application
 
         // Core Services
         services.AddSingleton<ConfigManager>();
-        services.AddSingleton<LogManager>();
+        //logmanag deleted cause of static beforeinit service
         services.AddSingleton<DataManager>();
         services.AddSingleton<MetricRegistry>();
         services.AddSingleton<StrategyManager>();
