@@ -4,7 +4,7 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-### Phase 10.15E -- Overview batch summary [NEXT]
+## Phase 10.15: Time-Domain Monte Carlo [IN PROGRESS]
 
 ### Phase 10.15A -- Trade extension [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
@@ -18,13 +18,12 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.15D -- MonteCarloViewModel rework [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.15E -- Overview batch summary
-- [ ] `OverviewViewModel` reads `LastRunStore.Batch` and displays per-dataset outcomes.
-- [ ] Aggregate metrics computed by summing expectations, not pooling trades.
+### Phase 10.15E -- Overview batch summary [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-## Phase 10.14: Selection Queue [IN PROGRESS]
+## Phase 10.14: Selection Queue [COMPLETED]
 
 ### Phase 10.14A -- Queue model + Data tab [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
@@ -35,8 +34,8 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.14C -- Chart consumption [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.14D -- Monte Carlo + Overview batch awareness [IN PROGRESS]
-Being absorbed into Phase 10.15D/E.
+### Phase 10.14D -- Monte Carlo + Overview batch awareness [COMPLETED]
+Absorbed into Phase 10.15D/E.
 
 ---
 

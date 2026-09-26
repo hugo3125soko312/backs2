@@ -335,3 +335,14 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Roadmap bullets for `Annual Return` / `Sharpe` fixes struck as moot — those fields were removed from `MonteCarloResult` in 10.15C.
 - [x] `MonteCarloView.axaml` restructured: stats panel now has a per-dataset outcomes block (visible only when `HasResults`) above the selected-dataset stats block.
 - [x] Verified end-to-end: single dataset run shows 100% timeout on a 10-trade sample with a tight terminal-balance distribution; three-dataset batch run populates the per-dataset list and switching the combo swaps the histogram.
+
+
+## Phase 10.15E: Overview batch summary [COMPLETED]
+- [x] `OverviewViewModel` reads `LastRunStore.Batch` and rebuilds a per-dataset table on every `Changed` event.
+- [x] `OverviewRow` record — `SymbolDisplay`, `TradesText`, `NetPnlText`, `WinRateText`, `DurationText`, `Status`. One row per batch entry.
+- [x] `OverviewAggregate` record — `TotalTradesText`, `TotalNetPnlText`, `WeightedWinRateText`, `TotalDurationText`. Computed by summing per-dataset values, not pooling trades.
+- [x] Win rate computed per dataset as `count(trade.PnL > 0) / tradeCount × 100`; aggregate win rate weighted by trade count.
+- [x] Net PnL per dataset = `sum(trade.PnL)`; aggregate = sum of per-dataset NetPnL.
+- [x] Header block retains the most recent run's strategy name, symbol, and single-run info. `BatchSummary` banner now reports `{ok}/{total} succeeded, {trades} trades across {N} dataset(s)`.
+- [x] `OverviewView.axaml` renders a `DataGrid` of `OverviewRow` with columns Dataset / Trades / Net PnL / Win % / Duration / Status, plus a pinned aggregate footer row below the grid.
+- [x] Verified end-to-end: 3 queued datasets → 3 rows + aggregate footer with summed trades, summed NetPnL, weighted win rate, summed duration.

@@ -187,22 +187,25 @@
 
 ## 13. Overview & LastRunStore
 
-- Purpose: hand off the most recent strategy run's trades and source data to any consumer (Overview tab, Monte Carlo engine, future analytics).
+- Purpose: hand off the most recent strategy run's trades and source data to any consumer (Overview tab, Monte Carlo engine, future analytics), and surface a per-dataset summary of the most recent batch.
 - `OverviewData` record (`src/core/Overview/OverviewData.cs`):
   - `StrategyName`, `StrategyPath` — from the selected `StrategyDescriptor`.
-  - `Symbol`, `Timeframe` — the run context (`Timeframe` currently hardcoded `"1D"` until Phase 10.7C ships timeframe selection).
+  - `Symbol`, `Timeframe` — the run context.
   - `RunUtc`, `Duration` — from `StrategyRunResult`.
   - `Trades` — `IReadOnlyList<Trade>` from `StrategyRunResult.Trades`.
-  - `SourceData` — the `List<Kline>` fetched for the run. Required by Monte Carlo for timestamp reconstruction after shuffling.
+  - `SourceData` — the `List<Kline>` fetched for the run. Required by Monte Carlo.
   - `Error` — null on success, exception message on failure. Failed runs still publish so consumers can display the error state.
 - `LastRunStore` singleton (`src/core/Overview/LastRunStore.cs`):
-  - `Current` — most recently published `OverviewData`, or null.
-  - `Publish(data)` — replaces `Current`, raises `Changed`.
-  - `Changed` — event raised after every publish. Consumers subscribe and marshal to the UI thread with `Dispatcher.UIThread.Post`.
+  - `Batch` — `IReadOnlyList<OverviewData>` for the most recent run cycle. One entry per queued dataset.
+  - `Current` — the last entry in `Batch`, or null.
+  - `Publish(data)` — replaces `Batch` with a single-entry list, raises `Changed`.
+  - `PublishBatch(batch)` — replaces `Batch`, raises `Changed` with the new list.
+  - `Changed` — event carrying `IReadOnlyList<OverviewData>`. Consumers subscribe and marshal to the UI thread with `Dispatcher.UIThread.Post`.
   - Lock-protected with a private `object _gate`. No async, no queue — single-slot store.
-- Publisher: `RunnerViewModel.RunAsync` — after `StrategyManager.RunBacktestFromFileAsync` returns, `_lastRun.Publish(new OverviewData(...))` is called before `RunCompleted?.Invoke`. Both success and failure paths publish.
-- Consumer: `OverviewViewModel` — subscribes to `Changed` in the constructor and reads `Current` once at construction to seed the UI if a run already happened.
-- Lifetime: process-scoped. Not persisted across app restarts. Each new run replaces the slot.
+- Publisher: `RunnerViewModel.RunAsync` — after iterating the queue, `_lastRun.PublishBatch(batchResults)` is called once with every dataset's result. Both success and failure paths publish.
+- Consumer: `OverviewViewModel` — subscribes to `Changed` in the constructor and reads `Batch` once at construction. Rebuilds a per-dataset table (`OverviewRow`) plus an `OverviewAggregate` on every change.
+- Aggregate semantics: `TotalTrades` and `TotalNetPnl` are sums of per-dataset values. `WeightedWinRatePercent` is the trade-count-weighted mean of per-dataset win rates. No trade pooling across datasets.
+- Lifetime: process-scoped. Not persisted across app restarts. Each new run replaces the batch.
 
 ## 14. Monte Carlo Tab
 
