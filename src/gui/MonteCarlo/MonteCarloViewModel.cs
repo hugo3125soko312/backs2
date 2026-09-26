@@ -255,6 +255,7 @@ public partial class MonteCarloViewModel : ObservableObject
                     maxDailyLossPct,
                     maxLossPct,
                     profitTargetPct,
+                    iterations: iterations,
                     expectedBlockSize: blockSize,
                     seed: null,
                     progress: progress));

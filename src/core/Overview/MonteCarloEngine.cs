@@ -10,6 +10,8 @@ public sealed class MonteCarloEngine
     private const int OutcomeFunded = MonteCarloOutcome.Funded;
     private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
 
+    private const int MaxIterations = 100_000_000;
+
     public MonteCarloResult Run(
         TimeSlice[] slices,
         int targetDurationSlices,
@@ -18,6 +20,7 @@ public sealed class MonteCarloEngine
         double maxDailyLossPercent,
         double maxLossPercent,
         double profitTargetPercent,
+        int iterations = 1000,
         int expectedBlockSize = 5,
         int? seed = null,
         IProgress<int>? progress = null)
@@ -27,9 +30,10 @@ public sealed class MonteCarloEngine
             return EmptyResult(startingCapital, expectedBlockSize, targetDurationSlices, drawdownType ?? "static");
         }
 
+        if (iterations < 1) iterations = 1;
+        if (iterations > MaxIterations) iterations = MaxIterations;
         if (expectedBlockSize < 1) expectedBlockSize = 1;
 
-        int iterations = 1000;
         int n = slices.Length;
 
         var terminalBalances = new double[iterations];
@@ -141,20 +145,15 @@ public sealed class MonteCarloEngine
 
                 if (s.IsEod)
                 {
-                    // EOD reset: new trading day. Reset the daily floor anchor.
                     dayStartBalance = balance;
 
-                    // trailing-eod updates HWM only at EOD; trailing-intraday updates continuously below.
                     if (trailingEod && balance > hwm) hwm = balance;
                 }
 
-                // --- 1. MTM-low check (intra-slice) ---
                 double mtmBalance = balance + s.MtmLow;
 
-                // Daily floor: relative to the day's start balance.
                 double dailyFloor = dayStartBalance - dailyFloorLoss;
 
-                // Max floor: relative to HWM for trailing, or fixed from initial for static.
                 double maxFloor;
                 if (trailingIntraday)
                     maxFloor = hwm - maxFloorLoss;
@@ -165,8 +164,6 @@ public sealed class MonteCarloEngine
 
                 if (mtmBalance <= dailyFloor || mtmBalance <= maxFloor)
                 {
-                    // Blown. Realize the worse of the two breaches so the terminal balance
-                    // reflects the loss that killed the account.
                     double worst = Math.Min(dailyFloor, maxFloor);
                     balance = worst;
                     result = OutcomeBlown;
@@ -174,21 +171,16 @@ public sealed class MonteCarloEngine
                     goto done;
                 }
 
-                // --- 2. Track peak on MTM high for drawdown measurement ---
                 double mtmHigh = balance + s.MtmHigh;
                 if (mtmHigh > peak) peak = mtmHigh;
 
-                // --- 3. Realize PnL ---
                 balance += s.RealizedPnl;
 
-                // --- 4. Update HWM for trailing-intraday ---
                 if (trailingIntraday && balance > hwm) hwm = balance;
 
-                // --- 5. Track drawdown ---
                 double dd = peak > 0 ? (peak - balance) / peak : 0;
                 if (dd > maxDd) maxDd = dd;
 
-                // --- 6. Profit target check (realized only) ---
                 if (profitTarget > 0 && balance - startingCapital >= profitTarget)
                 {
                     result = OutcomeFunded;
