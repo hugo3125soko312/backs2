@@ -299,3 +299,28 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `TimeSlice` readonly struct — `Timestamp`, `MtmHigh`, `MtmLow`, `RealizedPnl`, `IsEodReset`.
 - [x] `TimeSliceBuilder.Build(trades, klines)` — per-slice intra-trade MTM, exit-slice realized PnL, day-boundary EOD flag.
 - [x] Allocation-free: one array, no LINQ, no lists.
+
+
+## Phase 10.15C: Time-Domain MonteCarloEngine [COMPLETED]
+- [x] `MonteCarloEngine.Run` rewritten. Signature: `Run(TimeSlice[] slices, int targetDurationSlices, double startingCapital, string drawdownType, double maxDailyLossPercent, double maxLossPercent, double profitTargetPercent, int expectedBlockSize, int? seed, IProgress<int>? progress)`.
+- [x] Stationary block bootstrap (Politis & Romano). Block start uniform, block length geometric with mean `expectedBlockSize`, circular wrap across the slice array.
+- [x] Flat-bet absolute PnL compounding: `balance += slice.RealizedPnl`. No percentage compounding.
+- [x] Per-slice state machine: MTM-low check against daily floor and max-DD floor, then realize PnL, then update HWM per `DrawdownType`, then EOD reset.
+- [x] `DrawdownType` handling:
+  - `static` — max floor fixed at `startingCapital - maxFloorLoss`.
+  - `trailing-eod` — max floor from HWM, HWM updated only at EOD (`slice.IsEod`).
+  - `trailing-intraday` — max floor from HWM, HWM updated continuously on realized balance.
+- [x] Daily floor anchored to `dayStartBalance`, reset on `slice.IsEod`.
+- [x] Early exit on blown or funded. `SlicesElapsed` recorded at termination.
+- [x] `MonteCarloResult` reshaped: `TerminalBalances[]`, `Outcomes[]` (byte: 0=blown, 1=funded, 2=timeout), `SlicesElapsed[]`, `MaxDrawdowns[]`; `PRuin`, `PFunded`, `PTimeout`, `ExpectedSlicesToFund`, `ExpectedSlicesToRuin`; terminal-balance Mean/Median/StdDev/P05/P95; max-drawdown Mean/Median/P05/P95; metadata `Iterations`, `ExpectedBlockSize`, `StartingCapital`, `TargetDurationSlices`, `DrawdownType`.
+- [x] `MonteCarloOutcome` static class exposes `Blown = 0`, `Funded = 1`, `Timeout = 2`.
+- [x] `Random.Shared` in parallel mode; per-iteration `new Random(seed + i)` when seeded.
+- [x] Pre-allocated arrays per iteration. No `List<T>.Add`, no LINQ in the hot loop.
+- [x] `MonteCarloViewModel` reworked:
+  - Builds `TimeSlice[]` once per run via `TimeSliceBuilder.Build(data.Trades, data.SourceData)`.
+  - Reads funded-phase rules (`MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`, `TradingPeriodDays`) from `AccountService.Active` → `ResolvePlanSize` → last phase.
+  - Refuses to run if no active account or no resolved phases.
+  - `ComputeTargetSlices` derives slices-per-day from the `SourceData` timestamp span, then multiplies by `TradingPeriodDays` (fallback 90).
+  - Stats rows replaced: `P(ruin)/P(funded)/P(timeout)`, `Expected Slices`, `Terminal Balance`, `Max Drawdown %`.
+  - Histogram is now terminal-balance distribution with p05/median/p95 vertical lines.
+- [x] `MonteCarloView.axaml` unchanged for this phase — binds the same `McStatRow` shape and toolbar controls.

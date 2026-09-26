@@ -1,44 +1,38 @@
 namespace backs2.Core.Overview;
 
+public static class MonteCarloOutcome
+{
+    public const byte Blown = 0;
+    public const byte Funded = 1;
+    public const byte Timeout = 2;
+}
+
 public sealed record MonteCarloResult(
-    double[] NetProfits,
+    double[] TerminalBalances,
+    byte[] Outcomes,
+    int[] SlicesElapsed,
     double[] MaxDrawdowns,
-    double[] AnnualReturns,
-    double[] Sharpes,
-    double[] ProfitFactors,
-    int[] MaxConsecutiveLosses,
 
     int Iterations,
-    int MeanBlockSize,
+    int ExpectedBlockSize,
     double StartingCapital,
-    double RuinThresholdPercent,
-    double BacktestYears,
+    int TargetDurationSlices,
+    string DrawdownType,
 
-    double RiskOfRuin,
+    double PRuin,
+    double PFunded,
+    double PTimeout,
+    double ExpectedSlicesToFund,
+    double ExpectedSlicesToRuin,
 
-    double NetProfitMean,
-    double NetProfitMedian,
-    double NetProfitStdDev,
-    double NetProfitP05,
-    double NetProfitP95,
+    double TerminalBalanceMean,
+    double TerminalBalanceMedian,
+    double TerminalBalanceStdDev,
+    double TerminalBalanceP05,
+    double TerminalBalanceP95,
 
     double MaxDrawdownMean,
     double MaxDrawdownMedian,
     double MaxDrawdownP05,
-    double MaxDrawdownP95,
-
-    double AnnualReturnMean,
-    double AnnualReturnP05,
-    double AnnualReturnP95,
-
-    double SharpeMean,
-    double SharpeP05,
-    double SharpeP95,
-
-    double ProfitFactorMean,
-    double ProfitFactorP05,
-    double ProfitFactorP95,
-
-    int MaxConsecutiveLossesMax,
-    double MaxConsecutiveLossesMean
+    double MaxDrawdownP95
 );

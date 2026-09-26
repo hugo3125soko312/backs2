@@ -1,41 +1,48 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using backs2.Core.Runner;
 
 namespace backs2.Core.Overview;
 
 public sealed class MonteCarloEngine
 {
-    private const double TradingDaysPerYear = 252.0;
+    private const int OutcomeBlown = MonteCarloOutcome.Blown;
+    private const int OutcomeFunded = MonteCarloOutcome.Funded;
+    private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
 
     public MonteCarloResult Run(
-        IReadOnlyList<Trade> trades,
-        TimeSpan backtestDuration,
-        int iterations = 1000,
-        int meanBlockSize = 5,
-        double startingCapital = 10000,
-        double ruinThresholdPercent = 50,
+        TimeSlice[] slices,
+        int targetDurationSlices,
+        double startingCapital,
+        string drawdownType,
+        double maxDailyLossPercent,
+        double maxLossPercent,
+        double profitTargetPercent,
+        int expectedBlockSize = 5,
         int? seed = null,
         IProgress<int>? progress = null)
     {
-        if (trades == null || trades.Count < 2)
+        if (slices == null || slices.Length == 0 || startingCapital <= 0 || targetDurationSlices <= 0)
         {
-            return EmptyResult(iterations, meanBlockSize, startingCapital, ruinThresholdPercent);
+            return EmptyResult(startingCapital, expectedBlockSize, targetDurationSlices, drawdownType ?? "static");
         }
 
-        if (iterations < 1) iterations = 1;
-        if (meanBlockSize < 1) meanBlockSize = 1;
+        if (expectedBlockSize < 1) expectedBlockSize = 1;
 
-        double backtestYears = Math.Max(backtestDuration.TotalDays / 365.25, 1.0 / 365.25);
+        int iterations = 1000;
+        int n = slices.Length;
 
-        var netProfits = new double[iterations];
+        var terminalBalances = new double[iterations];
+        var outcomes = new byte[iterations];
+        var slicesElapsed = new int[iterations];
         var maxDrawdowns = new double[iterations];
-        var annualReturns = new double[iterations];
-        var sharpes = new double[iterations];
-        var profitFactors = new double[iterations];
-        var maxConsecutiveLosses = new int[iterations];
+
+        int dailyFloorLoss = (int)Math.Round(startingCapital * (maxDailyLossPercent / 100.0));
+        int maxFloorLoss = (int)Math.Round(startingCapital * (maxLossPercent / 100.0));
+        int profitTarget = (int)Math.Round(startingCapital * (profitTargetPercent / 100.0));
+
+        bool trailingEod = string.Equals(drawdownType, "trailing-eod", StringComparison.OrdinalIgnoreCase);
+        bool trailingIntraday = string.Equals(drawdownType, "trailing-intraday", StringComparison.OrdinalIgnoreCase);
 
         int completed = 0;
         int progressStep = Math.Max(1, iterations / 20);
@@ -50,32 +57,26 @@ public sealed class MonteCarloEngine
             var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
 
             SimulateOnce(
-                trades,
-                meanBlockSize,
+                slices,
+                n,
+                targetDurationSlices,
                 startingCapital,
-                backtestYears,
+                dailyFloorLoss,
+                maxFloorLoss,
+                profitTarget,
+                trailingEod,
+                trailingIntraday,
+                expectedBlockSize,
                 rng,
-                out var finalEquity,
-                out var maxDD,
-                out var maxCL,
-                out var grossProfit,
-                out var grossLoss,
-                out var sumReturns,
-                out var sumReturnsSq,
-                out var tradeCount);
+                out var terminal,
+                out var outcome,
+                out var elapsed,
+                out var maxDd);
 
-            netProfits[i] = finalEquity;
-            maxDrawdowns[i] = maxDD;
-            maxConsecutiveLosses[i] = maxCL;
-
-            annualReturns[i] = backtestYears > 0
-                ? (Math.Pow(Math.Max(finalEquity, 1e-9) / startingCapital, 1.0 / backtestYears) - 1.0) * 100.0
-                : 0.0;
-
-            double pf = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999.0 : 0.0);
-            profitFactors[i] = pf;
-
-            sharpes[i] = ComputeSharpe(sumReturns, sumReturnsSq, tradeCount);
+            terminalBalances[i] = terminal;
+            outcomes[i] = outcome;
+            slicesElapsed[i] = elapsed;
+            maxDrawdowns[i] = maxDd;
 
             if (progress != null)
             {
@@ -86,51 +87,47 @@ public sealed class MonteCarloEngine
         });
 
         return BuildResult(
-            netProfits,
+            terminalBalances,
+            outcomes,
+            slicesElapsed,
             maxDrawdowns,
-            annualReturns,
-            sharpes,
-            profitFactors,
-            maxConsecutiveLosses,
             iterations,
-            meanBlockSize,
+            expectedBlockSize,
             startingCapital,
-            ruinThresholdPercent,
-            backtestYears);
+            targetDurationSlices,
+            drawdownType ?? "static");
     }
 
     private static void SimulateOnce(
-        IReadOnlyList<Trade> trades,
-        int meanBlockSize,
+        TimeSlice[] slices,
+        int n,
+        int targetDurationSlices,
         double startingCapital,
-        double backtestYears,
+        int dailyFloorLoss,
+        int maxFloorLoss,
+        int profitTarget,
+        bool trailingEod,
+        bool trailingIntraday,
+        int expectedBlockSize,
         Random rng,
-        out double finalEquity,
-        out double maxDrawdownPercent,
-        out int maxConsecutiveLosses,
-        out double grossProfit,
-        out double grossLoss,
-        out double sumReturns,
-        out double sumReturnsSq,
-        out int tradeCount)
+        out double terminalBalance,
+        out byte outcome,
+        out int slicesElapsed,
+        out double maxDrawdownPercent)
     {
-        int n = trades.Count;
-        double equity = startingCapital;
+        double balance = startingCapital;
+        double hwm = startingCapital;
+        double dayStartBalance = startingCapital;
         double peak = startingCapital;
-        double maxDD = 0;
-        int consecutiveLosses = 0;
-        int maxCL = 0;
+        double maxDd = 0;
 
-        grossProfit = 0;
-        grossLoss = 0;
-        sumReturns = 0;
-        sumReturnsSq = 0;
-        tradeCount = 0;
+        int elapsed = 0;
+        byte result = OutcomeTimeout;
 
         int produced = 0;
-        double p = 1.0 / meanBlockSize;
+        double p = 1.0 / expectedBlockSize;
 
-        while (produced < n)
+        while (produced < targetDurationSlices)
         {
             int start = rng.Next(n);
 
@@ -138,155 +135,169 @@ public sealed class MonteCarloEngine
             while (rng.NextDouble() > p && blockLen < n)
                 blockLen++;
 
-            int remaining = n - produced;
-            if (blockLen > remaining) blockLen = remaining;
-
-            for (int k = 0; k < blockLen; k++)
+            for (int k = 0; k < blockLen && produced < targetDurationSlices; k++, produced++)
             {
-                var trade = trades[(start + k) % n];
+                var s = slices[(start + k) % n];
 
-                double r = trade.PnLPercent;
-                equity *= (1.0 + r);
-
-                sumReturns += r;
-                sumReturnsSq += r * r;
-                tradeCount++;
-
-                if (trade.PnL > 0) grossProfit += trade.PnL;
-                else if (trade.PnL < 0) grossLoss += -trade.PnL;
-
-                if (equity > peak) peak = equity;
-                double dd = peak > 0 ? (peak - equity) / peak : 0;
-                if (dd > maxDD) maxDD = dd;
-
-                if (trade.PnL < 0)
+                if (s.IsEod)
                 {
-                    consecutiveLosses++;
-                    if (consecutiveLosses > maxCL) maxCL = consecutiveLosses;
+                    // EOD reset: new trading day. Reset the daily floor anchor.
+                    dayStartBalance = balance;
+
+                    // trailing-eod updates HWM only at EOD; trailing-intraday updates continuously below.
+                    if (trailingEod && balance > hwm) hwm = balance;
                 }
+
+                // --- 1. MTM-low check (intra-slice) ---
+                double mtmBalance = balance + s.MtmLow;
+
+                // Daily floor: relative to the day's start balance.
+                double dailyFloor = dayStartBalance - dailyFloorLoss;
+
+                // Max floor: relative to HWM for trailing, or fixed from initial for static.
+                double maxFloor;
+                if (trailingIntraday)
+                    maxFloor = hwm - maxFloorLoss;
+                else if (trailingEod)
+                    maxFloor = hwm - maxFloorLoss;
                 else
+                    maxFloor = startingCapital - maxFloorLoss;
+
+                if (mtmBalance <= dailyFloor || mtmBalance <= maxFloor)
                 {
-                    consecutiveLosses = 0;
+                    // Blown. Realize the worse of the two breaches so the terminal balance
+                    // reflects the loss that killed the account.
+                    double worst = Math.Min(dailyFloor, maxFloor);
+                    balance = worst;
+                    result = OutcomeBlown;
+                    elapsed = produced + 1;
+                    goto done;
+                }
+
+                // --- 2. Track peak on MTM high for drawdown measurement ---
+                double mtmHigh = balance + s.MtmHigh;
+                if (mtmHigh > peak) peak = mtmHigh;
+
+                // --- 3. Realize PnL ---
+                balance += s.RealizedPnl;
+
+                // --- 4. Update HWM for trailing-intraday ---
+                if (trailingIntraday && balance > hwm) hwm = balance;
+
+                // --- 5. Track drawdown ---
+                double dd = peak > 0 ? (peak - balance) / peak : 0;
+                if (dd > maxDd) maxDd = dd;
+
+                // --- 6. Profit target check (realized only) ---
+                if (profitTarget > 0 && balance - startingCapital >= profitTarget)
+                {
+                    result = OutcomeFunded;
+                    elapsed = produced + 1;
+                    goto done;
                 }
             }
-
-            produced += blockLen;
         }
 
-        finalEquity = equity;
-        maxDrawdownPercent = maxDD * 100.0;
-        maxConsecutiveLosses = maxCL;
-    }
+        elapsed = targetDurationSlices;
 
-    private static double ComputeSharpe(double sumReturns, double sumReturnsSq, int n)
-    {
-        if (n < 2) return 0;
-        double mean = sumReturns / n;
-        double variance = (sumReturnsSq / n) - (mean * mean);
-        if (variance <= 0) return 0;
-        double stdev = Math.Sqrt(variance);
-        if (stdev <= 0) return 0;
-        return (mean / stdev) * Math.Sqrt(TradingDaysPerYear);
+    done:
+        terminalBalance = balance;
+        outcome = result;
+        slicesElapsed = elapsed;
+        maxDrawdownPercent = maxDd * 100.0;
     }
 
     private static MonteCarloResult BuildResult(
-        double[] netProfits,
+        double[] terminalBalances,
+        byte[] outcomes,
+        int[] slicesElapsed,
         double[] maxDrawdowns,
-        double[] annualReturns,
-        double[] sharpes,
-        double[] profitFactors,
-        int[] maxConsecutiveLosses,
         int iterations,
-        int meanBlockSize,
+        int expectedBlockSize,
         double startingCapital,
-        double ruinThresholdPercent,
-        double backtestYears)
+        int targetDurationSlices,
+        string drawdownType)
     {
-        var sortedNetProfits = (double[])netProfits.Clone();
-        Array.Sort(sortedNetProfits);
+        int blown = 0, funded = 0, timeout = 0;
+        double sumElapsedFund = 0;
+        double sumElapsedRuin = 0;
 
-        var sortedDrawdowns = (double[])maxDrawdowns.Clone();
-        Array.Sort(sortedDrawdowns);
-
-        var sortedAnnual = (double[])annualReturns.Clone();
-        Array.Sort(sortedAnnual);
-
-        var sortedSharpes = (double[])sharpes.Clone();
-        Array.Sort(sortedSharpes);
-
-        var sortedPfs = (double[])profitFactors.Clone();
-        Array.Sort(sortedPfs);
-
-        double ruinFloor = startingCapital * (1.0 - ruinThresholdPercent / 100.0);
-        int ruinCount = 0;
-        for (int i = 0; i < iterations; i++)
-            if (netProfits[i] < ruinFloor) ruinCount++;
-
-        double clSum = 0;
-        int clMax = 0;
         for (int i = 0; i < iterations; i++)
         {
-            clSum += maxConsecutiveLosses[i];
-            if (maxConsecutiveLosses[i] > clMax) clMax = maxConsecutiveLosses[i];
+            switch (outcomes[i])
+            {
+                case OutcomeBlown:
+                    blown++;
+                    sumElapsedRuin += slicesElapsed[i];
+                    break;
+                case OutcomeFunded:
+                    funded++;
+                    sumElapsedFund += slicesElapsed[i];
+                    break;
+                default:
+                    timeout++;
+                    break;
+            }
         }
 
+        var sortedTerminal = (double[])terminalBalances.Clone();
+        Array.Sort(sortedTerminal);
+
+        var sortedDd = (double[])maxDrawdowns.Clone();
+        Array.Sort(sortedDd);
+
         return new MonteCarloResult(
-            NetProfits: netProfits,
+            TerminalBalances: terminalBalances,
+            Outcomes: outcomes,
+            SlicesElapsed: slicesElapsed,
             MaxDrawdowns: maxDrawdowns,
-            AnnualReturns: annualReturns,
-            Sharpes: sharpes,
-            ProfitFactors: profitFactors,
-            MaxConsecutiveLosses: maxConsecutiveLosses,
+
             Iterations: iterations,
-            MeanBlockSize: meanBlockSize,
+            ExpectedBlockSize: expectedBlockSize,
             StartingCapital: startingCapital,
-            RuinThresholdPercent: ruinThresholdPercent,
-            BacktestYears: backtestYears,
-            RiskOfRuin: iterations > 0 ? (double)ruinCount / iterations : 0,
-            NetProfitMean: Mean(netProfits),
-            NetProfitMedian: Percentile(sortedNetProfits, 50),
-            NetProfitStdDev: StdDev(netProfits),
-            NetProfitP05: Percentile(sortedNetProfits, 5),
-            NetProfitP95: Percentile(sortedNetProfits, 95),
+            TargetDurationSlices: targetDurationSlices,
+            DrawdownType: drawdownType,
+
+            PRuin: iterations > 0 ? (double)blown / iterations : 0,
+            PFunded: iterations > 0 ? (double)funded / iterations : 0,
+            PTimeout: iterations > 0 ? (double)timeout / iterations : 0,
+            ExpectedSlicesToFund: funded > 0 ? sumElapsedFund / funded : 0,
+            ExpectedSlicesToRuin: blown > 0 ? sumElapsedRuin / blown : 0,
+
+            TerminalBalanceMean: Mean(terminalBalances),
+            TerminalBalanceMedian: Percentile(sortedTerminal, 50),
+            TerminalBalanceStdDev: StdDev(terminalBalances),
+            TerminalBalanceP05: Percentile(sortedTerminal, 5),
+            TerminalBalanceP95: Percentile(sortedTerminal, 95),
+
             MaxDrawdownMean: Mean(maxDrawdowns),
-            MaxDrawdownMedian: Percentile(sortedDrawdowns, 50),
-            MaxDrawdownP05: Percentile(sortedDrawdowns, 5),
-            MaxDrawdownP95: Percentile(sortedDrawdowns, 95),
-            AnnualReturnMean: Mean(annualReturns),
-            AnnualReturnP05: Percentile(sortedAnnual, 5),
-            AnnualReturnP95: Percentile(sortedAnnual, 95),
-            SharpeMean: Mean(sharpes),
-            SharpeP05: Percentile(sortedSharpes, 5),
-            SharpeP95: Percentile(sortedSharpes, 95),
-            ProfitFactorMean: Mean(profitFactors),
-            ProfitFactorP05: Percentile(sortedPfs, 5),
-            ProfitFactorP95: Percentile(sortedPfs, 95),
-            MaxConsecutiveLossesMax: clMax,
-            MaxConsecutiveLossesMean: iterations > 0 ? clSum / iterations : 0);
+            MaxDrawdownMedian: Percentile(sortedDd, 50),
+            MaxDrawdownP05: Percentile(sortedDd, 5),
+            MaxDrawdownP95: Percentile(sortedDd, 95));
     }
 
     private static MonteCarloResult EmptyResult(
-        int iterations, int meanBlockSize, double startingCapital, double ruinThresholdPercent)
+        double startingCapital, int expectedBlockSize, int targetDurationSlices, string drawdownType)
     {
         return new MonteCarloResult(
-            NetProfits: Array.Empty<double>(),
+            TerminalBalances: Array.Empty<double>(),
+            Outcomes: Array.Empty<byte>(),
+            SlicesElapsed: Array.Empty<int>(),
             MaxDrawdowns: Array.Empty<double>(),
-            AnnualReturns: Array.Empty<double>(),
-            Sharpes: Array.Empty<double>(),
-            ProfitFactors: Array.Empty<double>(),
-            MaxConsecutiveLosses: Array.Empty<int>(),
-            Iterations: iterations,
-            MeanBlockSize: meanBlockSize,
+
+            Iterations: 0,
+            ExpectedBlockSize: expectedBlockSize,
             StartingCapital: startingCapital,
-            RuinThresholdPercent: ruinThresholdPercent,
-            BacktestYears: 0,
-            RiskOfRuin: 0,
-            NetProfitMean: 0, NetProfitMedian: 0, NetProfitStdDev: 0, NetProfitP05: 0, NetProfitP95: 0,
-            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownP05: 0, MaxDrawdownP95: 0,
-            AnnualReturnMean: 0, AnnualReturnP05: 0, AnnualReturnP95: 0,
-            SharpeMean: 0, SharpeP05: 0, SharpeP95: 0,
-            ProfitFactorMean: 0, ProfitFactorP05: 0, ProfitFactorP95: 0,
-            MaxConsecutiveLossesMax: 0, MaxConsecutiveLossesMean: 0);
+            TargetDurationSlices: targetDurationSlices,
+            DrawdownType: drawdownType,
+
+            PRuin: 0, PFunded: 0, PTimeout: 0,
+            ExpectedSlicesToFund: 0, ExpectedSlicesToRuin: 0,
+
+            TerminalBalanceMean: 0, TerminalBalanceMedian: 0, TerminalBalanceStdDev: 0,
+            TerminalBalanceP05: 0, TerminalBalanceP95: 0,
+
+            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownP05: 0, MaxDrawdownP95: 0);
     }
 
     private static double Mean(double[] values)

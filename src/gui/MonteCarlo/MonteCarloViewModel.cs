@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -84,10 +83,8 @@ public partial class MonteCarloViewModel : ObservableObject
 
             HasBatch = _batch.Count > 1;
 
-            // Select the most recent entry by default.
             SelectedBatchItem = _batch.Count > 0 ? _batch[_batch.Count - 1] : null;
 
-            // Stale results — the trades changed.
             _lastResult = null;
             Stats.Clear();
             _plot?.Plot.Clear();
@@ -139,19 +136,19 @@ public partial class MonteCarloViewModel : ObservableObject
             HasRunData = false;
             return;
         }
-    
+
         if (data.Error != null)
         {
             SourceInfo = $"Run failed — {data.Error}";
             HasRunData = false;
             return;
         }
-    
+
         int idx = BatchItems.IndexOf(data);
         var prefix = HasBatch && BatchItems.Count > 1 && idx >= 0
             ? $"({idx + 1}/{BatchItems.Count}) "
             : "";
-    
+
         SourceInfo = $"{prefix}{data.StrategyName} · {data.Symbol} @ {data.Timeframe} · {data.Trades.Count} trades";
         HasRunData = data.Trades.Count >= 2;
     }
@@ -168,25 +165,46 @@ public partial class MonteCarloViewModel : ObservableObject
             return;
         }
 
+        var account = _accounts.Active;
+        if (account == null)
+        {
+            StatusText = "No active account. Set one in the Accounts tab first.";
+            return;
+        }
+
+        var planSize = _accounts.ResolvePlanSize(account);
+        if (planSize == null || planSize.Phases.Count == 0)
+        {
+            StatusText = "Active account has no resolved phases. Cannot run Monte Carlo.";
+            return;
+        }
+
         try
         {
             IsBusy = true;
             Progress = 0;
-            StatusText = $"Running {Iterations} simulations (block size {MeanBlockSize})...";
+            StatusText = $"Building time slices and running {Iterations} simulations...";
 
-            var account = _accounts.Active;
-            double startingCapital = 10000;
-            if (account != null)
+            var slices = TimeSliceBuilder.Build(data.Trades, data.SourceData);
+            if (slices.Length == 0)
             {
-                var planSize = _accounts.ResolvePlanSize(account);
-                if (planSize != null) startingCapital = planSize.StartingCapital;
+                StatusText = "TimeSlice build produced no slices.";
+                return;
             }
+
+            var funded = planSize.Phases[planSize.Phases.Count - 1];
+
+            double startingCapital = planSize.StartingCapital;
+            double maxLossPct = funded.MaxLossPercent ?? 10.0;
+            double maxDailyLossPct = funded.MaxDailyLossPercent ?? 5.0;
+            double profitTargetPct = funded.ProfitTargetPercent ?? 0.0;
+            string drawdownType = string.IsNullOrWhiteSpace(funded.DrawdownType) ? "static" : funded.DrawdownType!;
+
+            int tradingPeriodDays = funded.TradingPeriodDays ?? 90;
+            int targetDurationSlices = ComputeTargetSlices(data, tradingPeriodDays);
 
             int iterations = Iterations;
             int blockSize = MeanBlockSize;
-            double ruinPct = RuinThresholdPercent;
-            var trades = data.Trades;
-            var duration = data.Duration;
 
             var progress = new Progress<int>(done =>
             {
@@ -194,12 +212,14 @@ public partial class MonteCarloViewModel : ObservableObject
             });
 
             var result = await Task.Run(() => _engine.Run(
-                trades,
-                duration,
-                iterations: iterations,
-                meanBlockSize: blockSize,
-                startingCapital: startingCapital,
-                ruinThresholdPercent: ruinPct,
+                slices,
+                targetDurationSlices,
+                startingCapital,
+                drawdownType,
+                maxDailyLossPct,
+                maxLossPct,
+                profitTargetPct,
+                expectedBlockSize: blockSize,
                 seed: null,
                 progress: progress));
 
@@ -207,7 +227,9 @@ public partial class MonteCarloViewModel : ObservableObject
             PopulateStats(result);
             RenderPlots(result);
 
-            StatusText = $"Done — {result.Iterations} simulations. Risk of Ruin: {result.RiskOfRuin:P2}";
+            StatusText =
+                $"Done — {result.Iterations} simulations · " +
+                $"P(ruin) {result.PRuin:P1} · P(funded) {result.PFunded:P1} · P(timeout) {result.PTimeout:P1}";
         }
         catch (Exception ex)
         {
@@ -220,78 +242,76 @@ public partial class MonteCarloViewModel : ObservableObject
         }
     }
 
+    private static int ComputeTargetSlices(OverviewData data, int tradingPeriodDays)
+    {
+        if (data.SourceData == null || data.SourceData.Count < 2)
+            return tradingPeriodDays;
+
+        long firstMs = new DateTimeOffset(data.SourceData[0].Timestamp).ToUnixTimeMilliseconds();
+        long lastMs = new DateTimeOffset(data.SourceData[data.SourceData.Count - 1].Timestamp).ToUnixTimeMilliseconds();
+        double spanDays = Math.Max((lastMs - firstMs) / 86_400_000.0, 1.0 / 24.0);
+        double slicesPerDay = data.SourceData.Count / spanDays;
+
+        int slices = (int)Math.Round(tradingPeriodDays * slicesPerDay);
+        return slices < 1 ? tradingPeriodDays : slices;
+    }
+
     private void PopulateStats(MonteCarloResult r)
     {
         Stats.Clear();
 
-        Stats.Add(new McStatRow("Net Profit",
-            FormatMoney(r.NetProfitMean),
-            FormatMoney(r.NetProfitMedian),
-            FormatMoney(r.NetProfitStdDev),
-            FormatMoney(r.NetProfitP05),
-            FormatMoney(r.NetProfitP95)));
+        Stats.Add(new McStatRow("P(ruin) / P(funded) / P(timeout)",
+            r.PRuin.ToString("P1"),
+            r.PFunded.ToString("P1"),
+            r.PTimeout.ToString("P1"),
+            "—",
+            "—"));
+
+        Stats.Add(new McStatRow("Expected Slices",
+            r.ExpectedSlicesToFund.ToString("N1"),
+            "—",
+            r.ExpectedSlicesToRuin.ToString("N1"),
+            "—",
+            "—"));
+
+        Stats.Add(new McStatRow("Terminal Balance",
+            r.TerminalBalanceMean.ToString("N0"),
+            r.TerminalBalanceMedian.ToString("N0"),
+            r.TerminalBalanceStdDev.ToString("N0"),
+            r.TerminalBalanceP05.ToString("N0"),
+            r.TerminalBalanceP95.ToString("N0")));
 
         Stats.Add(new McStatRow("Max Drawdown %",
-            FormatPercent(r.MaxDrawdownMean),
-            FormatPercent(r.MaxDrawdownMedian),
+            r.MaxDrawdownMean.ToString("0.00") + "%",
+            r.MaxDrawdownMedian.ToString("0.00") + "%",
             "—",
-            FormatPercent(r.MaxDrawdownP05),
-            FormatPercent(r.MaxDrawdownP95)));
-
-        Stats.Add(new McStatRow("Annual Return %",
-            FormatPercent(r.AnnualReturnMean),
-            "—",
-            "—",
-            FormatPercent(r.AnnualReturnP05),
-            FormatPercent(r.AnnualReturnP95)));
-
-        Stats.Add(new McStatRow("Sharpe",
-            r.SharpeMean.ToString("0.00"),
-            "—",
-            "—",
-            r.SharpeP05.ToString("0.00"),
-            r.SharpeP95.ToString("0.00")));
-
-        Stats.Add(new McStatRow("Profit Factor",
-            r.ProfitFactorMean.ToString("0.00"),
-            "—",
-            "—",
-            r.ProfitFactorP05.ToString("0.00"),
-            r.ProfitFactorP95.ToString("0.00")));
-
-        Stats.Add(new McStatRow("Max Consecutive Losses",
-            r.MaxConsecutiveLossesMean.ToString("0.0"),
-            "—",
-            "—",
-            "—",
-            r.MaxConsecutiveLossesMax.ToString()));
+            r.MaxDrawdownP05.ToString("0.00") + "%",
+            r.MaxDrawdownP95.ToString("0.00") + "%"));
     }
 
     private void RenderPlots(MonteCarloResult r)
     {
         if (_plot == null) return;
+        if (r.TerminalBalances.Length == 0) return;
 
         var plt = _plot.Plot;
         plt.Clear();
 
-        var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.NetProfits);
+        var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.TerminalBalances);
         var bars = plt.Add.Bars(hist.Bins, hist.Counts);
         bars.Color = ScottPlot.Color.FromHex("#4FC3F7");
 
-        double p05 = r.NetProfitP05;
-        double p50 = r.NetProfitMedian;
-        double p95 = r.NetProfitP95;
+        double p05 = r.TerminalBalanceP05;
+        double p50 = r.TerminalBalanceMedian;
+        double p95 = r.TerminalBalanceP95;
         plt.Add.VerticalLine(p05, 2, ScottPlot.Color.FromHex("#EF5350"), ScottPlot.LinePattern.Solid);
         plt.Add.VerticalLine(p50, 1, ScottPlot.Colors.White, ScottPlot.LinePattern.Solid);
         plt.Add.VerticalLine(p95, 2, ScottPlot.Color.FromHex("#26A69A"), ScottPlot.LinePattern.Solid);
 
-        plt.Title("Net Profit Distribution");
-        plt.Axes.Bottom.Label.Text = "Final Equity";
+        plt.Title("Terminal Balance Distribution");
+        plt.Axes.Bottom.Label.Text = "Terminal Balance";
         plt.Axes.Left.Label.Text = "Frequency";
 
         _plot.Refresh();
     }
-
-    private static string FormatMoney(double v) => v.ToString("N0");
-    private static string FormatPercent(double v) => v.ToString("0.00") + "%";
 }

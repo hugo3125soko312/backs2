@@ -4,9 +4,7 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
-## Phase 10.15: Time-Domain Monte Carlo [IN PROGRESS]
-
-Replaces the trade-shuffling Monte Carlo engine. See `docs/ARCHITECTURE.md` §16 for the full specification.
+### Phase 10.15D -- MonteCarloViewModel rework [NEXT]
 
 ### Phase 10.15A -- Trade extension [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
@@ -14,16 +12,8 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.15B -- TimeSlice + builder [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 
-### Phase 10.15C -- New MonteCarloEngine [NEXT]
-- [ ] Delete the trade-shuffling simulation. `MonteCarloEngine.Run` takes `TimeSlice[]`, `targetDurationSlices`, `startingCapital`, `DrawdownType`, `MaxDailyLossPercent`, `MaxLossPercent`, `ProfitTargetPercent`, `ExpectedBlockSize`, `seed`, `IProgress<int>`.
-- [ ] Stationary block bootstrap: block start uniform, block length geometric with mean `ExpectedBlockSize`, circular wrap.
-- [ ] State machine per slice: MTM low check (daily and max), PnL realization, HWM update per `DrawdownType`, EOD reset.
-- [ ] `DrawdownType` handling: `static` (fixed floor from initial), `trailing-eod` (floor from HWM updated at EOD), `trailing-intraday` (floor from HWM updated continuously).
-- [ ] Early exit on blown or passed. `SlicesElapsed` recorded at termination.
-- [ ] Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin, per-path terminal balance array.
-- [ ] `Random.Shared` for parallel, per-iteration seed for reproducibility.
-- [ ] Pre-allocated result arrays. No `List<T>.Add`, no LINQ in the hot loop.
-- [ ] Target duration from `AccountPhase.TradingPeriodDays`, fallback 90 days.
+### Phase 10.15C -- New MonteCarloEngine [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 10.15D -- MonteCarloViewModel rework
 - [ ] Read active account rules from `AccountService.Active`. Last phase's `MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`.
