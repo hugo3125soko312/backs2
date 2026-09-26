@@ -83,6 +83,7 @@ public partial class MonteCarloViewModel : ObservableObject
     public void SetPlotControl(AvaPlot plot)
     {
         _plot = plot;
+        ApplyPlotTheme();
         RenderForSelection();
     }
 
@@ -142,6 +143,7 @@ public partial class MonteCarloViewModel : ObservableObject
         Stats.Clear();
         HasResults = false;
         _plot?.Plot.Clear();
+        ApplyPlotTheme();
         _plot?.Refresh();
     }
 
@@ -318,12 +320,31 @@ public partial class MonteCarloViewModel : ObservableObject
         {
             Stats.Clear();
             _plot?.Plot.Clear();
+            ApplyPlotTheme();
             _plot?.Refresh();
             return;
         }
 
         PopulateStats(r);
         RenderPlots(r);
+    }
+
+    private void ApplyPlotTheme()
+    {
+        if (_plot == null) return;
+        var plot = _plot.Plot;
+        var labelColor = ScottPlot.Color.FromHex("#888888");
+
+        plot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
+        plot.DataBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
+        plot.Axes.Color(ScottPlot.Color.FromHex("#333333"));
+
+        plot.Axes.Bottom.TickLabelStyle.ForeColor = labelColor;
+        plot.Axes.Left.TickLabelStyle.ForeColor = labelColor;
+        plot.Axes.Right.TickLabelStyle.ForeColor = labelColor;
+        plot.Axes.Bottom.Label.ForeColor = labelColor;
+        plot.Axes.Left.Label.ForeColor = labelColor;
+        plot.Axes.Right.Label.ForeColor = labelColor;
     }
 
     private void PopulateStats(MonteCarloResult r)
@@ -367,6 +388,8 @@ public partial class MonteCarloViewModel : ObservableObject
         var plt = _plot.Plot;
         plt.Clear();
 
+        ApplyPlotTheme();
+
         var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.TerminalBalances);
         var bars = plt.Add.Bars(hist.Bins, hist.Counts);
         bars.Color = ScottPlot.Color.FromHex("#4FC3F7");
@@ -383,6 +406,8 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Title("Terminal Balance Distribution");
         plt.Axes.Bottom.Label.Text = "Terminal Balance";
         plt.Axes.Left.Label.Text = "Frequency";
+
+        ApplyPlotTheme();
 
         _plot.Refresh();
     }
