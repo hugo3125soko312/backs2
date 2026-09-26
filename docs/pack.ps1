@@ -5,6 +5,9 @@
 #
 # Result: the full bundle is copied to the Windows clipboard. Paste it into
 # any chat/agent. No secrets are included — .env contents are excluded.
+#
+# ROADMAP_ARCHIVE.md is NOT bundled — it is large and changes rarely. Its slot
+# is replaced with a placeholder that tells the agent how to request it.
 
 $ErrorActionPreference = 'Stop'
 
@@ -25,12 +28,13 @@ try {
     [void]$sb.AppendLine((Get-Content 'docs\starting_promt.txt' -Raw))
     [void]$sb.AppendLine()
 
-    # --- 2. All docs (everything under docs/ except pack.ps1 and starting_promt.txt) ---
+    # --- 2. All docs (everything under docs/ except pack.ps1, starting_promt.txt, ROADMAP_ARCHIVE.md) ---
     $docs = Get-ChildItem -Path 'docs' -Recurse -File |
         Where-Object {
             $_.FullName -notmatch '\\(bin|obj)\\' -and
             $_.Name -ne 'pack.ps1' -and
-            $_.Name -ne 'starting_promt.txt'
+            $_.Name -ne 'starting_promt.txt' -and
+            $_.Name -ne 'ROADMAP_ARCHIVE.md'
         }
 
     foreach ($doc in $docs) {
@@ -41,6 +45,17 @@ try {
         [void]$sb.AppendLine((Get-Content $doc.FullName -Raw))
         [void]$sb.AppendLine()
     }
+
+    # --- 2b. ROADMAP_ARCHIVE.md placeholder ---
+    [void]$sb.AppendLine('=================')
+    [void]$sb.AppendLine('File: docs\ROADMAP_ARCHIVE.md')
+    [void]$sb.AppendLine('=================')
+    [void]$sb.AppendLine('docs/ROADMAP_ARCHIVE.md contains all completed features and phases.')
+    [void]$sb.AppendLine('It is not bundled here because it is large and changes rarely.')
+    [void]$sb.AppendLine('Request it by running this from the project root:')
+    [void]$sb.AppendLine()
+    [void]$sb.AppendLine('    Get-Content docs\ROADMAP_ARCHIVE.md | Set-Clipboard')
+    [void]$sb.AppendLine()
 
     # --- 3. Project tree ---
     [void]$sb.AppendLine('================= PROJECT STRUCTURE =================')
