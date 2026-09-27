@@ -119,10 +119,10 @@
 - Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.
 - Metrics — metric catalog browser.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
+- Providers — Analyzes the local cache to summarize statistics per provider (datasets cached, volume availability, date ranges, and available timeframes).
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
-- (Removed: Strategies tab. Replaced by Runner. Overview tab planned next.)
 
 ## 10. Logging
 

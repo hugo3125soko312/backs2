@@ -10,7 +10,7 @@ namespace backs2.Core;
 
 public sealed record CacheLoadResult(List<Kline> Bars, string Source);
 
-public sealed record CacheMetadata(string Symbol, string Timeframe, string Source, bool HasVolume);
+public sealed record CacheMetadata(string Symbol, string Timeframe, string Source, bool HasVolume, long MinT, long MaxT);
 
 public class CacheManager
 {
@@ -160,14 +160,24 @@ public class CacheManager
             var source = root.TryGetProperty("source", out var src) ? src.GetString() : null;
 
             bool hasVol = false;
+            long minT = 0;
+            long maxT = 0;
+
             if (root.TryGetProperty("bars", out var bars) && bars.ValueKind == JsonValueKind.Array)
             {
-                foreach (var bar in bars.EnumerateArray())
+                int len = bars.GetArrayLength();
+                if (len > 0)
                 {
-                    if (bar.TryGetProperty("v", out var v) && v.GetInt64() > 0)
+                    if (bars[0].TryGetProperty("t", out var t0)) minT = t0.GetInt64();
+                    if (bars[len - 1].TryGetProperty("t", out var t1)) maxT = t1.GetInt64();
+
+                    foreach (var bar in bars.EnumerateArray())
                     {
-                        hasVol = true;
-                        break;
+                        if (bar.TryGetProperty("v", out var v) && v.GetInt64() > 0)
+                        {
+                            hasVol = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -179,7 +189,9 @@ public class CacheManager
                 symbol!,
                 timeframe!,
                 string.IsNullOrWhiteSpace(source) ? "Unknown" : source!,
-                hasVol);
+                hasVol,
+                minT,
+                maxT);
         }
         catch
         {

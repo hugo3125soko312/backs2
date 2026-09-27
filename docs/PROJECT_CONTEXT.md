@@ -51,7 +51,7 @@
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/).
     - `data/`: engine-managed (cache/, strategies/, accounts/).
-- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Chart, Logs, Config.
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".
