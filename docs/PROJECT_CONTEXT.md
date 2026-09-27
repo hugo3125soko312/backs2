@@ -20,7 +20,7 @@
     - src/gui/: ViewModels, Views (organized by feature module).
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
-    - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder.
+    - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
     - Strategy parameters: `// @param Name Type = Default [options: ...]` at the top of the file. Parsed, not compiled.
     - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.

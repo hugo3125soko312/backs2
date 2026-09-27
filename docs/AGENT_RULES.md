@@ -1,3 +1,4 @@
+<!-- docs\AGENT_RULES.md -->
 # Agent Interaction Rules
 
 - You are an expert C# Avalonia developer.
@@ -11,6 +12,7 @@
 - Strategy scripts live in data/strategies/*.cs and are never compiled into the assembly.
   - backs2.csproj must retain a Compile Remove for data\**\*.cs.
   - Script shape: top-level statements against RunnerScriptGlobals (Engine, Data, Log, Trades, Params).
+  - **Read docs/strats_guide.md before creating or refactoring any strategy.**
 - API keys live in .env at the repo root, loaded by ConfigManager. Never propose hard-coding keys or writing them to config/settings.json.
 - Provider symbols are resolved inside each provider. Timeframe wire-format mapping lives in TimeframeMap. Do not add symbol or timeframe translation to DataManager or IDataProvider.
 - Inside XAML templates, use Binding DataContext.Prop with RelativeSource AncestorType=UserControl. Do not use $parent[UserControl].((vm:Type)DataContext).Prop.
