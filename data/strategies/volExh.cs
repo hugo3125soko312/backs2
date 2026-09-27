@@ -1,3 +1,7 @@
+using System;
+using System.Globalization;
+using backs2.Core.Runner;
+
 // @param VolSmaLen int = 10
 // @param VolMult double = 1.8
 // @param MaxBodyPct double = 0.6
@@ -5,19 +9,19 @@
 // @param RrTarget double = 2.7
 // @param SlMultiplier double = 1.7
 
-var culture = System.Globalization.CultureInfo.InvariantCulture;
+var culture = CultureInfo.InvariantCulture;
 int volSmaLen = int.TryParse(Params["VolSmaLen"], out var vsl) ? vsl : 10;
-double volMult = double.TryParse(Params["VolMult"], System.Globalization.NumberStyles.Any, culture, out var vm) ? vm : 1.8;
-double maxBodyPct = double.TryParse(Params["MaxBodyPct"], System.Globalization.NumberStyles.Any, culture, out var mbp) ? mbp : 0.6;
+double volMult = double.TryParse(Params["VolMult"], NumberStyles.Any, culture, out var vm) ? vm : 1.8;
+double maxBodyPct = double.TryParse(Params["MaxBodyPct"], NumberStyles.Any, culture, out var mbp) ? mbp : 0.6;
 int lookbackBars = int.TryParse(Params["LookbackBars"], out var lb) ? lb : 2;
-double rrTarget = double.TryParse(Params["RrTarget"], System.Globalization.NumberStyles.Any, culture, out var rr) ? rr : 2.7;
-double slMultiplier = double.TryParse(Params["SlMultiplier"], System.Globalization.NumberStyles.Any, culture, out var slm) ? slm : 1.7;
+double rrTarget = double.TryParse(Params["RrTarget"], NumberStyles.Any, culture, out var rr) ? rr : 2.7;
+double slMultiplier = double.TryParse(Params["SlMultiplier"], NumberStyles.Any, culture, out var slm) ? slm : 1.7;
 
 bool inTrade = false;
 double slPrice = 0.0;
 double tpPrice = 0.0;
 
-// Pre-calculate Volume SMA 
+// Pre-calculate Volume SMA
 double[] volMAs = new double[Data.Count];
 double currentVolSum = 0;
 for (int i = 0; i < Data.Count; i++)
@@ -37,6 +41,7 @@ for (int i = 0; i < Data.Count; i++)
 
     if (inTrade)
     {
+        // Pessimistic intra-candle evaluation
         if (kline.Low <= slPrice)
         {
             Trades.Exit(slPrice);
@@ -47,7 +52,7 @@ for (int i = 0; i < Data.Count; i++)
             Trades.Exit(tpPrice);
             inTrade = false;
         }
-        continue;
+        continue; // Wait for exit before evaluating new entries
     }
 
     if (i < volSmaLen + lookbackBars) continue;
@@ -77,7 +82,7 @@ for (int i = 0; i < Data.Count; i++)
 
     if (downwardVolSpike && isSlightBullish)
     {
-        double riskAmount = System.Math.Max(candleRange * slMultiplier, 0.00001);
+        double riskAmount = Math.Max(candleRange * slMultiplier, 0.00001); // Fallback to prevent 0 risk
         double entryPrice = kline.Close;
         
         slPrice = entryPrice - riskAmount;
