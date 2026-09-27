@@ -28,7 +28,7 @@
     - Monte Carlo: transitioning from trade-shuffling to time-domain block bootstrap. See ARCHITECTURE §16.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
-    - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY.
+    - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, FINNHUB_API_KEY, FCS_PUBLIC_API_KEY, STOOQ_API_KEY.
     - ConfigManager reads them at startup, exposes them as read-only properties.
     - Never persisted to config/settings.json. .env is git-ignored.
 - Crucial Rules:
@@ -54,7 +54,9 @@
 - Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
-    - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive".
+    - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq".
     - Automatically discovered by ConfigViewModel via reflection.
     - Timeframe wire-format mapping lives in TimeframeMap.
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.
+    - Binance is keyless. Stooq's key issuance is blocked by a JavaScript proof-of-work gate on stooq.com; its provider returns an empty list when the key is absent.
+    - Placeholder .env values (key, placeholder, todo, xxx) are normalized to empty by ConfigManager.NormalizeValue.

@@ -1,4 +1,4 @@
-// src\core\Providers\TimeframeMap.cs
+// src/core/Providers/TimeframeMap.cs
 using System;
 
 namespace backs2.Core.Providers;
@@ -45,13 +45,13 @@ public static class TimeframeMap
         {
             "1m"  => "1m",
             "2m"  => "2m",
-            "3m"  => null,   
+            "3m"  => null,
             "5m"  => "5m",
             "15m" => "15m",
             "30m" => "30m",
-            "45m" => null,   
+            "45m" => null,
             "1h"  => "60m",
-            "2h"  => null,   
+            "2h"  => null,
             "3h"  => null,
             "4h"  => null,
             "1D"  => "1d",
@@ -60,7 +60,7 @@ public static class TimeframeMap
         };
     }
 
-    // Twelve Data natively supports a wide range of intervals.
+    // Twelve Data: wide interval support.
     public static string? ToTwelveData(string tf)
     {
         return tf switch
@@ -82,8 +82,7 @@ public static class TimeframeMap
         };
     }
 
-    // Tiingo natively supports IEX intraday resampling. 
-    // EOD (1D, 1W) uses a different endpoint so we map "daily" and "weekly".
+    // Tiingo: IEX intraday resampling; EOD uses separate endpoint.
     public static string? ToTiingo(string tf)
     {
         return tf switch
@@ -101,6 +100,83 @@ public static class TimeframeMap
             "4h"  => "4hour",
             "1D"  => "daily",
             "1W"  => "weekly",
+            _     => null
+        };
+    }
+
+    // Binance: interval strings. Crypto spot only.
+    public static string? ToBinance(string tf)
+    {
+        return tf switch
+        {
+            "1m"  => "1m",
+            "2m"  => null,
+            "3m"  => "3m",
+            "5m"  => "5m",
+            "15m" => "15m",
+            "30m" => "30m",
+            "45m" => null,
+            "1h"  => "1h",
+            "2h"  => "2h",
+            "3h"  => null,
+            "4h"  => "4h",
+            "1D"  => "1d",
+            "1W"  => "1w",
+            _     => null
+        };
+    }
+
+    // FCS API: period strings. Forex/crypto/commodities.
+    public static string? ToFcs(string tf)
+    {
+        return tf switch
+        {
+            "1m"  => "1m",
+            "2m"  => null,
+            "3m"  => null,
+            "5m"  => "5m",
+            "15m" => "15m",
+            "30m" => "30m",
+            "45m" => null,
+            "1h"  => "1h",
+            "2h"  => "2h",
+            "3h"  => null,
+            "4h"  => "4h",
+            "1D"  => "1d",
+            "1W"  => "1w",
+            _     => null
+        };
+    }
+
+    // Finnhub: resolution strings. Stock + forex endpoints.
+    public static string? ToFinnhub(string tf)
+    {
+        return tf switch
+        {
+            "1m"  => "1",
+            "2m"  => null,
+            "3m"  => null,
+            "5m"  => "5",
+            "15m" => "15",
+            "30m" => "30",
+            "45m" => null,
+            "1h"  => "60",
+            "2h"  => null,
+            "3h"  => null,
+            "4h"  => null,
+            "1D"  => "D",
+            "1W"  => "W",
+            _     => null
+        };
+    }
+
+    // Stooq: daily/weekly only. Blocked pending key availability.
+    public static string? ToStooq(string tf)
+    {
+        return tf switch
+        {
+            "1D"  => "d",
+            "1W"  => "w",
             _     => null
         };
     }

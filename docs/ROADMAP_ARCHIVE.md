@@ -356,3 +356,15 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] Header block retains the most recent run's strategy name, symbol, and single-run info. `BatchSummary` banner now reports `{ok}/{total} succeeded, {trades} trades across {N} dataset(s)`.
 - [x] `OverviewView.axaml` renders a `DataGrid` of `OverviewRow` with columns Dataset / Trades / Net PnL / Win % / Duration / Status, plus a pinned aggregate footer row below the grid.
 - [x] Verified end-to-end: 3 queued datasets → 3 rows + aggregate footer with summed trades, summed NetPnL, weighted win rate, summed duration.
+
+## Phase 11: Additional Providers [COMPLETED]
+- [x] `docs/PROVIDER_GUIDE.md` — six-touchpoint checklist for adding an `IDataProvider` (provider class, `TimeframeMap`, `ConfigManager`, `.env`, `App.axaml.cs`, `AppSettings.ProviderOrder`).
+- [x] `BinanceProvider` — keyless crypto spot klines. `GET https://data-api.binance.vision/api/v3/klines`. Paginates in 200-day windows (server cap on `startTime`/`endTime` span). Symbol pass-through; no volume filter.
+- [x] `FinnhubProvider` — stock and forex candles. US equities pass through, forex resolves to `OANDA:{BASE}_{QUOTE}`. Returns empty when `status != "ok"` — historical candles are gated behind a paid plan on the free tier.
+- [x] `FcsApiProvider` — forex, crypto, commodities. `FCS_PUBLIC_API_KEY`. Response is a JSON object keyed by Unix seconds, each value `{o, h, l, c, v}`.
+- [x] `StooqProvider` — CSV daily/weekly. Key issuance is blocked by a JavaScript SHA-256 proof-of-work gate on stooq.com; returns an empty list when the key is absent.
+- [x] `TimeframeMap` gains `ToBinance`, `ToFinnhub`, `ToFcs`, `ToStooq`.
+- [x] `ConfigManager` gains `FinnhubApiKey`, `FcsApiKey`, `StooqApiKey` read-only properties. `NormalizeValue` maps placeholder sentinels (`key`, `placeholder`, `todo`, `xxx`) to empty so unregistered providers short-circuit without an HTTP call.
+- [x] `AppSettings.ProviderOrder` extended to `["Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq"]`.
+- [x] `App.axaml.cs` registers four new keyed transients.
+- [x] `.env` gains `FINNHUB_API_KEY`, `FCS_PUBLIC_API_KEY`, `STOOQ_API_KEY`.

@@ -95,5 +95,9 @@ public partial class App : Application
         services.AddKeyedTransient<IDataProvider, TiingoProvider>("Tiingo");
         services.AddKeyedTransient<IDataProvider, YahooProvider>("Yahoo");
         services.AddKeyedTransient<IDataProvider, MassiveProvider>("Massive");
+        services.AddKeyedTransient<IDataProvider, BinanceProvider>("Binance");
+        services.AddKeyedTransient<IDataProvider, FinnhubProvider>("Finnhub");
+        services.AddKeyedTransient<IDataProvider, FcsApiProvider>("FCS API");
+        services.AddKeyedTransient<IDataProvider, StooqProvider>("Stooq");
     }
 }

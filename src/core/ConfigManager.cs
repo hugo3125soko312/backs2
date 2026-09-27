@@ -1,3 +1,4 @@
+// src/core/ConfigManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -12,7 +13,8 @@ public class AppSettings
     public int MaxRetries { get; set; } = 3;
     public int TimeoutSeconds { get; set; } = 30;
 
-    public List<string> ProviderOrder { get; set; } = new() { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
+    public List<string> ProviderOrder { get; set; } = new()
+    { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq" };
 
     public string ActiveAccountFirmFile { get; set; } = "";
     public string ActiveAccountPlan { get; set; } = "";
@@ -36,6 +38,9 @@ public class ConfigManager
     public string YahooApiKey { get; private set; } = "";
     public string TwelveDataApiKey { get; private set; } = "";
     public string TiingoApiKey { get; private set; } = "";
+    public string FinnhubApiKey { get; private set; } = "";
+    public string FcsApiKey { get; private set; } = "";
+    public string StooqApiKey { get; private set; } = "";
 
     public ConfigManager()
     {
@@ -72,6 +77,15 @@ public class ConfigManager
                 case "TIINGO_API_KEY":
                     TiingoApiKey = value;
                     break;
+                case "FINNHUB_API_KEY":
+                    FinnhubApiKey = value;
+                    break;
+                case "FCS_API_KEY":
+                    FcsApiKey = value;
+                    break;
+                case "STOOQ_API_KEY":
+                    StooqApiKey = value;
+                    break;
             }
         }
     }
@@ -96,7 +110,8 @@ public class ConfigManager
         }
 
         if (Settings.ProviderOrder == null || Settings.ProviderOrder.Count == 0)
-            Settings.ProviderOrder = new List<string> { "Twelve Data", "Tiingo", "Yahoo", "Massive" };
+            Settings.ProviderOrder = new List<string>
+            { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq" };
 
         Settings.ActiveAccountFirmFile ??= "";
         Settings.ActiveAccountPlan ??= "";
