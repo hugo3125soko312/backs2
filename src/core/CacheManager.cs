@@ -1,3 +1,4 @@
+// src/core/CacheManager.cs
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -165,21 +166,24 @@ public class CacheManager
 
             if (root.TryGetProperty("bars", out var bars) && bars.ValueKind == JsonValueKind.Array)
             {
-                int len = bars.GetArrayLength();
-                if (len > 0)
-                {
-                    if (bars[0].TryGetProperty("t", out var t0)) minT = t0.GetInt64();
-                    if (bars[len - 1].TryGetProperty("t", out var t1)) maxT = t1.GetInt64();
+                long runningMin = long.MaxValue;
+                long runningMax = long.MinValue;
 
-                    foreach (var bar in bars.EnumerateArray())
+                foreach (var bar in bars.EnumerateArray())
+                {
+                    if (!hasVol && bar.TryGetProperty("v", out var v) && v.GetInt64() > 0)
+                        hasVol = true;
+
+                    if (bar.TryGetProperty("t", out var tv))
                     {
-                        if (bar.TryGetProperty("v", out var v) && v.GetInt64() > 0)
-                        {
-                            hasVol = true;
-                            break;
-                        }
+                        long val = tv.GetInt64();
+                        if (val < runningMin) runningMin = val;
+                        if (val > runningMax) runningMax = val;
                     }
                 }
+
+                if (runningMin != long.MaxValue) minT = runningMin;
+                if (runningMax != long.MinValue) maxT = runningMax;
             }
 
             if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))

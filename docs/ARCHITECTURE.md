@@ -263,7 +263,22 @@
 - Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. 
   - `DataViewModel` gains `FetchCommand` and `FetchAndQueueCommand`. Fetch calls `DataManager.GetSymbolDataAsync` and reloads the row list. Fetch & Queue additionally writes to the `SelectionQueue` with the provider resolved from the cache metadata of the freshly written file.
 
-## 16. Time-Domain Monte Carlo (Phase 10.15)
+## 16. Providers Tab
+
+- Purpose: read-only diagnostics over `data/cache/`, grouped by the `source` field of each cache envelope. Never triggers network fetches — reads `CacheManager.ReadCacheMetadata` directly, bypassing `DataManager` by design.
+- GUI (`src/gui/Providers/`):
+  - `ProvidersView.axaml` — toolbar (Refresh Stats), scrollable grouped list, status line.
+  - `ProvidersView.axaml.cs` — resolves `ProvidersViewModel` via DI in the constructor.
+  - `ProvidersViewModel` — `Groups` (ObservableCollection of `ProviderGroupViewModel`), `StatusText`, `RefreshCommand`.
+  - `ProviderGroupViewModel` — one per distinct `source`. Holds aggregate `DatasetCount`, `Volume` (`Yes` / `No` / `Mixed (n/m)`), overall `Start` and `End` (min/max across all datasets in the group), `AverageSpan` (arithmetic mean of per-dataset spans, excluding datasets with no valid `MinT`/`MaxT`), `Timeframes` (distinct, sorted by `TimeframeMap.All` order first then lexicographic), `IsExpanded` (default true), `ToggleExpandCommand`, and `Datasets`.
+  - `ProviderDatasetRow` — one per cache file. `Dataset` (`symbol@timeframe`), `Volume`, `Start`, `End`, `Span`, `Timeframes` (the single timeframe of this file). Static `FormatSpan` / `FormatDuration` helpers, shared with the group.
+- Columns, in order: Provider, Dataset, Volume, Start, End, Avg Span, Timeframes.
+- Layout: `ItemsControl` of provider groups. Each group renders a bold provider header row followed by an indented `ItemsControl` of dataset rows, hidden when `IsExpanded` is false. Column alignment relies on identical fixed `ColumnDefinitions` (`220,220,100,110,110,110,*`) in the header grid and the dataset grid. No user column resizing.
+- Span formatting (`ProviderDatasetRow.FormatDuration`): `< 1 h` → minutes, `< 1 d` → hours, `< 60 d` → days, `< 24 mo` → months (30.4375 d/mo), else years (365.25 d/y). One decimal place. Datasets with `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT` render `—` and are excluded from the group's `AverageSpan`.
+- Refresh: manual only, via the toolbar button. No `FileSystemWatcher`. The tab calls `RefreshCommand` once on construction so it is populated when first opened.
+- `CacheManager.ReadCacheMetadata` contract: single pass over `bars[]`, collecting `HasVolume` and running `MinT`/`MaxT`. Does not assume ascending bar order. `MinT`/`MaxT` remain `0` when `bars` is empty or absent.
+
+## 17. Time-Domain Monte Carlo (Phase 10.15)
 
 Replaces the original trade-shuffling Monte Carlo engine. The trade domain is statistically invalid for prop-firm evaluation because it destroys intra-trade equity paths, ignores trailing drawdown, and treats time as irrelevant.
 
