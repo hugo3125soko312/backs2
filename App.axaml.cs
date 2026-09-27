@@ -98,6 +98,5 @@ public partial class App : Application
         services.AddKeyedTransient<IDataProvider, BinanceProvider>("Binance");
         services.AddKeyedTransient<IDataProvider, FinnhubProvider>("Finnhub");
         services.AddKeyedTransient<IDataProvider, FcsApiProvider>("FCS API");
-        services.AddKeyedTransient<IDataProvider, StooqProvider>("Stooq");
     }
 }

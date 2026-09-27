@@ -60,7 +60,7 @@
 ## 5. Configuration & Auto-Generating UI
 - Settings File: ConfigManager handles config/settings.json — non-secret engine state (threading, resilience, provider order).
 - ConfigDirectory: ConfigManager exposes `public string ConfigDirectory => "config";` as the single source of truth for non-secret on-disk state. PresetService uses it to resolve `config/presets/`.
-- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey). Secrets are never persisted to settings.json.
+- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey, FinnhubApiKey, FcsApiKey). Secrets are never persisted to settings.json.
 - Dynamic Reflection Engine:
   - ConfigViewModel reflects all public instance properties on AppSettings (excluding ProviderOrder) into SettingItem wrappers.
   - Controls are rendered dynamically in ConfigView.axaml based on data type:
@@ -72,8 +72,8 @@
 - Dynamic Provider Discovery:
   - ConfigViewModel uses reflection over IDataProvider to automatically discover all non-abstract provider classes in the assembly.
   - Any new provider implementing IDataProvider is automatically listed in the "Available Providers" listbox for ordering.
-- Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (default: ["Twelve Data", "Tiingo", "Yahoo", "Massive"]). Edited via the Config tab. Consumed by DataManager.
-- Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 1h, 2h, 3h, 4h, 1D, 1W.
+- Provider Order: AppSettings.ProviderOrder is an ordered list of provider keys (default: ["Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API"]). Edited via the Config tab. Consumed by DataManager.
+- Timeframes: Canonical list lives in TimeframeMap.All: 1m, 2m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W.
 
 ## 6. Providers (IDataProvider)
 - Contract:
@@ -89,7 +89,6 @@
     - Binance: Symbols pass through directly (e.g. BTCUSDT, ETHUSDT). Crypto spot only.
     - Finnhub: US equities pass through (AAPL); forex resolves to OANDA:{BASE}_{QUOTE} (EURUSD -> OANDA:EUR_USD).
     - FCS API: EURUSD -> EUR/USD, XAUUSD -> XAU/USD. Slash-separated.
-    - Stooq: Lowercased; US equities gain a .us suffix (AAPL -> aapl.us), forex pairs are concatenated (EURUSD -> eurusd).
 - Timeframe resolution is centralized in TimeframeMap:
     - ToTwelveData(tf) -> 1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 1day, 1week.
     - ToTiingo(tf) -> 1min, 2min, 3min, 5min, 15min, 30min, 45min, 1hour, 2hour, 3hour, 4hour, daily, weekly.
@@ -98,7 +97,6 @@
     - ToBinance(tf) -> 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d, 1w.
     - ToFinnhub(tf) -> 1, 5, 15, 30, 60, D, W.
     - ToFcs(tf) -> 1m, 5m, 15m, 30m, 1h, 2h, 4h, 1d, 1w.
-    - ToStooq(tf) -> d, w (daily and weekly only).
     - LookbackDays(tf) — per-timeframe fetch window.
 - Twelve Data provider: GET https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=5000&apikey={key}
 - Tiingo provider: GET https://api.tiingo.com/iex/{symbol}/prices (intraday) and GET https://api.tiingo.com/tiingo/daily/{symbol}/prices (EOD).
@@ -107,13 +105,12 @@
 - Binance provider: GET https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval={interval}&startTime={ms}&endTime={ms}&limit=1500. Keyless. Paginates in 200-day windows (server cap on startTime/endTime span). Crypto spot only; no volume filter since zero-volume bars are legitimate.
 - Finnhub provider: GET https://finnhub.io/api/v1/{stock|forex}/candle?symbol={symbol}&resolution={resolution}&from={unix}&to={unix}&token={key}. Returns empty when status is not "ok" — historical candles are gated behind a paid plan on the free tier.
 - FCS API provider: GET https://api-v4.fcsapi.com/forex/history?symbol={symbol}&period={period}&length=500&access_key={key}. Response is a JSON object keyed by Unix seconds, each value `{o, h, l, c, v}`. Free plan uses `length` (500 max); `from`/`to` are corporate-tier only.
-- Stooq provider: GET https://stooq.com/q/d/l/?s={symbol}&i={d|w}&d1={yyyyMMdd}&d2={yyyyMMdd}&apikey={key}. Returns CSV with columns `Date,Open,High,Low,Close,Volume`. Daily and weekly only. Key issuance is blocked by a JavaScript proof-of-work gate on stooq.com; the provider returns an empty list when the key is absent.
 - Secrets: providers read keys from ConfigManager read-only properties sourced from .env — never from AppSettings. Placeholder values (key, placeholder, todo, xxx) are normalized to empty by ConfigManager.NormalizeValue so unregistered providers short-circuit without issuing a request.
 
 ## 7. Caching
 - Disk format: KlineCompact record — flat {T, O, H, L, C, V} with T as Unix milliseconds. Serialized via source-generated KlineJsonContext.
 - Legacy-format detection: LoadCacheAsync returns null on empty files, malformed JSON, or all-zero payloads, so DataManager refetches.
-- Metadata parsing: `CacheManager.ReadCacheMetadata` scans the JSON payload for any non-zero volume to expose `HasVolume` for the Data tab without fully deserializing the file into memory.
+- Metadata parsing: `CacheManager.ReadCacheMetadata` scans the JSON payload for any non-zero volume to expose `HasVolume` for the Data tab without fully deserializing the file into memory. Also collects running `MinT`/`MaxT` in the same pass — does not assume ascending bar order.
 - Per-file log lines: "Cache: saved {key} ({n} bars, {ms} ms)" and "Cache: loaded {key} ({n} bars, {ms} ms)".
 - Memory-tier observability: DataManager logs "RAM hit" / "RAM miss" for every lookup.
 - Benchmark: CacheManager.BenchmarkAsync(int barCount) serializes and loads N synthetic bars, logging elapsed milliseconds.
@@ -128,10 +125,13 @@
 - RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 
 ## 9. Tabs
+- Overview — last-run summary with per-dataset table and aggregate footer.
 - Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.
+- Monte Carlo — per-dataset outcome probabilities and terminal-balance histogram.
 - Metrics — metric catalog browser.
+- Accounts — prop-firm rule browser and active selection.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
-- Providers — Analyzes the local cache to summarize statistics per provider (datasets cached, volume availability, date ranges, and available timeframes).
+- Providers — Collapsible per-provider cache diagnostics. See §16.
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
@@ -311,8 +311,8 @@ For each trade, every slice between `EntryIndex` and `ExitIndex` carries:
 
 Trades cannot overlap today — `TradeRecorder._hasOpen` enforces it. If multi-position strategies are added later, the accumulator in `TimeSliceBuilder` sums MTM across simultaneous trades.
 
-### Pending engine (Phase 10.15C)
-The new `MonteCarloEngine` will consume the `TimeSlice[]` and implement:
+### Engine
+The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 - Stationary block bootstrap (Politis & Romano): block length drawn from a geometric distribution with mean `ExpectedBlockSize`. Circular wrap.
 - Flat-bet absolute PnL compounding (`CurrentBalance += RealizedPnl`), not percentage. Prop firm capital is nominal and fixed-lot.
 - State machine per slice: MTM low check against daily floor and max-DD floor, then realize PnL, then update HWM, then EOD reset.
@@ -320,8 +320,3 @@ The new `MonteCarloEngine` will consume the `TimeSlice[]` and implement:
 - Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin.
 - Target duration from `AccountPhase.TradingPeriodDays` (fallback 90 days).
 - Independent Monte Carlo runs per queued dataset. Aggregation sums expectations, does not pool trades.
-
-### Why the old engine is being replaced
-- Trade shuffling destroys volatility clustering and return autocorrelation.
-- Intra-trade equity excursions are invisible. A position that spikes to -5.1% intra-candle but closes at +2% is scored a win, when the prop firm would have terminated the account.
-- Static ruin thresholds understate risk on trailing-drawdown accounts like FTMO 1-Step.

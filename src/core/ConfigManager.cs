@@ -14,7 +14,7 @@ public class AppSettings
     public int TimeoutSeconds { get; set; } = 30;
 
     public List<string> ProviderOrder { get; set; } = new()
-    { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq" };
+    { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API" };
 
     public string ActiveAccountFirmFile { get; set; } = "";
     public string ActiveAccountPlan { get; set; } = "";
@@ -27,6 +27,10 @@ public class AppSettings
 
 public class ConfigManager
 {
+    // Sentinels accepted in .env to mean "I don't have this key yet".
+    // Kept so a filled-out .env can be scanned visually at a glance.
+    private static readonly string[] PlaceholderKeys = { "key", "placeholder", "todo", "xxx" };
+
     private readonly string _configPath = "config/settings.json";
     private readonly string _envPath = ".env";
 
@@ -40,7 +44,6 @@ public class ConfigManager
     public string TiingoApiKey { get; private set; } = "";
     public string FinnhubApiKey { get; private set; } = "";
     public string FcsApiKey { get; private set; } = "";
-    public string StooqApiKey { get; private set; } = "";
 
     public ConfigManager()
     {
@@ -61,7 +64,7 @@ public class ConfigManager
             if (idx <= 0) continue;
 
             var key = line.Substring(0, idx).Trim();
-            var value = line.Substring(idx + 1).Trim().Trim('"');
+            var value = NormalizeValue(line.Substring(idx + 1));
 
             switch (key)
             {
@@ -80,14 +83,25 @@ public class ConfigManager
                 case "FINNHUB_API_KEY":
                     FinnhubApiKey = value;
                     break;
-                case "FCS_API_KEY":
+                case "FCS_PUBLIC_API_KEY":
                     FcsApiKey = value;
-                    break;
-                case "STOOQ_API_KEY":
-                    StooqApiKey = value;
                     break;
             }
         }
+    }
+
+    private static string NormalizeValue(string raw)
+    {
+        var v = raw.Trim().Trim('"');
+        if (v.Length == 0) return "";
+
+        foreach (var placeholder in PlaceholderKeys)
+        {
+            if (string.Equals(v, placeholder, StringComparison.OrdinalIgnoreCase))
+                return "";
+        }
+
+        return v;
     }
 
     public void LoadConfig()
@@ -111,7 +125,7 @@ public class ConfigManager
 
         if (Settings.ProviderOrder == null || Settings.ProviderOrder.Count == 0)
             Settings.ProviderOrder = new List<string>
-            { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq" };
+            { "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API" };
 
         Settings.ActiveAccountFirmFile ??= "";
         Settings.ActiveAccountPlan ??= "";

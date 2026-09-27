@@ -170,17 +170,6 @@ public static class TimeframeMap
         };
     }
 
-    // Stooq: daily/weekly only. Blocked pending key availability.
-    public static string? ToStooq(string tf)
-    {
-        return tf switch
-        {
-            "1D"  => "d",
-            "1W"  => "w",
-            _     => null
-        };
-    }
-
     // Lookback window in days, by timeframe.
     public static int LookbackDays(string tf)
     {
