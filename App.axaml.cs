@@ -1,4 +1,3 @@
-// App.axaml.cs
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -83,6 +82,7 @@ public partial class App : Application
         services.AddTransient<MonteCarloViewModel>();
         services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
+        services.AddTransient<ProvidersViewModel>();
 
         services.AddHttpClient("ResilientClient")
             .AddStandardResilienceHandler(options =>
