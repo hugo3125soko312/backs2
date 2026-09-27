@@ -17,7 +17,8 @@ public record DataEntry(
     string Provider,
     string Path,
     long SizeBytes,
-    DateTime LastModifiedUtc)
+    DateTime LastModifiedUtc,
+    bool HasVolume)
 {
     public string SizeDisplay => FormatSize(SizeBytes);
 
@@ -176,7 +177,8 @@ public class DataManager
                     Provider: meta?.Source ?? "Unknown",
                     Path: info.FullName,
                     SizeBytes: info.Length,
-                    LastModifiedUtc: info.LastWriteTimeUtc));
+                    LastModifiedUtc: info.LastWriteTimeUtc,
+                    HasVolume: meta?.HasVolume ?? false));
             }
         }
 
@@ -192,7 +194,8 @@ public class DataManager
                     Provider: "Unknown",
                     Path: info.FullName,
                     SizeBytes: info.Length,
-                    LastModifiedUtc: info.LastWriteTimeUtc));
+                    LastModifiedUtc: info.LastWriteTimeUtc,
+                    HasVolume: false));
             }
         }
 

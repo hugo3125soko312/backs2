@@ -16,6 +16,7 @@ public partial class DataRowViewModel : ObservableObject
     public long SizeBytes { get; }
     public System.DateTime LastModifiedUtc { get; }
     public string Path { get; }
+    public bool HasVolume { get; }
 
     [ObservableProperty]
     private bool _isQueued;
@@ -32,6 +33,7 @@ public partial class DataRowViewModel : ObservableObject
         SizeBytes = entry.SizeBytes;
         LastModifiedUtc = entry.LastModifiedUtc;
         Path = entry.Path;
+        HasVolume = entry.HasVolume;
 
         _suppressWrite = true;
         IsQueued = queue.Contains(Symbol, Timeframe);

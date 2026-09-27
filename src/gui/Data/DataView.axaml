@@ -50,13 +50,15 @@
         </StackPanel>
 
         <!-- Row 2: filter row -->
-        <Grid Grid.Row="2" ColumnDefinitions="2*,1.2*,1.2*,1*,1.5*,3*" Margin="0,0,0,4">
+        <Grid Grid.Row="2" ColumnDefinitions="2*,1*,1.2*,1.2*,70,1*,1.5*,3*" Margin="0,0,0,4">
             <TextBox Grid.Column="0" Text="{Binding FilterSymbol, Mode=TwoWay}" Watermark="Symbol" Margin="0,0,4,0" />
-            <TextBox Grid.Column="1" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
-            <TextBox Grid.Column="2" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
-            <TextBox Grid.Column="3" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
-            <TextBox Grid.Column="4" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
-            <TextBox Grid.Column="5" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
+            <TextBox Grid.Column="1" Text="{Binding FilterTimeframe, Mode=TwoWay}" Watermark="TF" Margin="0,0,4,0" />
+            <TextBox Grid.Column="2" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
+            <TextBox Grid.Column="3" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
+            <Border Grid.Column="4" Margin="0,0,4,0" /> <!-- Empty spacer for HasVol checkbox col -->
+            <TextBox Grid.Column="5" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
+            <TextBox Grid.Column="6" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
+            <TextBox Grid.Column="7" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
         <!-- Row 3: data grid -->
@@ -78,12 +80,10 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTemplateColumn Header="Symbol" Width="*">
+                <DataGridTemplateColumn Header="Symbol" Width="2*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Symbol">
                                 <TextBlock Text="{Binding DataContext.SymbolSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Symbol {0}'}" />
@@ -92,17 +92,129 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Symbol}" />
+                            <TextBlock Text="{Binding Symbol}" VerticalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="Timeframe" Binding="{Binding Timeframe}" Width="90" />
-                <DataGridTextColumn Header="Tier" Binding="{Binding Tier}" Width="80" />
-                <DataGridTextColumn Header="Provider" Binding="{Binding Provider}" Width="120" />
-                <DataGridTextColumn Header="Size" Binding="{Binding SizeDisplay}" Width="90" />
-                <DataGridTextColumn Header="Modified" Binding="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="140" />
-                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="3*" />
+                <DataGridTemplateColumn Header="Timeframe" Width="1*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="Timeframe">
+                                <TextBlock Text="{Binding DataContext.TimeframeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Timeframe {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding Timeframe}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Tier" Width="1.2*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="Tier">
+                                <TextBlock Text="{Binding DataContext.TierSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Tier {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding Tier}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Provider" Width="1.2*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="Provider">
+                                <TextBlock Text="{Binding DataContext.ProviderSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Provider {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding Provider}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Has Vol" Width="70">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="HasVolume">
+                                <TextBlock Text="{Binding DataContext.HasVolumeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Vol {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <CheckBox IsChecked="{Binding HasVolume}" IsHitTestVisible="False" HorizontalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Size" Width="1*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="SizeBytes">
+                                <TextBlock Text="{Binding DataContext.SizeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Size {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding SizeDisplay}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Modified" Width="1.5*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="LastModifiedUtc">
+                                <TextBlock Text="{Binding DataContext.ModifiedSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Modified {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTemplateColumn Header="Path" Width="3*">
+                    <DataGridTemplateColumn.HeaderTemplate>
+                        <DataTemplate>
+                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                                    Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="Path">
+                                <TextBlock Text="{Binding DataContext.PathSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Path {0}'}" />
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.HeaderTemplate>
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="vm:DataRowViewModel">
+                            <TextBlock Text="{Binding Path}" VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
 

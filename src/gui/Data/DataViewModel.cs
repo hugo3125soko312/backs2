@@ -20,6 +20,7 @@ public partial class DataViewModel : ObservableObject
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
 
     [ObservableProperty] private string _filterSymbol = "";
+    [ObservableProperty] private string _filterTimeframe = "";
     [ObservableProperty] private string _filterTier = "";
     [ObservableProperty] private string _filterProvider = "";
     [ObservableProperty] private string _filterSize = "";
@@ -39,20 +40,14 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private bool _isFetchProgressIndeterminate;
     [ObservableProperty] private string _fetchStatus = "";
 
-    public string SymbolSortGlyph   => GlyphFor("Symbol");
+    public string SymbolSortGlyph    => GlyphFor("Symbol");
     public string TimeframeSortGlyph => GlyphFor("Timeframe");
-    public string TierSortGlyph     => GlyphFor("Tier");
-    public string ProviderSortGlyph => GlyphFor("Provider");
-    public string SizeSortGlyph     => GlyphFor("SizeBytes");
-    public string ModifiedSortGlyph => GlyphFor("LastModifiedUtc");
-    public string PathSortGlyph     => GlyphFor("Path");
-
-    public bool HasFilterSymbol   => !string.IsNullOrWhiteSpace(FilterSymbol);
-    public bool HasFilterTier     => !string.IsNullOrWhiteSpace(FilterTier);
-    public bool HasFilterProvider => !string.IsNullOrWhiteSpace(FilterProvider);
-    public bool HasFilterSize     => !string.IsNullOrWhiteSpace(FilterSize);
-    public bool HasFilterModified => !string.IsNullOrWhiteSpace(FilterModified);
-    public bool HasFilterPath     => !string.IsNullOrWhiteSpace(FilterPath);
+    public string TierSortGlyph      => GlyphFor("Tier");
+    public string ProviderSortGlyph  => GlyphFor("Provider");
+    public string SizeSortGlyph      => GlyphFor("SizeBytes");
+    public string ModifiedSortGlyph  => GlyphFor("LastModifiedUtc");
+    public string PathSortGlyph      => GlyphFor("Path");
+    public string HasVolumeSortGlyph => GlyphFor("HasVolume");
 
     public DataViewModel(DataManager dataManager, SelectionQueue queue)
     {
@@ -191,12 +186,13 @@ public partial class DataViewModel : ObservableObject
         OpenQueueRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    partial void OnFilterSymbolChanged(string value)   { OnPropertyChanged(nameof(HasFilterSymbol));   ApplyView(); }
-    partial void OnFilterTierChanged(string value)     { OnPropertyChanged(nameof(HasFilterTier));     ApplyView(); }
-    partial void OnFilterProviderChanged(string value) { OnPropertyChanged(nameof(HasFilterProvider)); ApplyView(); }
-    partial void OnFilterSizeChanged(string value)     { OnPropertyChanged(nameof(HasFilterSize));     ApplyView(); }
-    partial void OnFilterModifiedChanged(string value) { OnPropertyChanged(nameof(HasFilterModified)); ApplyView(); }
-    partial void OnFilterPathChanged(string value)     { OnPropertyChanged(nameof(HasFilterPath));     ApplyView(); }
+    partial void OnFilterSymbolChanged(string value)    => ApplyView();
+    partial void OnFilterTimeframeChanged(string value) => ApplyView();
+    partial void OnFilterTierChanged(string value)      => ApplyView();
+    partial void OnFilterProviderChanged(string value)  => ApplyView();
+    partial void OnFilterSizeChanged(string value)      => ApplyView();
+    partial void OnFilterModifiedChanged(string value)  => ApplyView();
+    partial void OnFilterPathChanged(string value)      => ApplyView();
 
     partial void OnSortColumnChanged(string value) => RaiseSortGlyphs();
     partial void OnSortAscendingChanged(bool value) => RaiseSortGlyphs();
@@ -210,6 +206,7 @@ public partial class DataViewModel : ObservableObject
         OnPropertyChanged(nameof(SizeSortGlyph));
         OnPropertyChanged(nameof(ModifiedSortGlyph));
         OnPropertyChanged(nameof(PathSortGlyph));
+        OnPropertyChanged(nameof(HasVolumeSortGlyph));
     }
 
     private string GlyphFor(string column)
@@ -225,6 +222,8 @@ public partial class DataViewModel : ObservableObject
 
         if (!string.IsNullOrWhiteSpace(FilterSymbol))
             query = query.Where(e => Contains(e.Symbol, FilterSymbol));
+        if (!string.IsNullOrWhiteSpace(FilterTimeframe))
+            query = query.Where(e => Contains(e.Timeframe, FilterTimeframe));
         if (!string.IsNullOrWhiteSpace(FilterTier))
             query = query.Where(e => Contains(e.Tier, FilterTier));
         if (!string.IsNullOrWhiteSpace(FilterProvider))
@@ -244,6 +243,7 @@ public partial class DataViewModel : ObservableObject
             "SizeBytes"       => SortAscending ? query.OrderBy(e => e.SizeBytes)       : query.OrderByDescending(e => e.SizeBytes),
             "LastModifiedUtc" => SortAscending ? query.OrderBy(e => e.LastModifiedUtc) : query.OrderByDescending(e => e.LastModifiedUtc),
             "Path"            => SortAscending ? query.OrderBy(e => e.Path)            : query.OrderByDescending(e => e.Path),
+            "HasVolume"       => SortAscending ? query.OrderBy(e => e.HasVolume)       : query.OrderByDescending(e => e.HasVolume),
             _                 => SortAscending ? query.OrderBy(e => e.Symbol)          : query.OrderByDescending(e => e.Symbol),
         };
 

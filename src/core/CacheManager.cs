@@ -10,7 +10,7 @@ namespace backs2.Core;
 
 public sealed record CacheLoadResult(List<Kline> Bars, string Source);
 
-public sealed record CacheMetadata(string Symbol, string Timeframe, string Source);
+public sealed record CacheMetadata(string Symbol, string Timeframe, string Source, bool HasVolume);
 
 public class CacheManager
 {
@@ -159,13 +159,27 @@ public class CacheManager
             var timeframe = root.TryGetProperty("timeframe", out var t) ? t.GetString() : null;
             var source = root.TryGetProperty("source", out var src) ? src.GetString() : null;
 
+            bool hasVol = false;
+            if (root.TryGetProperty("bars", out var bars) && bars.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var bar in bars.EnumerateArray())
+                {
+                    if (bar.TryGetProperty("v", out var v) && v.GetInt64() > 0)
+                    {
+                        hasVol = true;
+                        break;
+                    }
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))
                 return null;
 
             return new CacheMetadata(
                 symbol!,
                 timeframe!,
-                string.IsNullOrWhiteSpace(source) ? "Unknown" : source!);
+                string.IsNullOrWhiteSpace(source) ? "Unknown" : source!,
+                hasVol);
         }
         catch
         {

@@ -101,6 +101,7 @@
 ## 7. Caching
 - Disk format: KlineCompact record — flat {T, O, H, L, C, V} with T as Unix milliseconds. Serialized via source-generated KlineJsonContext.
 - Legacy-format detection: LoadCacheAsync returns null on empty files, malformed JSON, or all-zero payloads, so DataManager refetches.
+- Metadata parsing: `CacheManager.ReadCacheMetadata` scans the JSON payload for any non-zero volume to expose `HasVolume` for the Data tab without fully deserializing the file into memory.
 - Per-file log lines: "Cache: saved {key} ({n} bars, {ms} ms)" and "Cache: loaded {key} ({n} bars, {ms} ms)".
 - Memory-tier observability: DataManager logs "RAM hit" / "RAM miss" for every lookup.
 - Benchmark: CacheManager.BenchmarkAsync(int barCount) serializes and loads N synthetic bars, logging elapsed milliseconds.
@@ -256,6 +257,7 @@
   - Two rows cannot be in-flight simultaneously — the modal owns a snapshot, mutations happen only on Done.
 - Data tab layout:
   - Leftmost column: `On` checkbox (`DataGridTemplateColumn` with a `CheckBox` in the cell template).
+  - Columns: Symbol, Timeframe, Tier, Provider, Has Vol, Size, Modified, Path. All headers support dynamic sorting and filtering via text boxes above the grid.
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
   - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
 - Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. 
