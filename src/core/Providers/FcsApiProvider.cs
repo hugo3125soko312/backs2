@@ -14,6 +14,13 @@ public class FcsApiProvider : IDataProvider
     private const string BaseUrl = "https://api-v4.fcsapi.com";
     private const int MaxLength = 500;
 
+    // Commodity base prefixes. These route with type=commodity and use the
+    // concatenated symbol form (XAUUSD), not the slash form (EUR/USD).
+    private static readonly string[] CommodityPrefixes =
+    {
+        "XAU", "XAG", "XPT", "XPD", "WTI", "BRENT", "NGAS", "COPPER", "OIL"
+    };
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ConfigManager _config;
 
@@ -31,7 +38,7 @@ public class FcsApiProvider : IDataProvider
     {
         if (string.IsNullOrWhiteSpace(_config.FcsApiKey))
         {
-            LogManager.Error(LogTag.Provider, $"{Name}: API key missing. Add FCS_API_KEY to .env");
+            LogManager.Error(LogTag.Provider, $"{Name}: API key missing. Add FCS_PUBLIC_API_KEY to .env");
             return new List<Kline>();
         }
 
@@ -42,11 +49,17 @@ public class FcsApiProvider : IDataProvider
             return new List<Kline>();
         }
 
-        string resolved = ResolveSymbol(symbol);
+        bool isCommodity = IsCommodity(symbol);
+        string resolved = isCommodity ? ResolveCommoditySymbol(symbol) : ResolveForexSymbol(symbol);
+
         var url = $"{BaseUrl}/forex/history?symbol={resolved}&period={period}" +
                   $"&length={MaxLength}&access_key={_config.FcsApiKey}";
 
-        LogManager.Debug(LogTag.Provider, $"{Name}: GET {resolved}@{timeframe} period={period}");
+        if (isCommodity)
+            url += "&type=commodity";
+
+        LogManager.Debug(LogTag.Provider,
+            $"{Name}: GET {resolved}@{timeframe} period={period} type={(isCommodity ? "commodity" : "forex")}");
 
         try
         {
@@ -60,8 +73,10 @@ public class FcsApiProvider : IDataProvider
 
             if (root.TryGetProperty("status", out var status) && !status.GetBoolean())
             {
-                var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "unknown";
-                LogManager.Warn(LogTag.Provider, $"{Name}: API returned status=false: {msg}");
+                var msg = root.TryGetProperty("msg", out var m) ? m.GetString()
+                        : root.TryGetProperty("message", out var m2) ? m2.GetString()
+                        : "unknown";
+                LogManager.Warn(LogTag.Provider, $"{Name}: API returned status=false: {msg} ({resolved}@{timeframe})");
                 return new List<Kline>();
             }
 
@@ -89,11 +104,8 @@ public class FcsApiProvider : IDataProvider
                 var c = cProp.GetDouble();
 
                 long v = 0;
-                if (candle.TryGetProperty("v", out var vProp))
-                {
-                    if (vProp.ValueKind == JsonValueKind.Number)
-                        v = (long)vProp.GetDouble();
-                }
+                if (candle.TryGetProperty("v", out var vProp) && vProp.ValueKind == JsonValueKind.Number)
+                    v = (long)vProp.GetDouble();
 
                 result.Add(new Kline(
                     DateTimeOffset.FromUnixTimeSeconds(unixSec).UtcDateTime,
@@ -118,7 +130,22 @@ public class FcsApiProvider : IDataProvider
         }
     }
 
-    private static string ResolveSymbol(string symbol)
+    private static bool IsCommodity(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol)) return false;
+        var upper = symbol.ToUpperInvariant();
+        foreach (var p in CommodityPrefixes)
+            if (upper.StartsWith(p, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private static string ResolveCommoditySymbol(string symbol)
+    {
+        // Commodities use concatenated form: XAU/USD -> XAUUSD, XAUUSD -> XAUUSD
+        return symbol.ToUpperInvariant().Replace("/", "").Replace("-", "");
+    }
+
+    private static string ResolveForexSymbol(string symbol)
     {
         if (string.IsNullOrWhiteSpace(symbol)) return symbol;
         if (symbol.Contains('/')) return symbol;

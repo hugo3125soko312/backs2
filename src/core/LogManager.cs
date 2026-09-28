@@ -23,7 +23,12 @@ public static class LogManager
 
     public static string CurrentLogFilePath { get; private set; } = "";
 
-    public sealed record LogEntry(DateTime Timestamp, string Level, LogTag Tag, string Message);
+    public sealed record LogEntry(
+        DateTime Timestamp,
+        string Level,
+        LogTag Tag,
+        string Message,
+        Exception? Exception = null);
 
     public static event EventHandler<LogEntry>? Logged;
 
@@ -97,7 +102,8 @@ public static class LogManager
             DateTime.Now,
             LevelCode(level),
             tag,
-            message);
+            message,
+            ex);
 
         lock (_gate)
         {

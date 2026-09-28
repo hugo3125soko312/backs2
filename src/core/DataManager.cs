@@ -57,6 +57,18 @@ public class DataManager
         _config = config;
     }
 
+    public IDataProvider? GetProvider(string key)
+    {
+        try
+        {
+            return _serviceProvider.GetRequiredKeyedService<IDataProvider>(key);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
         => await GetSymbolDataAsync(symbol, "1D", progress, null);
 
@@ -156,14 +168,10 @@ public class DataManager
             index++;
             double pct = (double)index / total * 100.0;
 
-            IDataProvider provider;
-            try
+            var provider = GetProvider(key);
+            if (provider == null)
             {
-                provider = _serviceProvider.GetRequiredKeyedService<IDataProvider>(key);
-            }
-            catch (Exception ex)
-            {
-                LogManager.Error(LogTag.Data, $"provider '{key}' not registered", ex);
+                LogManager.Error(LogTag.Data, $"provider '{key}' not registered");
                 progress?.Report(new DataProgress($"Provider '{key}' not registered.", true, pct));
                 continue;
             }

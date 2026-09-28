@@ -15,6 +15,15 @@ public class BinanceProvider : IDataProvider
     private const int MaxLimit = 1500;
     private static readonly long MaxSpanMs = (long)TimeSpan.FromDays(200).TotalMilliseconds;
 
+    // Known Binance quote assets. A symbol must end with one of these to be a valid
+    // Binance pair. Rejects XAUUSD (gold), EURUSD (forex), AAPL (equity) before any HTTP call.
+    private static readonly string[] KnownQuotes =
+    {
+        "USDT", "BUSD", "USDC", "FDUSD", "TUSD", "BTC", "ETH", "BNB", "DAI",
+        "TRY", "EUR", "GBP", "ZAR", "UAH", "NGN", "BRL", "ARS", "RUB",
+        "PLN", "RON", "CZK", "AUD", "JPY"
+    };
+
     private readonly IHttpClientFactory _httpClientFactory;
 
     public string Name => "Binance";
@@ -32,6 +41,13 @@ public class BinanceProvider : IDataProvider
         if (interval == null)
         {
             LogManager.Warn(LogTag.Provider, $"{Name}: timeframe {timeframe} not supported");
+            return new List<Kline>();
+        }
+
+        if (!IsBinanceSymbol(symbol))
+        {
+            LogManager.Debug(LogTag.Provider,
+                $"{Name}: {symbol} is not a Binance pair (no known quote suffix), skipping");
             return new List<Kline>();
         }
 
@@ -108,5 +124,18 @@ public class BinanceProvider : IDataProvider
             LogManager.Error(LogTag.Provider, $"{Name}: {symbol}@{timeframe} failed", ex);
             return new List<Kline>();
         }
+    }
+
+    private static bool IsBinanceSymbol(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol) || symbol.Length < 5) return false;
+        var upper = symbol.ToUpperInvariant();
+
+        foreach (var q in KnownQuotes)
+        {
+            if (upper.EndsWith(q, StringComparison.Ordinal) && upper.Length > q.Length)
+                return true;
+        }
+        return false;
     }
 }

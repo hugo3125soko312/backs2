@@ -10,6 +10,9 @@ namespace backs2.Core.Providers;
 
 public class YahooProvider : IDataProvider
 {
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+
     private readonly IHttpClientFactory _httpClientFactory;
 
     public string Name => "Yahoo";
@@ -26,7 +29,7 @@ public class YahooProvider : IDataProvider
         var yahooInterval = TimeframeMap.ToYahoo(timeframe);
         if (yahooInterval == null)
         {
-            LogManager.Error(LogTag.Provider, $"Yahoo: unsupported timeframe '{timeframe}'");
+            LogManager.Warn(LogTag.Provider, $"Yahoo: timeframe {timeframe} not supported natively, skipping provider");
             return new List<Kline>();
         }
 
@@ -40,8 +43,16 @@ public class YahooProvider : IDataProvider
         try
         {
             var client = _httpClientFactory.CreateClient("ResilientClient");
-            var json = await client.GetStringAsync(url);
 
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+            request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+
+            using var response = await client.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -112,6 +123,19 @@ public class YahooProvider : IDataProvider
     {
         if (string.IsNullOrWhiteSpace(symbol)) return symbol;
         if (symbol.Contains('=') || symbol.Contains('-')) return symbol;
+
+        // Yahoo dropped spot precious-metal tickers (XAUUSD=X, XAGUSD=X, XPTUSD=X)
+        // during the QFAgg migration. Map to the front-month futures contract instead.
+        // Note: these are futures prices, not spot. 0.18 correlation with spot.
+        switch (symbol.ToUpperInvariant())
+        {
+            case "XAUUSD": return "GC=F";
+            case "XAGUSD": return "SI=F";
+            case "XPTUSD": return "PL=F";
+            case "XPDUSD": return "PA=F";
+            case "HGUSD":  return "HG=F";
+        }
+
         if (symbol.Length == 6 && symbol.All(char.IsLetter)) return symbol + "=X";
         return symbol;
     }

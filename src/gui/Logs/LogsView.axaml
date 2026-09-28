@@ -4,7 +4,7 @@
              x:Class="backs2.Views.LogsView"
              x:DataType="vm:LogsViewModel">
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,*,Auto">
 
         <StackPanel Grid.Row="0"
                     Orientation="Horizontal"
@@ -19,7 +19,7 @@
         </StackPanel>
 
         <Border Grid.Row="1"
-                Margin="8,0,8,8"
+                Margin="8,0,8,0"
                 BorderThickness="1"
                 BorderBrush="#333">
             <ScrollViewer Name="LogScroll">
@@ -33,5 +33,33 @@
                          BorderThickness="0" />
             </ScrollViewer>
         </Border>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Margin="8">
+            <TextBlock Text="&gt;"
+                       VerticalAlignment="Center"
+                       FontFamily="Consolas,Menlo,monospace"
+                       FontSize="12"
+                       Foreground="#4FC3F7" />
+            <TextBox Name="CommandInputBox"
+                     Width="600"
+                     MaxHeight="80"
+                     Text="{Binding CommandInput, Mode=TwoWay}"
+                     Watermark="help — Enter runs, Shift+Enter adds a line"
+                     FontFamily="Consolas,Menlo,monospace"
+                     FontSize="12"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     VerticalAlignment="Center" />
+            <Button Content="Run"
+                    Command="{Binding ExecuteCommandCommand}"
+                    IsEnabled="{Binding !IsExecuting}" />
+            <TextBlock Text="{Binding CommandStatus}"
+                       VerticalAlignment="Center"
+                       FontSize="11"
+                       Opacity="0.7" />
+        </StackPanel>
     </Grid>
 </UserControl>
