@@ -12,12 +12,15 @@ namespace backs2.ViewModels;
 
 public partial class DataViewModel : ObservableObject
 {
+    private const string AutoProvider = "Auto";
+
     private readonly DataManager _dataManager;
     private readonly SelectionQueue _queue;
     private readonly List<DataRowViewModel> _all = new();
 
     public ObservableCollection<DataRowViewModel> Rows { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
+    public ObservableCollection<string> AvailableProviders { get; } = new();
 
     [ObservableProperty] private string _filterSymbol = "";
     [ObservableProperty] private string _filterTimeframe = "";
@@ -35,6 +38,7 @@ public partial class DataViewModel : ObservableObject
 
     [ObservableProperty] private string _fetchSymbol = "";
     [ObservableProperty] private string _fetchTimeframe = "1D";
+    [ObservableProperty] private string _fetchProvider = AutoProvider;
     [ObservableProperty] private bool _isFetching;
     [ObservableProperty] private double _fetchProgress;
     [ObservableProperty] private bool _isFetchProgressIndeterminate;
@@ -49,7 +53,7 @@ public partial class DataViewModel : ObservableObject
     public string PathSortGlyph      => GlyphFor("Path");
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
 
-    public DataViewModel(DataManager dataManager, SelectionQueue queue)
+    public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config)
     {
         _dataManager = dataManager;
         _queue = queue;
@@ -58,6 +62,10 @@ public partial class DataViewModel : ObservableObject
 
         foreach (var tf in TimeframeMap.All)
             AvailableTimeframes.Add(tf);
+
+        AvailableProviders.Add(AutoProvider);
+        foreach (var p in config.Settings.ProviderOrder)
+            AvailableProviders.Add(p);
 
         RefreshData();
     }
@@ -100,6 +108,9 @@ public partial class DataViewModel : ObservableObject
 
         var symbol = FetchSymbol?.Trim() ?? "";
         var timeframe = string.IsNullOrWhiteSpace(FetchTimeframe) ? "1D" : FetchTimeframe;
+        string? preferred = string.Equals(FetchProvider, AutoProvider, StringComparison.Ordinal)
+            ? null
+            : FetchProvider;
 
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -112,9 +123,11 @@ public partial class DataViewModel : ObservableObject
             IsFetching = true;
             FetchProgress = 0;
             IsFetchProgressIndeterminate = false;
+
+            string via = preferred == null ? "Auto" : preferred;
             FetchStatus = queueAfter
-                ? $"Fetching {symbol}@{timeframe} for queue..."
-                : $"Fetching {symbol}@{timeframe}...";
+                ? $"Fetching {symbol}@{timeframe} via {via} for queue..."
+                : $"Fetching {symbol}@{timeframe} via {via}...";
 
             var progress = new Progress<DataProgress>(p =>
             {
@@ -123,7 +136,7 @@ public partial class DataViewModel : ObservableObject
                 FetchProgress = p.Percent;
             });
 
-            var data = await _dataManager.GetSymbolDataAsync(symbol, timeframe, progress);
+            var data = await _dataManager.GetSymbolDataAsync(symbol, timeframe, progress, preferred);
 
             if (data == null || data.Count == 0)
             {
@@ -141,7 +154,7 @@ public partial class DataViewModel : ObservableObject
             }
             else
             {
-                FetchStatus = $"Fetched {symbol}@{timeframe} ({data.Count} bars).";
+                FetchStatus = $"Fetched {symbol}@{timeframe} ({data.Count} bars) via {via}.";
             }
         }
         catch (Exception ex)

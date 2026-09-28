@@ -16,6 +16,7 @@
 - Flow: DataManager checks Memory -> Disk -> Network.
 - Cache key: symbol@timeframe (e.g. XAUUSD@1D, EURUSD@1h).
 - Provider Fallback: The network tier walks AppSettings.ProviderOrder. First provider with a non-empty result wins. Failures and empty results fall through; errors never abort the chain.
+- Preferred provider: `DataManager.GetSymbolDataAsync(symbol, timeframe, progress, preferredProvider)` accepts an optional provider key. When set, cache hits whose `source` differs are skipped, and the network walk tries `preferredProvider` first before falling through to the rest of `ProviderOrder`. When null (the `Auto` case), behavior is identical to the standard walk. The memory cache value is `MemoryEntry(Bars, Source)` so the origin travels with the cached bars.
 - Timeframe-aware: DataManager.GetSymbolDataAsync(symbol, timeframe, progress); a one-arg overload defaults to "1D".
 - Progress reporting: DataManager.GetSymbolDataAsync(symbol, timeframe, IProgress<DataProgress>) reports DataProgress(Message, IsDeterminate, Percent). RAM/disk hits report IsDeterminate=false (instant). The network tier reports IsDeterminate=true with Percent = attemptIndex / totalProviders * 100. A legacy IProgress<string> overload adapts to the new contract for consumers that only need text.
 
@@ -60,7 +61,7 @@
 ## 5. Configuration & Auto-Generating UI
 - Settings File: ConfigManager handles config/settings.json — non-secret engine state (threading, resilience, provider order).
 - ConfigDirectory: ConfigManager exposes `public string ConfigDirectory => "config";` as the single source of truth for non-secret on-disk state. PresetService uses it to resolve `config/presets/`.
-- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey, FinnhubApiKey, FcsApiKey). Secrets are never persisted to settings.json.
+- Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey, FinnhubApiKey, FcsApiKey). Secrets are never persisted to settings.json. Placeholder values (`key`, `placeholder`, `todo`, `xxx`) are normalized to empty by `ConfigManager.NormalizeValue` so an unregistered provider short-circuits without issuing a request.
 - Dynamic Reflection Engine:
   - ConfigViewModel reflects all public instance properties on AppSettings (excluding ProviderOrder) into SettingItem wrappers.
   - Controls are rendered dynamically in ConfigView.axaml based on data type:
@@ -105,7 +106,7 @@
 - Binance provider: GET https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval={interval}&startTime={ms}&endTime={ms}&limit=1500. Keyless. Paginates in 200-day windows (server cap on startTime/endTime span). Crypto spot only; no volume filter since zero-volume bars are legitimate.
 - Finnhub provider: GET https://finnhub.io/api/v1/{stock|forex}/candle?symbol={symbol}&resolution={resolution}&from={unix}&to={unix}&token={key}. Returns empty when status is not "ok" — historical candles are gated behind a paid plan on the free tier.
 - FCS API provider: GET https://api-v4.fcsapi.com/forex/history?symbol={symbol}&period={period}&length=500&access_key={key}. Response is a JSON object keyed by Unix seconds, each value `{o, h, l, c, v}`. Free plan uses `length` (500 max); `from`/`to` are corporate-tier only.
-- Secrets: providers read keys from ConfigManager read-only properties sourced from .env — never from AppSettings. Placeholder values (key, placeholder, todo, xxx) are normalized to empty by ConfigManager.NormalizeValue so unregistered providers short-circuit without issuing a request.
+- Secrets: providers read keys from ConfigManager read-only properties sourced from .env — never from AppSettings. Placeholder values are normalized to empty by `ConfigManager.NormalizeValue` so unregistered providers short-circuit without issuing a request.
 
 ## 7. Caching
 - Disk format: KlineCompact record — flat {T, O, H, L, C, V} with T as Unix milliseconds. Serialized via source-generated KlineJsonContext.
@@ -130,7 +131,7 @@
 - Monte Carlo — per-dataset outcome probabilities and terminal-balance histogram.
 - Metrics — metric catalog browser.
 - Accounts — prop-firm rule browser and active selection.
-- Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
+- Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Providers — Collapsible per-provider cache diagnostics. See §16.
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
@@ -222,7 +223,7 @@
 
 ## 14. Monte Carlo Tab
 
-- Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §16). Produces per-dataset outcome probabilities and terminal-balance distributions.
+- Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §17). Produces per-dataset outcome probabilities and terminal-balance distributions.
 - GUI (`src/gui/MonteCarlo/`):
   - `MonteCarloView.axaml` — Grid with toolbar (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,4,*"`: stats panel left, splitter, ScottPlot `AvaPlot` right.
   - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, calls `vm.SetPlotControl(PlotControl)` with the `x:Name`-ed AvaPlot instance.
@@ -272,8 +273,11 @@
   - Columns: Symbol, Timeframe, Tier, Provider, Has Vol, Size, Modified, Path. All headers support dynamic sorting and filtering via text boxes above the grid.
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
   - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
-- Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint. 
-  - `DataViewModel` gains `FetchCommand` and `FetchAndQueueCommand`. Fetch calls `DataManager.GetSymbolDataAsync` and reloads the row list. Fetch & Queue additionally writes to the `SelectionQueue` with the provider resolved from the cache metadata of the freshly written file.
+- Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint.
+- Fetch form (`DataView.axaml` Row 0): symbol TextBox, timeframe ComboBox (`TimeframeMap.All`), provider ComboBox, Fetch button, Fetch & Queue button, ProgressBar, status text.
+  - Provider ComboBox lists `Auto` plus every key in `AppSettings.ProviderOrder`. `Auto` (default) uses the standard walk. Selecting a specific provider forces a refetch when the cached `source` differs, and the walk becomes `[preferred, ...rest]`. The provider list is snapshotted at `DataViewModel` construction.
+  - `FetchCommand` — calls `DataManager.GetSymbolDataAsync(symbol, timeframe, progress, preferred)`, refreshes the row list on success, does not touch the queue.
+  - `FetchAndQueueCommand` — same fetch, then writes to `SelectionQueue` with the provider name resolved from the cache metadata of the freshly written file.
 
 ## 16. Providers Tab
 

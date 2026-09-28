@@ -20,6 +20,12 @@
                       SelectedItem="{Binding FetchTimeframe, Mode=TwoWay}"
                       VerticalAlignment="Center" />
 
+            <TextBlock Text="Provider:" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <ComboBox Width="130"
+                      ItemsSource="{Binding AvailableProviders}"
+                      SelectedItem="{Binding FetchProvider, Mode=TwoWay}"
+                      VerticalAlignment="Center" />
+
             <Button Content="Fetch"
                     Command="{Binding FetchCommand}"
                     IsEnabled="{Binding !IsFetching}" />
@@ -55,7 +61,7 @@
             <TextBox Grid.Column="1" Text="{Binding FilterTimeframe, Mode=TwoWay}" Watermark="TF" Margin="0,0,4,0" />
             <TextBox Grid.Column="2" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
             <TextBox Grid.Column="3" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
-            <Border Grid.Column="4" Margin="0,0,4,0" /> <!-- Empty spacer for HasVol checkbox col -->
+            <Border Grid.Column="4" Margin="0,0,4,0" />
             <TextBox Grid.Column="5" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
             <TextBox Grid.Column="6" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
             <TextBox Grid.Column="7" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />

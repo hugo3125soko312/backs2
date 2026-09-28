@@ -38,6 +38,8 @@ public readonly record struct DataProgress(
 
 public class DataManager
 {
+    private sealed record MemoryEntry(List<Kline> Bars, string Source);
+
     private readonly CacheManager _diskCache;
     private readonly IMemoryCache _memoryCache;
     private readonly IServiceProvider _serviceProvider;
@@ -56,59 +58,100 @@ public class DataManager
     }
 
     public async Task<List<Kline>> GetSymbolDataAsync(string symbol, IProgress<string>? progress = null)
-        => await GetSymbolDataAsync(symbol, "1D", progress);
+        => await GetSymbolDataAsync(symbol, "1D", progress, null);
 
     public async Task<List<Kline>> GetSymbolDataAsync(
         string symbol,
         string timeframe,
-        IProgress<string>? progress = null)
+        IProgress<string>? progress = null,
+        string? preferredProvider = null)
     {
         var adapter = progress == null
             ? null
             : new Progress<DataProgress>(p => progress.Report(p.Message));
 
-        return await GetSymbolDataAsync(symbol, timeframe, adapter);
+        return await GetSymbolDataAsync(symbol, timeframe, adapter, preferredProvider);
     }
 
     public async Task<List<Kline>> GetSymbolDataAsync(
         string symbol,
         string timeframe,
-        IProgress<DataProgress>? progress)
+        IProgress<DataProgress>? progress,
+        string? preferredProvider = null)
     {
         var cacheKey = $"{symbol}@{timeframe}";
+        bool hasPreference = !string.IsNullOrWhiteSpace(preferredProvider);
 
-        if (_memoryCache.TryGetValue(cacheKey, out List<Kline>? memData) && memData != null)
+        if (_memoryCache.TryGetValue(cacheKey, out MemoryEntry? mem) && mem != null)
         {
-            LogManager.Debug(LogTag.Data, $"RAM hit for {cacheKey} ({memData.Count} bars)");
-            progress?.Report(new DataProgress("Loaded from RAM.", false, 100));
-            return memData;
-        }
+            bool match = !hasPreference
+                || string.Equals(mem.Source, preferredProvider, StringComparison.OrdinalIgnoreCase);
 
-        LogManager.Debug(LogTag.Data, $"RAM miss for {cacheKey}");
+            if (match)
+            {
+                LogManager.Debug(LogTag.Data, $"RAM hit for {cacheKey} ({mem.Bars.Count} bars, source {mem.Source})");
+                progress?.Report(new DataProgress("Loaded from RAM.", false, 100));
+                return mem.Bars;
+            }
+
+            LogManager.Debug(LogTag.Data,
+                $"RAM hit for {cacheKey} from {mem.Source} but preferred is {preferredProvider}, bypassing");
+        }
+        else
+        {
+            LogManager.Debug(LogTag.Data, $"RAM miss for {cacheKey}");
+        }
 
         var disk = await _diskCache.LoadCacheAsync(cacheKey);
         if (disk != null && disk.Bars.Count > 0)
         {
-            LogManager.Info(LogTag.Data, $"disk hit for {cacheKey} from {disk.Source} ({disk.Bars.Count} bars)");
-            progress?.Report(new DataProgress($"Loaded from Disk ({disk.Source}).", false, 100));
-            _memoryCache.Set(cacheKey, disk.Bars, TimeSpan.FromMinutes(10));
-            return disk.Bars;
+            bool match = !hasPreference
+                || string.Equals(disk.Source, preferredProvider, StringComparison.OrdinalIgnoreCase);
+
+            if (match)
+            {
+                LogManager.Info(LogTag.Data, $"disk hit for {cacheKey} from {disk.Source} ({disk.Bars.Count} bars)");
+                progress?.Report(new DataProgress($"Loaded from Disk ({disk.Source}).", false, 100));
+                _memoryCache.Set(cacheKey, new MemoryEntry(disk.Bars, disk.Source), TimeSpan.FromMinutes(10));
+                return disk.Bars;
+            }
+
+            LogManager.Info(LogTag.Data,
+                $"disk hit for {cacheKey} from {disk.Source} but preferred is {preferredProvider}, refetching");
         }
 
         var order = _config.Settings.ProviderOrder ?? new List<string>();
-        if (order.Count == 0)
+        List<string> walk;
+
+        if (hasPreference)
+        {
+            walk = new List<string> { preferredProvider! };
+            foreach (var k in order)
+            {
+                if (!string.Equals(k, preferredProvider, StringComparison.OrdinalIgnoreCase))
+                    walk.Add(k);
+            }
+        }
+        else
+        {
+            walk = new List<string>(order);
+        }
+
+        if (walk.Count == 0)
         {
             LogManager.Warn(LogTag.Data, "no providers configured in ProviderOrder");
             progress?.Report(new DataProgress("No providers configured.", false, 0));
             return new List<Kline>();
         }
 
-        LogManager.Info(LogTag.Data, $"network fetch for {cacheKey}, {order.Count} providers in chain");
+        LogManager.Info(LogTag.Data,
+            $"network fetch for {cacheKey}, {walk.Count} provider(s) in walk" +
+            (hasPreference ? $" (preferred: {preferredProvider})" : ""));
 
-        int total = order.Count;
+        int total = walk.Count;
         int index = 0;
 
-        foreach (var key in order)
+        foreach (var key in walk)
         {
             index++;
             double pct = (double)index / total * 100.0;
@@ -144,7 +187,7 @@ public class DataManager
             {
                 LogManager.Info(LogTag.Data, $"{provider.Name} returned {fetched.Count} bars for {cacheKey}");
                 progress?.Report(new DataProgress($"{provider.Name} returned {fetched.Count} bars. Saving...", true, 100));
-                _memoryCache.Set(cacheKey, fetched, TimeSpan.FromMinutes(10));
+                _memoryCache.Set(cacheKey, new MemoryEntry(fetched, provider.Name), TimeSpan.FromMinutes(10));
                 await _diskCache.SaveCacheAsync(cacheKey, fetched, provider.Name);
                 return fetched;
             }
