@@ -108,9 +108,8 @@ public partial class DataViewModel : ObservableObject
 
         var symbol = FetchSymbol?.Trim() ?? "";
         var timeframe = string.IsNullOrWhiteSpace(FetchTimeframe) ? "1D" : FetchTimeframe;
-        string? preferred = string.Equals(FetchProvider, AutoProvider, StringComparison.Ordinal)
-            ? null
-            : FetchProvider;
+        bool isAuto = string.Equals(FetchProvider, AutoProvider, StringComparison.Ordinal);
+        string? preferred = isAuto ? null : FetchProvider;
 
         if (string.IsNullOrWhiteSpace(symbol))
         {
@@ -124,10 +123,10 @@ public partial class DataViewModel : ObservableObject
             FetchProgress = 0;
             IsFetchProgressIndeterminate = false;
 
-            string via = preferred == null ? "Auto" : preferred;
+            string requestLabel = isAuto ? "Auto" : preferred!;
             FetchStatus = queueAfter
-                ? $"Fetching {symbol}@{timeframe} via {via} for queue..."
-                : $"Fetching {symbol}@{timeframe} via {via}...";
+                ? $"Fetching {symbol}@{timeframe} via {requestLabel} for queue..."
+                : $"Fetching {symbol}@{timeframe} via {requestLabel}...";
 
             var progress = new Progress<DataProgress>(p =>
             {
@@ -146,15 +145,31 @@ public partial class DataViewModel : ObservableObject
 
             RefreshData();
 
-            if (queueAfter)
+            // The cache metadata now reflects whatever provider actually landed.
+            string actual = ResolveProviderFromCache(symbol, timeframe);
+
+            string viaText;
+            if (isAuto)
             {
-                string provider = ResolveProviderFromCache(symbol, timeframe);
-                _queue.Add(symbol, timeframe, provider);
-                FetchStatus = $"Fetched and queued {symbol}@{timeframe} ({data.Count} bars, {provider}).";
+                viaText = $"via {actual}";
+            }
+            else if (string.Equals(actual, preferred, StringComparison.OrdinalIgnoreCase))
+            {
+                viaText = $"via {actual}";
             }
             else
             {
-                FetchStatus = $"Fetched {symbol}@{timeframe} ({data.Count} bars) via {via}.";
+                viaText = $"via {actual} (fell back from {preferred})";
+            }
+
+            if (queueAfter)
+            {
+                _queue.Add(symbol, timeframe, actual);
+                FetchStatus = $"Fetched and queued {symbol}@{timeframe} ({data.Count} bars, {viaText}).";
+            }
+            else
+            {
+                FetchStatus = $"Fetched {symbol}@{timeframe} ({data.Count} bars) {viaText}.";
             }
         }
         catch (Exception ex)
