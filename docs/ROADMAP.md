@@ -74,6 +74,17 @@ See `docs/ROADMAP_ARCHIVE.md`.
 - [ ] Emit data/{symbol}_{timeframe}.json in the KlineCompact schema.
 - [ ] Optional: load the JSON into DataManager cache.
 
+### Phase 11F -- Automatic start-position detection [PENDING]
+Replace the manual "Calibrate Click" step with a visual pass that finds the latest candle on the chart and starts the arrow iteration from there.
+
+- [ ] Capture a full-window frame after focus + maximize.
+- [ ] Locate the price/time axis and the chart plot area within the frame (identify the pixel column where the newest bar sits — typically the right-most non-axis content column).
+- [ ] Derive the click point automatically: candle column × vertical center of the plot area.
+- [ ] Drop the 200× right-arrow "jump to latest" prelude — the chart is already at the newest bar.
+- [ ] Keep "Calibrate Click" as an optional override; auto-detection is the default path.
+- [ ] Log the detected start position so a failed detection is diagnosable from the Logs tab.
+- [ ] Fallback: if detection fails, fall back to the saved click point and the existing right-arrow prelude.
+
 ---
 
 ## Phase 12: Hardening & Housekeeping [PLANNED]
