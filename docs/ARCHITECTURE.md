@@ -324,3 +324,46 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 - Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin.
 - Target duration from `AccountPhase.TradingPeriodDays` (fallback 90 days).
 - Independent Monte Carlo runs per queued dataset. Aggregation sums expectations, does not pool trades.
+
+## 18. Data Automation
+
+- Purpose: autonomously capture OHLCV screenshots from a running TradingView Desktop window into `data/shots/`, for a later OCR phase that extracts the values into JSON.
+- Location:
+  - Core: `src/core/DataAutomation/DataAutomationCore.cs` (single file — all classes).
+  - GUI: `src/gui/DataAutomation/DataAutomationView.axaml`, `.axaml.cs`, `DataAutomationViewModel.cs`.
+- Tab position: `MainWindow.axaml` places Data Automation between Data and Providers.
+
+### Services (all constructed inside `DataAutomationService`; only `DataAutomationService` is DI-registered)
+- `TradingViewWindowDetector` — passive window discovery via `EnumWindows` + `GetWindowThreadProcessId` matched against `Process.GetProcessesByName("TradingView")`. No injection, no hooks.
+- `InputSimulatorService` — `SendInput` P/Invoke. Methods: `FocusAndMaximize`, `ClickAt(x,y)`, `LeftClick`, `PressLeftArrow`, `PressRightArrow`. No keyboard or mouse hooks.
+- `DesktopDuplicator` — screen capture via Win32 `PrintWindow` with `PW_RENDERFULLCONTENT`. Used instead of DXGI Desktop Duplication because TradingView is Chromium-based and returns black frames under DXGI. Prints a warning and returns null when `PrintWindow` refuses.
+- `AutomationCalibrationService` — JSON persistence at `config/data_automation.json`. Stores a `Region` (X, Y, W, H) and a `ClickPoint` (X, Y).
+- `DataAutomationService` — orchestrator. Exposes `LoadCalibration`, `SaveCalibration`, `ClearCalibration`, `PrepareCalibrationAsync` (returns a frozen window snapshot + rect for the overlay), and `RunAsync(parameters, progress)`.
+
+### Calibration
+Two calibrations are persisted independently:
+- **Region** — drag a rectangle over the OHLCV display in the top-left of the TradingView window.
+- **Click Point** — single click on the chart body; the automation issues exactly one click there to focus the chart before the arrow-key iteration begins.
+
+Both are captured through a modal `CalibrationOverlayWindow` defined in `DataAutomationView.axaml.cs`. The overlay shows a frozen `PrintWindow` snapshot of the TradingView window, a dimmed mask on the four strips outside the current selection, and a live green selection border. ESC cancels.
+
+### Mixed-DPI handling
+The process is DPI-unaware/SystemAware: all windows render at the primary monitor's scale regardless of which monitor they sit on. The overlay is therefore:
+1. Sized once at creation using the owner's `RenderScaling` (best-guess for same-DPI cases).
+2. Re-fitted on `ScalingChanged` and on `Opened + Dispatcher.Post(Loaded)` using its own `RenderScaling` once it settles on the target monitor.
+3. After `ShowDialog` returns, `overlay.RenderScaling` is the authoritative factor used to convert drag/click coordinates into the physical-pixel space that `PrintWindow` produces and the automation loop consumes.
+
+### Automation loop (`DataAutomationService.RunAsync`)
+1. Focus + maximize the TradingView window.
+2. One `ClickAt` at the calibrated click point (converted from window-relative to absolute screen coordinates).
+3. 200× `PressRightArrow` to force the chart to the newest bar. 600 ms settle delay.
+4. For each of N steps (default 100):
+   - `PrintWindow` capture of the full TradingView window.
+   - Crop to the calibrated region; save as `data/shots/{symbol}_{timeframe}_{index:D4}.png`.
+   - `PressLeftArrow` to move one bar back; `Task.Delay(DelayMs)` (default 250 ms).
+
+### Parameters record
+```csharp
+public sealed record AutomationParameters(
+    string Symbol, string Timeframe, int StepCount, int DelayMs,
+    Rectangle Region, int ClickX, int ClickY);

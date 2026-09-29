@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using backs2.Core;
 using backs2.Core.Accounts;
+using backs2.Core.DataAutomation;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 using backs2.ViewModels;
@@ -72,6 +73,9 @@ public partial class App : Application
         services.AddSingleton<MonteCarloEngine>();
         services.AddSingleton<SelectionQueue>();
 
+        // Data Automation
+        services.AddSingleton<DataAutomationService>();
+
         services.AddTransient<MainViewModel>();
         services.AddTransient<ChartViewModel>();
         services.AddTransient<DataViewModel>();
@@ -83,6 +87,7 @@ public partial class App : Application
         services.AddTransient<LogsViewModel>();
         services.AddTransient<ConfigViewModel>();
         services.AddTransient<ProvidersViewModel>();
+        services.AddTransient<DataAutomationViewModel>();
 
         services.AddHttpClient("ResilientClient")
             .AddStandardResilienceHandler(options =>

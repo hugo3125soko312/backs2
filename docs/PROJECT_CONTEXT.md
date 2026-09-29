@@ -11,13 +11,18 @@
     - Avalonia.Controls.DataGrid 11.0.11
     - Avalonia.Controls.ColorPicker 11.0.11
     - ScottPlot.Avalonia 5.0.55
+    - Vortice.Direct3D11 3.6.2
+    - Vortice.DXGI 3.6.2
+    - System.Drawing.Common 8.0.0
 - Architecture:
-    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue.
+    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
+    - src/core/DataAutomation/DataAutomationCore.cs: window detection, SendInput simulation, PrintWindow capture, calibration persistence, orchestration. Single file.
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
+    - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Calibration overlay class lives in the view's code-behind.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
@@ -48,10 +53,15 @@
     - Queue persistence is `"symbol@timeframe"` strings in `settings.json`.
     - Monte Carlo operates in the time domain. Never scramble trades. Use `TimeSlice[]` from `TimeSliceBuilder`. Compound as flat-bet absolute PnL, not percentages.
     - Position size defaults to 1.0 in `Trades.Enter`. Strategies that need a different size pass it explicitly.
+    - Data Automation captures via PrintWindow with PW_RENDERFULLCONTENT; do not switch to DXGI Desktop Duplication (returns black on Chromium windows).
+    - Automation input uses SendInput via P/Invoke. Never hook input. Never use H.InputSimulator or InputSimulatorStandard.
+    - Calibration persists to config/data_automation.json. Both the region and click point must be set before Start Automation is enabled.
+    - Mixed-DPI: the calibration overlay is re-fitted on ScalingChanged; its final RenderScaling is the authoritative factor for coordinate conversion. Do not use Screens.ScreenFromPoint for this.
+    - Screenshots land in data/shots/ as {symbol}_{timeframe}_{index:D4}.png.
 - Config folder vs Data folder:
-    - `config/`: user-authored settings (settings.json, presets/).
-    - `data/`: engine-managed (cache/, strategies/, accounts/).
-- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Providers, Chart, Logs, Config.
+    - `config/`: user-authored settings (settings.json, presets/, data_automation.json).
+    - `data/`: engine-managed (cache/, strategies/, accounts/, shots/).
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation, Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API".

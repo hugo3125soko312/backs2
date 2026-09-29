@@ -32,6 +32,7 @@
             <TabItem Header="Metrics"><views:MetricsView /></TabItem>
             <TabItem Header="Accounts"><views:AccountView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>
+            <TabItem Header="Data Automation"><views:DataAutomationView /></TabItem>
             <TabItem Header="Providers"><views:ProvidersView /></TabItem>
             <TabItem Header="Chart"><views:ChartView /></TabItem>
             <TabItem Header="Logs"><views:LogsView /></TabItem>

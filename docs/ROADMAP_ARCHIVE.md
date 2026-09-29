@@ -368,3 +368,29 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 - [x] `AppSettings.ProviderOrder` extended to `["Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API", "Stooq"]`.
 - [x] `App.axaml.cs` registers four new keyed transients.
 - [x] `.env` gains `FINNHUB_API_KEY`, `FCS_PUBLIC_API_KEY`
+
+---
+
+## Phase 11: Data Automation [COMPLETED]
+
+### Phase 11A -- Window detection + input simulation
+- TradingViewWindowDetector.FindWindow via EnumWindows + PID match.
+- InputSimulatorService with SendInput P/Invoke: FocusAndMaximize, ClickAt, LeftClick, PressLeftArrow, PressRightArrow.
+
+### Phase 11B -- PrintWindow capture + crop + save
+- DesktopDuplicator.CaptureFrame(IntPtr hWnd) using PrintWindow(hWnd, hdc, PW_RENDERFULLCONTENT).
+- Swap from DXGI Desktop Duplication to PrintWindow to fix black frames on Chromium-based TradingView.
+- Cropped to the calibrated region and saved as data/shots/{symbol}_{timeframe}_{index:D4}.png.
+
+### Phase 11C -- Region + click-point calibration with mixed-DPI handling
+- AutomationCalibrationService persists to config/data_automation.json.
+- CalibrationOverlayWindow (defined inside DataAutomationView.axaml.cs) shows a frozen PrintWindow snapshot with a dimmed mask and green selection border. Supports Region (drag) and Point (single click) modes.
+- Mixed-DPI: overlay re-fitted on ScalingChanged + Opened, final RenderScaling used to convert drag coordinates to physical pixels. Verified working with TradingView on 100% monitor + backs2 on 125% monitor.
+
+### Phase 11D -- Automation tab GUI
+- DataAutomationViewModel with Symbol, Timeframe (from TimeframeMap.All), Steps, Delay, Region display, Click Point display, Calibrate Region, Calibrate Click, Clear, Start Automation.
+- DataAutomationView.axaml with ShowButtonSpinner="False" on every NumericUpDown.
+- Run order: focus + maximize -> single click at calibrated point -> 200x right-arrow -> capture + left-arrow loop.
+
+### Deferred
+- OCR extraction of the shots into JSON. See ROADMAP.md Phase 11E.

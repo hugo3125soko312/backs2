@@ -76,6 +76,16 @@ ONLY SPEAK IN ENGLISH
     - Ask for build OR run, never both.
     - If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.
 
+## Data Automation
+- Window discovery uses EnumWindows + PID match. No injection, no hooks.
+- Input uses SendInput via P/Invoke. Never a NuGet input library.
+- Capture uses PrintWindow with PW_RENDERFULLCONTENT. Never DXGI Desktop Duplication.
+- Both calibrations (region, click point) persist to config/data_automation.json, which is git-ignored.
+- Run order: focus+maximize -> click -> 200x right-arrow -> capture+left-arrow loop.
+- Output: data/shots/{symbol}_{timeframe}_{index:D4}.png.
+- The view's code-behind owns the calibration overlay. Do not extract it to a standalone .axaml.
+- Do not commit config/data_automation.json.
+
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:
 

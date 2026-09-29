@@ -4,3 +4,5 @@
 data/cache
 logs/
 config/settings.json
+/data/shots
+config/data_automation.json

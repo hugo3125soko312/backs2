@@ -60,6 +60,20 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
 ### Phase 10.7E -- Polish [IN PROGRESS]
 
+## Phase 11: Data Automation [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
+
+### Phase 11A -- Window detection + input simulation [COMPLETED]
+### Phase 11B -- PrintWindow capture + crop + save [COMPLETED]
+### Phase 11C -- Region + click-point calibration with mixed-DPI handling [COMPLETED]
+### Phase 11D -- Automation tab GUI [COMPLETED]
+
+### Phase 11E -- OCR extraction [PENDING]
+- [ ] Add RapidOcrNet + Microsoft.ML.OnnxRuntime.Gpu to backs2.csproj.
+- [ ] Read data/shots/*.png, OCR the OHLCV strip, parse values.
+- [ ] Emit data/{symbol}_{timeframe}.json in the KlineCompact schema.
+- [ ] Optional: load the JSON into DataManager cache.
+
 ---
 
 ## Phase 12: Hardening & Housekeeping [PLANNED]

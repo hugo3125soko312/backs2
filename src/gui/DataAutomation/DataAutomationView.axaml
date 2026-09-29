@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:backs2.ViewModels"
+             x:Class="backs2.Views.DataAutomationView"
+             x:DataType="vm:DataAutomationViewModel">
+    <Grid RowDefinitions="Auto,*" Margin="10">
+        <StackPanel Grid.Row="0" Spacing="8">
+            <TextBlock Text="{Binding StatusText}" FontWeight="Bold" FontSize="14"/>
+
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="Symbol:" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding Symbol}" Width="100"/>
+                <TextBlock Text="Timeframe:" VerticalAlignment="Center"/>
+                <ComboBox ItemsSource="{Binding Timeframes}"
+                          SelectedItem="{Binding Timeframe}"
+                          Width="80"/>
+                <TextBlock Text="Steps:" VerticalAlignment="Center"/>
+                <NumericUpDown Value="{Binding StepCount}" Minimum="1" Maximum="500"
+                               ShowButtonSpinner="False" Width="100"/>
+                <TextBlock Text="Delay (ms):" VerticalAlignment="Center"/>
+                <NumericUpDown Value="{Binding DelayMs}" Minimum="50" Maximum="2000"
+                               ShowButtonSpinner="False" Width="100"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Calibrate Region" Command="{Binding CalibrateRegionCommand}"/>
+                <TextBlock Text="{Binding RegionDisplay}" VerticalAlignment="Center"
+                           FontFamily="Consolas" Foreground="Gray" Width="240"/>
+                <Button Content="Calibrate Click" Command="{Binding CalibrateClickCommand}"/>
+                <TextBlock Text="{Binding ClickDisplay}" VerticalAlignment="Center"
+                           FontFamily="Consolas" Foreground="Gray" Width="140"/>
+                <Button Content="Clear" Command="{Binding ClearCalibrationCommand}"/>
+            </StackPanel>
+
+            <Button Content="Start Automation"
+                    Command="{Binding StartAutomationCommand}"
+                    HorizontalAlignment="Left"/>
+        </StackPanel>
+    </Grid>
+</UserControl>
