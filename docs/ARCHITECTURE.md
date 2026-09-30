@@ -327,43 +327,66 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 
 ## 18. Data Automation
 
-- Purpose: autonomously capture OHLCV screenshots from a running TradingView Desktop window into `data/shots/`, for a later OCR phase that extracts the values into JSON.
+- Purpose: autonomously capture OHLCV screenshots from a running TradingView Desktop window into `data/shots/`, OCR them into `data/parsed/*.json`, and run diagnostics on the parsed output. Exposed as a single tab with three subtabs: **Extraction**, **Parsing**, **Analysis**.
 - Location:
-  - Core: `src/core/DataAutomation/DataAutomationCore.cs` (single file — all classes).
+  - Core: `src/core/DataAutomation/` — `ExtractionCore.cs` (window detection, input, capture, calibration, orchestrator), `ParsingCore.cs` (OCR parsing pipeline), `BatchedOcrRecognizer.cs` (ONNX Runtime wrapper), `OcrWorkerHost.cs` / `OcrWorkerClient.cs` (out-of-process worker), `AnalysisService.cs` (parsed-file diagnostics).
   - GUI: `src/gui/DataAutomation/DataAutomationView.axaml`, `.axaml.cs`, `DataAutomationViewModel.cs`.
 - Tab position: `MainWindow.axaml` places Data Automation between Data and Providers.
 
-### Services (all constructed inside `DataAutomationService`; only `DataAutomationService` is DI-registered)
-- `TradingViewWindowDetector` — passive window discovery via `EnumWindows` + `GetWindowThreadProcessId` matched against `Process.GetProcessesByName("TradingView")`. No injection, no hooks.
-- `InputSimulatorService` — `SendInput` P/Invoke. Methods: `FocusAndMaximize`, `ClickAt(x,y)`, `LeftClick`, `PressLeftArrow`, `PressRightArrow`. No keyboard or mouse hooks.
-- `DesktopDuplicator` — screen capture via Win32 `PrintWindow` with `PW_RENDERFULLCONTENT`. Used instead of DXGI Desktop Duplication because TradingView is Chromium-based and returns black frames under DXGI. Prints a warning and returns null when `PrintWindow` refuses.
-- `AutomationCalibrationService` — JSON persistence at `config/data_automation.json`. Stores a `Region` (X, Y, W, H) and a `ClickPoint` (X, Y).
-- `DataAutomationService` — orchestrator. Exposes `LoadCalibration`, `SaveCalibration`, `ClearCalibration`, `PrepareCalibrationAsync` (returns a frozen window snapshot + rect for the overlay), and `RunAsync(parameters, progress)`.
+### Extraction subtab
 
-### Calibration
-Two calibrations are persisted independently:
-- **Region** — drag a rectangle over the OHLCV display in the top-left of the TradingView window.
-- **Click Point** — single click on the chart body; the automation issues exactly one click there to focus the chart before the arrow-key iteration begins.
+- Services (all constructed inside `DataAutomationService`; only `DataAutomationService` is DI-registered):
+  - `TradingViewWindowDetector` — passive window discovery via `EnumWindows` + `GetWindowThreadProcessId` matched against `Process.GetProcessesByName("TradingView")`. No injection, no hooks.
+  - `InputSimulatorService` — `SendInput` P/Invoke. Methods: `FocusAndMaximize`, `ClickAt(x,y)`, `LeftClick`, `PressLeftArrow`, `PressRightArrow`. No keyboard or mouse hooks.
+  - `DesktopDuplicator` — screen capture via Win32 `PrintWindow` with `PW_RENDERFULLCONTENT`. Used instead of DXGI Desktop Duplication because TradingView is Chromium-based and returns black frames under DXGI. Returns null when `PrintWindow` refuses.
+  - `AutomationCalibrationService` — JSON persistence at `config/data_automation.json`. Stores a `Dictionary<string, AutomationRegion>` keyed by field (DATE, TIME, O, H, L, C, V) plus a single `AutomationPoint` click point.
+  - `DataAutomationService` — orchestrator. Exposes `LoadCalibration`, `SaveCalibration`, `ClearCalibration`, `PrepareCalibrationAsync` (frozen snapshot + rect for the overlay), and two `RunAsync` overloads: full extraction `(parameters, progress, ct)` and filtered re-extract `(parameters, stepFilter, progress, ct)`.
 
-Both are captured through a modal `CalibrationOverlayWindow` defined in `DataAutomationView.axaml.cs`. The overlay shows a frozen `PrintWindow` snapshot of the TradingView window, a dimmed mask on the four strips outside the current selection, and a live green selection border. ESC cancels.
+- Calibration: **per-field**. Each of DATE, TIME, O, H, L, C, V is captured independently through a modal `CalibrationOverlayWindow` defined in `DataAutomationView.axaml.cs`. The click point is a single point on the chart body. Only O/H/L/C/V are required to enable Start Automation; DATE and TIME are optional — when absent, timestamps are derived by walking back from the newest bar at one timeframe step per captured bar. The overlay shows a frozen `PrintWindow` snapshot of the TradingView window, a dimmed mask on the four strips outside the current selection, and a live green selection border. ESC cancels.
 
-### Mixed-DPI handling
-The process is DPI-unaware/SystemAware: all windows render at the primary monitor's scale regardless of which monitor they sit on. The overlay is therefore:
-1. Sized once at creation using the owner's `RenderScaling` (best-guess for same-DPI cases).
-2. Re-fitted on `ScalingChanged` and on `Opened + Dispatcher.Post(Loaded)` using its own `RenderScaling` once it settles on the target monitor.
-3. After `ShowDialog` returns, `overlay.RenderScaling` is the authoritative factor used to convert drag/click coordinates into the physical-pixel space that `PrintWindow` produces and the automation loop consumes.
+- Mixed-DPI handling: the process is DPI-unaware/SystemAware. The overlay is (1) sized once at creation using the owner's `RenderScaling`, (2) re-fitted on `ScalingChanged` and on `Opened + Dispatcher.Post(Loaded)` using its own `RenderScaling`, and (3) after `ShowDialog` returns, its final `RenderScaling` is the authoritative factor used to convert drag/click coordinates into the physical-pixel space that `PrintWindow` produces and the automation loop consumes.
 
-### Automation loop (`DataAutomationService.RunAsync`)
-1. Focus + maximize the TradingView window.
-2. One `ClickAt` at the calibrated click point (converted from window-relative to absolute screen coordinates).
-3. 200× `PressRightArrow` to force the chart to the newest bar. 600 ms settle delay.
-4. For each of N steps (default 100):
-   - `PrintWindow` capture of the full TradingView window.
-   - Crop to the calibrated region; save as `data/shots/{symbol}_{timeframe}_{index:D4}.png`.
-   - `PressLeftArrow` to move one bar back; `Task.Delay(DelayMs)` (default 250 ms).
+- Automation loop (`DataAutomationService.RunAsync`):
+  1. Focus + maximize the TradingView window.
+  2. One `ClickAt` at the calibrated click point (window-relative → absolute screen coordinates) to focus the chart.
+  3. **Alignment**: press Left Arrow once, hash the reference region (FNV-1a over the region's raw bytes), wait for the hash to differ from the pre-press hash. Repeats up to `MaxAlignAttempts = 30` with `AlignmentStepDelayMs = 80`. Aborts with a setup error if the reference region never changes.
+  4. For each step index `i` up to `maxStep` (full mode: `StepCount - 1`; re-extract mode: `max(stepFilter)`):
+     - If `captureThis` (`stepFilter == null || stepFilter.Contains(i)`): `PrintWindow` capture, crop each calibrated region, save as `data/shots/{symbol}_{timeframe}_{i:D4}_{field}.png` (one file per field). Hash the reference crop and use it as the new `currentHash`.
+     - Press Left Arrow; poll every 10 ms up to a 5 s hard timeout until the reference-region hash differs from `currentHash`. If the timeout fires, log a warning and continue (subsequent captures may be offset).
+     - Report progress.
 
-### Parameters record
+- Re-extract flow: the Extraction subtab has a "Re-extract Missing" button and a text box that accepts the contents of `data/parsed/{symbol}_{timeframe}_misses.txt` (parsed as whitespace- or comma-separated non-negative ints). The service walks from step 0 to `max(stepFilter)`, captures only the target indices, and overwrites the corresponding PNG crops in place. Alignment and click behavior are identical to a full run, so the previous extraction's chart state must be reproduced before re-extract starts.
+
+- Parameters record:
+
 ```csharp
 public sealed record AutomationParameters(
     string Symbol, string Timeframe, int StepCount, int DelayMs,
-    Rectangle Region, int ClickX, int ClickY);
+    Dictionary<string, Rectangle> ValueRegions, int ClickX, int ClickY);
+```
+
+### Parsing subtab
+
+- `BatchedOcrRecognizer` — ONNX Runtime wrapper. Loads `models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx` and `ppocrv5_latin_dict.txt`. Appends the CUDA execution provider when `UseGpu` is true; falls back to CPU otherwise. `RecognizeBatch(SKBitmap?[])` issues one inference call per field-batch; nulls in the input array are treated as blank.
+- `ShotParsingService.ParseAsync(ParseRequest, IProgress, CancellationToken)`:
+  - Enumerates step indices by globbing `data/shots/{symbol}_{timeframe}_*_O.png` and sorting numerically.
+  - Batches up to 64 steps at a time. Each batch issues seven `RecognizeBatch` calls (DATE, TIME, O, H, L, C, V).
+  - Retry pass: every crop that came back blank is padded 2 px, upscaled 2×, and re-OCR'd. Recovered texts replace the blanks.
+  - Timestamp derivation: for each step, if DATE+TIME parsed and the candidate is strictly before the previous timestamp within a 30-day window, use it; otherwise step back one timeframe interval from the previous timestamp.
+  - Field parsing: regex `([\d,]+\.?\d*)\s*([KMB]?)`. Volume with a K/M/B suffix is scaled; a bare volume in `[1, 1000)` is multiplied by 1000 if the result clears the 100 floor.
+  - O-recovery: when O misses but H and L parse, set O to `clamp(lastParsedClose ?? (H+L)/2, L, H)`.
+  - Rejects: OHLC sanity (H ≥ L, O/C within `[L, H]`, positive prices, intra-bar range ≤ 5% of H), volume floor ≥ 100.
+  - Output: `data/parsed/{symbol}_{timeframe}_{n}.json`, `n` chosen as the first unused integer. Flat list of `{T, O, H, L, C, V}` — same field names as KlineCompact. Reversed to ascending time order before serialization.
+  - Misses: step indices that failed any reject are written to `data/parsed/{symbol}_{timeframe}_misses.txt` (one per line, ascending). File is deleted when there are zero misses.
+- `OcrWorkerHost` / `OcrWorkerClient` — parsing runs out-of-process so a native ONNX Runtime crash cannot take down the GUI. The client marshals `ParseRequest`, progress reports, and the `ParseResult` over an anonymous pipe.
+
+### Analysis subtab
+
+- `AnalysisService.AnalyzeAsync(path, timezoneOffset, sessionClosedHours, skipWeekend, ct)`:
+  - Loads `List<Bar>` (same shape as parsed JSON: `{T, O, H, L, C, V}`) and sorts ascending by `T`.
+  - Infers the expected bar interval from the most common gap (rounded to 2 decimals).
+  - Classifies expected closures (Session / Weekend / Holiday?) and flags everything else as a `TimeUnexpected` problem.
+  - Flags `PriceGap` when `|O - prevC| / prevC > 1%`.
+  - Flags `VolumeSpike` when a bar's volume exceeds 5× the trailing-20 mean.
+  - Returns a text report (summary, category counts, first 30 problems, closure breakdown) rendered in the Analysis subtab's read-only TextBox.
+- Supersedes the standalone `docs/analyze-parsed.ps1`, which is deleted. Do not resurrect it.

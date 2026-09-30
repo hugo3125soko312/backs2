@@ -60,27 +60,34 @@ See `docs/ROADMAP_ARCHIVE.md`.
 ### Phase 10.7D -- Crosshair & Readout [PENDING]
 ### Phase 10.7E -- Polish [IN PROGRESS]
 
-## Phase 11: Data Automation [COMPLETED]
-See `docs/ROADMAP_ARCHIVE.md`.
+---
+
+## Phase 11: Data Automation [IN PROGRESS]
+Sub-phases 11A-11D are in `docs/ROADMAP_ARCHIVE.md`.
 
 ### Phase 11A -- Window detection + input simulation [COMPLETED]
 ### Phase 11B -- PrintWindow capture + crop + save [COMPLETED]
 ### Phase 11C -- Region + click-point calibration with mixed-DPI handling [COMPLETED]
 ### Phase 11D -- Automation tab GUI [COMPLETED]
 
-### Phase 11E -- OCR extraction [PENDING]
-- [ ] Add RapidOcrNet + Microsoft.ML.OnnxRuntime.Gpu to backs2.csproj.
-- [ ] Read data/shots/*.png, OCR the OHLCV strip, parse values.
-- [ ] Emit data/{symbol}_{timeframe}.json in the KlineCompact schema.
-- [ ] Optional: load the JSON into DataManager cache.
+### Phase 11E -- OCR extraction + parsing pipeline + analysis [COMPLETED]
+Shipped in commit `10f16ba`.
+
+- `BatchedOcrRecognizer` wraps ONNX Runtime (`Microsoft.ML.OnnxRuntime`). PP-OCRv5 Latin recognizer at `models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx`. CUDA execution provider when GPU=on, CPU fallback otherwise. Replaces the originally-planned RapidOcrNet path — no RapidOcrNet package is referenced.
+- `ParsingCore.ShotParsingService` reads `data/shots/*.png`, batches all seven crops (DATE, TIME, O, H, L, C, V) into one inference call per step, retries blank crops padded 2 px / upscaled 2×, derives missing timestamps by walking back one timeframe per step, and applies OHLC sanity + volume-floor + intra-bar-range filters.
+- Output: `data/parsed/{symbol}_{timeframe}_{n}.json` — flat `{T, O, H, L, C, V}` list, ascending time order. Failed steps land in `data/parsed/{symbol}_{timeframe}_misses.txt` (one index per line).
+- Extraction tab gains a **Re-extract Missing** flow: paste the misses file, walk the chart, overwrite only the target PNGs.
+- Parsing runs out-of-process (`OcrWorkerHost` / `OcrWorkerClient`) so a native ORT crash cannot take down the GUI.
+- New **Analysis** subtab supersedes `docs/analyze-parsed.ps1` (deleted). `AnalysisService` reports expected closures vs. `TimeUnexpected` gaps, `PriceGap`, and `VolumeSpike` for any parsed JSON.
+- The 200× right-arrow "jump to newest" prelude is gone. Alignment is now pixel-hash driven: one Left press, hash the reference crop, stop when the hash changes. Hard 5 s timeout per step.
 
 ### Phase 11F -- Automatic start-position detection [PENDING]
 Replace the manual "Calibrate Click" step with a visual pass that finds the latest candle on the chart and starts the arrow iteration from there.
 
 - [ ] Capture a full-window frame after focus + maximize.
-- [ ] Locate the price/time axis and the chart plot area within the frame (identify the pixel column where the newest bar sits — typically the right-most non-axis content column).
-- [ ] Derive the click point automatically: candle column × vertical center of the plot area.
-- [ ] Drop the 200× right-arrow "jump to latest" prelude — the chart is already at the newest bar.
+- [ ] Locate the price/time axis and the chart plot area within the frame (identify the pixel column where the newest bar sits â€” typically the right-most non-axis content column).
+- [ ] Derive the click point automatically: candle column Ă— vertical center of the plot area.
+- [ ] Drop the 200Ă— right-arrow "jump to latest" prelude â€” the chart is already at the newest bar.
 - [ ] Keep "Calibrate Click" as an optional override; auto-detection is the default path.
 - [ ] Log the detected start position so a failed detection is diagnosable from the Logs tab.
 - [ ] Fallback: if detection fails, fall back to the saved click point and the existing right-arrow prelude.
@@ -109,4 +116,4 @@ Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`.
 - **Buy Now Pay Later**: 2K, 5K, 10K, 20K, 50K, 100K. P1 4%, P1 MaxLoss 10%, Funded MaxLoss 8%, Funded DailyLoss 4%, Split 80%, Funded Consistency 20%.
 
 ### Template
-- `_TEMPLATE.account.json` — schema reference. Copy to add a new firm. Rename to `.account.json.txt` to exclude from the scan.
+- `_TEMPLATE.account.json` â€” schema reference. Copy to add a new firm. Rename to `.account.json.txt` to exclude from the scan.

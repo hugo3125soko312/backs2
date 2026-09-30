@@ -1,4 +1,3 @@
-<!-- docs\PROJECT_CONTEXT.md -->
 # Project: backs2 Trading Engine
 - GUI: Avalonia 11.0.11
 - Core: .NET 8.0, DI-based xManager Pattern
@@ -14,15 +13,22 @@
     - Vortice.Direct3D11 3.6.2
     - Vortice.DXGI 3.6.2
     - System.Drawing.Common 8.0.0
+    - Microsoft.ML.OnnxRuntime 1.30.0
+    - Microsoft.ML.OnnxRuntime.Gpu 1.30.0
+    - SkiaSharp
 - Architecture:
     - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
-    - src/core/DataAutomation/DataAutomationCore.cs: window detection, SendInput simulation, PrintWindow capture, calibration persistence, orchestration. Single file.
+    - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
+    - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
+    - src/core/DataAutomation/BatchedOcrRecognizer.cs: ONNX Runtime wrapper around the PP-OCRv5 Latin recognizer (`models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx`).
+    - src/core/DataAutomation/OcrWorkerHost.cs + OcrWorkerClient.cs: out-of-process OCR worker + client marshaller. Keeps native ORT crashes off the GUI process.
+    - src/core/DataAutomation/AnalysisService.cs: parsed-JSON diagnostics. Timezone-aware gap classification (expected Session/Weekend/Holiday vs. TimeUnexpected), PriceGap, VolumeSpike. Supersedes the removed `docs/analyze-parsed.ps1`.
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
-    - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Calibration overlay class lives in the view's code-behind.
+    - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
@@ -30,7 +36,8 @@
     - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe.
-    - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
+    - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE Â§17.
+    - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE Â§18.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, FINNHUB_API_KEY, FCS_PUBLIC_API_KEY.
@@ -55,13 +62,16 @@
     - Position size defaults to 1.0 in `Trades.Enter`. Strategies that need a different size pass it explicitly.
     - Data Automation captures via PrintWindow with PW_RENDERFULLCONTENT; do not switch to DXGI Desktop Duplication (returns black on Chromium windows).
     - Automation input uses SendInput via P/Invoke. Never hook input. Never use H.InputSimulator or InputSimulatorStandard.
-    - Calibration persists to config/data_automation.json. Both the region and click point must be set before Start Automation is enabled.
+    - Calibration persists to config/data_automation.json. Per-field regions (DATE, TIME, O, H, L, C, V) plus a click point. Only O/H/L/C/V are required to enable Start Automation.
     - Mixed-DPI: the calibration overlay is re-fitted on ScalingChanged; its final RenderScaling is the authoritative factor for coordinate conversion. Do not use Screens.ScreenFromPoint for this.
-    - Screenshots land in data/shots/ as {symbol}_{timeframe}_{index:D4}.png.
+    - Screenshots land in data/shots/ as {symbol}_{timeframe}_{index:D4}_{field}.png. One file per field.
+    - Data Automation hosts three subtabs (Extraction / Parsing / Analysis). Parsing runs out-of-process via OcrWorkerHost; never inline ONNX inference on the UI thread.
+    - OCR parsing rejects are written to data/parsed/{symbol}_{timeframe}_misses.txt. The Extraction tab's "Re-extract Missing" consumes that file verbatim — do not introduce a parallel miss list.
+    - Analysis runs in-process via AnalysisService. The standalone docs/analyze-parsed.ps1 has been removed; do not resurrect it.
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/, data_automation.json).
-    - `data/`: engine-managed (cache/, strategies/, accounts/, shots/).
-- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation, Providers, Chart, Logs, Config.
+    - `data/`: engine-managed (cache/, strategies/, accounts/, shots/, parsed/).
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API".
