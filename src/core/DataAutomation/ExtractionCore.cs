@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -18,18 +20,30 @@ namespace backs2.Core.DataAutomation;
 
 public sealed record AutomationRegion(int X, int Y, int Width, int Height);
 public sealed record AutomationPoint(int X, int Y);
-public sealed record AutomationCalibration(AutomationRegion? Region, AutomationPoint? ClickPoint);
+
+public sealed record AutomationCalibration(
+    Dictionary<string, AutomationRegion> ValueRegions,
+    AutomationPoint? ClickPoint);
 
 public sealed record AutomationParameters(
     string Symbol,
     string Timeframe,
     int StepCount,
     int DelayMs,
-    Rectangle Region,
+    Dictionary<string, Rectangle> ValueRegions,
     int ClickX,
     int ClickY);
 
 public sealed record CalibrationSnapshot(Bitmap Image, Rectangle WindowRect);
+
+public sealed record ExtractionProgress(
+    string Phase,
+    int Step,
+    int Total,
+    TimeSpan Elapsed,
+    TimeSpan Eta,
+    double PerStepMs,
+    int CurrentDelayMs);
 
 public enum CalibrationMode { Region, Point }
 
@@ -65,21 +79,33 @@ public sealed class TradingViewWindowDetector
             return IntPtr.Zero;
         }
 
-        var targetPid = (uint)processes[0].Id;
-        IntPtr foundHwnd = IntPtr.Zero;
-
-        EnumWindows((hWnd, lParam) =>
+        // Enumerate every candidate PID and return the first visible window
+        // with a sane rect. GetProcess().MainWindowHandle is unreliable for
+        // Chromium apps — it commonly returns 0 even when a real window exists.
+        foreach (var proc in processes)
         {
-            GetWindowThreadProcessId(hWnd, out uint pid);
-            if (pid == targetPid && IsWindowVisible(hWnd))
-            {
-                foundHwnd = hWnd;
-                return false;
-            }
-            return true;
-        }, IntPtr.Zero);
+            var targetPid = (uint)proc.Id;
+            IntPtr found = IntPtr.Zero;
 
-        return foundHwnd;
+            EnumWindows((hWnd, lParam) =>
+            {
+                GetWindowThreadProcessId(hWnd, out uint pid);
+                if (pid != targetPid) return true;
+                if (!IsWindowVisible(hWnd)) return true;
+
+                GetWindowRect(hWnd, out RECT r);
+                int w = r.Right - r.Left;
+                int h = r.Bottom - r.Top;
+                if (w < 400 || h < 300) return true;
+
+                found = hWnd;
+                return false;
+            }, IntPtr.Zero);
+
+            if (found != IntPtr.Zero) return found;
+        }
+
+        return IntPtr.Zero;
     }
 
     public Rectangle GetWindowRect(IntPtr hWnd)
@@ -270,17 +296,18 @@ public sealed class AutomationCalibrationService
     {
         lock (_gate)
         {
-            if (!File.Exists(_path)) return new AutomationCalibration(null, null);
+            if (!File.Exists(_path))
+                return new AutomationCalibration(new Dictionary<string, AutomationRegion>(), null);
             try
             {
                 var json = File.ReadAllText(_path);
                 return JsonSerializer.Deserialize<AutomationCalibration>(json)
-                       ?? new AutomationCalibration(null, null);
+                       ?? new AutomationCalibration(new Dictionary<string, AutomationRegion>(), null);
             }
             catch (Exception ex)
             {
                 LogManager.Error(LogTag.Data, "Failed to load calibration", ex);
-                return new AutomationCalibration(null, null);
+                return new AutomationCalibration(new Dictionary<string, AutomationRegion>(), null);
             }
         }
     }
@@ -314,8 +341,14 @@ public sealed class AutomationCalibrationService
 
 public sealed class DataAutomationService
 {
-    private const int JumpToLatestPresses = 200;
-    private const int PostJumpDelayMs = 600;
+    private const int MaxAlignAttempts = 30;
+    private const int AlignmentStepDelayMs = 80;
+
+    private const int InitialDelayMs   = 1000;
+    private const int AdaptiveMinMs    = 30;
+    private const int AdaptiveMaxMs    = 2000;
+    private const int PollIntervalMs   = 10;
+    private const int HardTimeoutMs    = 5000;
 
     private readonly TradingViewWindowDetector _detector;
     private readonly InputSimulatorService _input;
@@ -351,70 +384,254 @@ public sealed class DataAutomationService
         return new CalibrationSnapshot(frame, rect);
     }
 
-    public async Task RunAsync(AutomationParameters parameters, IProgress<string> progress)
+    /// <summary>
+    /// Full extraction: walks every step from 0 (newest) to StepCount-1 (oldest).
+    /// </summary>
+    public Task RunAsync(
+        AutomationParameters parameters,
+        IProgress<ExtractionProgress> progress,
+        CancellationToken ct)
+        => RunAsync(parameters, null, progress, ct);
+
+    /// <summary>
+    /// Filtered extraction: walks from step 0 to max(stepFilter), saving
+    /// only the shots whose index is in the set. Used to re-capture the
+    /// crops that failed OCR on a previous run.
+    /// </summary>
+    public async Task RunAsync(
+        AutomationParameters parameters,
+        HashSet<int>? stepFilter,
+        IProgress<ExtractionProgress> progress,
+        CancellationToken ct)
     {
+        if (stepFilter is { Count: 0 }) return;
+
+        int maxStep = stepFilter is { Count: > 0 }
+            ? stepFilter.Max()
+            : parameters.StepCount - 1;
+
+        if (maxStep < 0) return;
+
+        int totalTargets = stepFilter?.Count ?? parameters.StepCount;
+        int captured = 0;
+
+        var setupSw = Stopwatch.StartNew();
+
+        void ReportSetup(string phase)
+            => progress.Report(new ExtractionProgress(
+                phase, 0, totalTargets, setupSw.Elapsed, TimeSpan.Zero, 0, InitialDelayMs));
+
         var hwnd = _detector.FindWindow();
         if (hwnd == IntPtr.Zero)
         {
-            progress.Report("Error: TradingView window not found.");
+            ReportSetup("Error: TradingView window not found");
             return;
         }
 
-        progress.Report("Focusing and maximizing TradingView...");
+        ct.ThrowIfCancellationRequested();
+        ReportSetup("Focusing TradingView");
         _input.FocusAndMaximize(hwnd);
-        await Task.Delay(500);
+        await Task.Delay(500, ct);
 
+        ct.ThrowIfCancellationRequested();
+        ReportSetup("Clicking anchor point");
         var winRect = _detector.GetWindowRect(hwnd);
-        int absClickX = winRect.Left + parameters.ClickX;
-        int absClickY = winRect.Top  + parameters.ClickY;
+        _input.ClickAt(winRect.Left + parameters.ClickX, winRect.Top + parameters.ClickY);
+        await Task.Delay(300, ct);
 
-        progress.Report("Focus click...");
-        _input.ClickAt(absClickX, absClickY);
-        await Task.Delay(300);
-
-        progress.Report($"Jumping to latest bar ({JumpToLatestPresses} presses)...");
-        for (int k = 0; k < JumpToLatestPresses; k++)
-            _input.PressRightArrow();
-        await Task.Delay(PostJumpDelayMs);
-
-        progress.Report("Initializing capture...");
         _duplicator.Initialize();
-
-        for (int i = 0; i < parameters.StepCount; i++)
+        try
         {
-            progress.Report($"Step {i + 1}/{parameters.StepCount} — capturing...");
+            ct.ThrowIfCancellationRequested();
+            ReportSetup("Aligning to newest bar");
 
-            using var frame = _duplicator.CaptureFrame(hwnd);
-            if (frame == null)
+            string refKey = parameters.ValueRegions.ContainsKey("C") ? "C"
+                          : parameters.ValueRegions.ContainsKey("O") ? "O"
+                          : parameters.ValueRegions.Keys.First();
+            var refRegion = parameters.ValueRegions[refKey];
+
+            var hash0 = CaptureRegionHash(hwnd, refRegion);
+            if (hash0 == null)
             {
-                progress.Report($"Warning: Failed to capture frame at step {i + 1}.");
-                await Task.Delay(parameters.DelayMs);
-                continue;
+                ReportSetup("Error: failed initial capture for alignment");
+                return;
             }
 
-            SaveRegion(frame, parameters.Region, parameters.Symbol, parameters.Timeframe, i);
+            bool aligned = false;
+            int arrowsUsed = 0;
+            ulong currentHash = hash0.Value;
 
-            progress.Report("Navigating back (Left Arrow)...");
-            _input.PressLeftArrow();
-            await Task.Delay(parameters.DelayMs);
+            for (; arrowsUsed < MaxAlignAttempts; arrowsUsed++)
+            {
+                ct.ThrowIfCancellationRequested();
+                _input.PressLeftArrow();
+                await Task.Delay(AlignmentStepDelayMs, ct);
+
+                var h = CaptureRegionHash(hwnd, refRegion);
+                if (h == null) continue;
+
+                currentHash = h.Value;
+                if (h.Value != hash0.Value) { aligned = true; break; }
+
+                ReportSetup($"Aligning to newest bar (attempt {arrowsUsed + 1})");
+            }
+
+            if (!aligned)
+            {
+                ReportSetup(
+                    $"Error: reference region did not change after {MaxAlignAttempts} left arrows. " +
+                    "Confirm TradingView is in Replay mode and the anchor sits to the right of the newest candle.");
+                return;
+            }
+
+            LogManager.Debug(LogTag.Data,
+                $"Aligned after {arrowsUsed + 1} left arrow(s). Mode=" +
+                (stepFilter == null ? "full" : "re-extract") +
+                $", targets={(stepFilter?.Count ?? parameters.StepCount)}");
+
+            var captureSw = Stopwatch.StartNew();
+            var elapsedSw = Stopwatch.StartNew();
+
+            for (int i = 0; i <= maxStep; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                bool captureThis = stepFilter == null || stepFilter.Contains(i);
+
+                ulong? capturedHash = null;
+
+                if (captureThis)
+                {
+                    using var frame = _duplicator.CaptureFrame(hwnd);
+                    if (frame != null)
+                    {
+                        SaveStep(frame, parameters.ValueRegions,
+                                 parameters.Symbol, parameters.Timeframe, i);
+                        capturedHash = HashRegionOf(frame, refRegion);
+                    }
+                }
+                else
+                {
+                    capturedHash = CaptureRegionHash(hwnd, refRegion);
+                }
+
+                if (capturedHash != null) currentHash = capturedHash.Value;
+
+                if (i < maxStep)
+                {
+                    _input.PressLeftArrow();
+
+                    var latencySw = Stopwatch.StartNew();
+                    ulong? newHash = null;
+                    while (newHash == null)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        await Task.Delay(PollIntervalMs, ct);
+
+                        var h = CaptureRegionHash(hwnd, refRegion);
+                        if (h != null && h.Value != currentHash)
+                            newHash = h;
+
+                        if (latencySw.ElapsedMilliseconds > HardTimeoutMs)
+                        {
+                            LogManager.Warn(LogTag.Data,
+                                $"Step {i + 1}: reference region did not change within {HardTimeoutMs} ms. " +
+                                "Skipping wait; subsequent captures may be offset.");
+                            break;
+                        }
+                    }
+
+                    if (newHash != null) currentHash = newHash.Value;
+                }
+
+                if (captureThis)
+                {
+                    captured++;
+                    double perStepSec = captureSw.Elapsed.TotalSeconds / captured;
+                    TimeSpan eta = TimeSpan.FromSeconds(perStepSec * (totalTargets - captured));
+
+                    progress.Report(new ExtractionProgress(
+                        stepFilter == null ? "Capturing" : "Re-extracting",
+                        captured, totalTargets, elapsedSw.Elapsed, eta,
+                        perStepSec * 1000.0, 0));
+                }
+            }
+
+            double finalPerStepMs = captured > 0
+                ? captureSw.Elapsed.TotalSeconds / captured * 1000.0
+                : 0;
+
+            progress.Report(new ExtractionProgress(
+                "Complete", captured, totalTargets, elapsedSw.Elapsed, TimeSpan.Zero,
+                finalPerStepMs, 0));
         }
-
-        _duplicator.Dispose();
-        progress.Report("Automation complete.");
+        finally
+        {
+            _duplicator.Dispose();
+        }
     }
 
-    private static void SaveRegion(Bitmap frame, Rectangle region, string symbol, string timeframe, int index)
+    private ulong? CaptureRegionHash(IntPtr hwnd, Rectangle region)
+    {
+        using var frame = _duplicator.CaptureFrame(hwnd);
+        if (frame == null) return null;
+        return HashRegionOf(frame, region);
+    }
+
+    private static ulong? HashRegionOf(Bitmap frame, Rectangle region)
     {
         var crop = region;
         crop.Intersect(new Rectangle(0, 0, frame.Width, frame.Height));
-        if (crop.Width <= 0 || crop.Height <= 0) return;
+        if (crop.Width <= 0 || crop.Height <= 0) return null;
 
         using var cropped = frame.Clone(crop, frame.PixelFormat);
+        return HashBitmap(cropped);
+    }
+
+    private static ulong HashBitmap(Bitmap bmp)
+    {
+        var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, bmp.PixelFormat);
+        try
+        {
+            int bytes = Math.Abs(data.Stride) * data.Height;
+            var buf = new byte[bytes];
+            Marshal.Copy(data.Scan0, buf, 0, bytes);
+
+            ulong hash = 14695981039346656037UL;
+            for (int i = 0; i < buf.Length; i++)
+            {
+                hash ^= buf[i];
+                hash *= 1099511628211UL;
+            }
+            return hash;
+        }
+        finally
+        {
+            bmp.UnlockBits(data);
+        }
+    }
+
+    private static void SaveStep(
+        Bitmap frame,
+        Dictionary<string, Rectangle> regions,
+        string symbol,
+        string timeframe,
+        int index)
+    {
         var dir = Path.Combine("data", "shots");
         Directory.CreateDirectory(dir);
 
-        var path = Path.Combine(dir, $"{symbol}_{timeframe}_{index:D4}.png");
-        cropped.Save(path, ImageFormat.Png);
+        foreach (var (key, region) in regions)
+        {
+            var crop = region;
+            crop.Intersect(new Rectangle(0, 0, frame.Width, frame.Height));
+            if (crop.Width <= 0 || crop.Height <= 0) continue;
+
+            using var cropped = frame.Clone(crop, frame.PixelFormat);
+            var path = Path.Combine(dir, $"{symbol}_{timeframe}_{index:D4}_{key}.png");
+            cropped.Save(path, ImageFormat.Png);
+        }
     }
 }
 

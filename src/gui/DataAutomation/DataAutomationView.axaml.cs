@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -33,12 +35,13 @@ public partial class DataAutomationView : UserControl
         {
             _vm = app.Services.GetRequiredService<DataAutomationViewModel>();
             DataContext = _vm;
-            _vm.CalibrateRegionRequested += async (_, _) => await RunCalibration(CalibrationMode.Region);
-            _vm.CalibrateClickRequested  += async (_, _) => await RunCalibration(CalibrationMode.Point);
+            _vm.CalibrateValueRequested += async (_, key) => await RunCalibrationAsync(CalibrationMode.Region, key);
+            _vm.CalibrateClickRequested += async (_, _) => await RunCalibrationAsync(CalibrationMode.Point, null);
+            _vm.PreviewCalibrationRequested += async (_, _) => await RunPreviewAsync();
         }
     }
 
-    private async Task RunCalibration(CalibrationMode mode)
+    private async Task RunCalibrationAsync(CalibrationMode mode, string? valueKey)
     {
         if (_vm == null || Application.Current is not App app) return;
 
@@ -65,9 +68,6 @@ public partial class DataAutomationView : UserControl
         int physW = snap.WindowRect.Width;
         int physH = snap.WindowRect.Height;
 
-        // Initial size: best-effort using the owner's current scale.
-        // The overlay inherits the owner's DPI context on creation, so this is
-        // correct when the target monitor has the same scale as the owner's.
         double initialScale = owner?.RenderScaling ?? 1.0;
         if (initialScale <= 0) initialScale = 1.0;
 
@@ -79,10 +79,6 @@ public partial class DataAutomationView : UserControl
             Height = physH / initialScale
         };
 
-        // Re-fit the overlay once it is physically on the target monitor and its
-        // per-monitor DPI context has been applied. ScalingChanged fires when
-        // that transition happens; Opened+Dispatcher.Post covers the case where
-        // the target scale equals the owner's scale (no transition, no event).
         void FitToMonitor()
         {
             double s = overlay.RenderScaling;
@@ -98,20 +94,15 @@ public partial class DataAutomationView : UserControl
         if (owner != null) await overlay.ShowDialog(owner);
         else overlay.Show();
 
-        // Final RenderScaling after the overlay has settled on the target monitor.
         double scale = overlay.RenderScaling;
         if (scale <= 0) scale = 1.0;
 
-        LogManager.Debug(LogTag.Data,
-            $"Calibration closed: TV rect=({snap.WindowRect.X},{snap.WindowRect.Y} " +
-            $"{physW}x{physH}) finalScale={scale}");
-
-        if (mode == CalibrationMode.Region)
+        if (mode == CalibrationMode.Region && valueKey != null)
         {
             var r = overlay.RegionResult;
-            if (r == null || r.Value.W < 10 || r.Value.H < 10)
+            if (r == null || r.Value.W < 5 || r.Value.H < 5)
             {
-                _vm.StatusText = "Region calibration cancelled.";
+                _vm.StatusText = $"{valueKey} calibration cancelled.";
                 return;
             }
 
@@ -121,21 +112,208 @@ public partial class DataAutomationView : UserControl
                 (int)Math.Round(r.Value.W * scale),
                 (int)Math.Round(r.Value.H * scale));
 
-            _vm.ApplyRegion(region);
-            _vm.StatusText = $"Region calibrated: {region.Width}×{region.Height}";
+            _vm.ApplyValueRegion(valueKey, region);
+            _vm.StatusText = $"{valueKey} calibrated: {region.Width}×{region.Height}";
         }
         else
         {
             var p = overlay.PointResult;
-            if (p == null) { _vm.StatusText = "Click calibration cancelled."; return; }
+            if (p == null) { _vm.StatusText = "Anchor calibration cancelled."; return; }
 
             var point = new DrawingPoint(
                 (int)Math.Round(p.Value.X * scale),
                 (int)Math.Round(p.Value.Y * scale));
 
             _vm.ApplyClickPoint(point);
-            _vm.StatusText = $"Click point calibrated: {point.X},{point.Y}";
+            _vm.StatusText = $"Anchor calibrated: {point.X},{point.Y}";
         }
+    }
+
+    private async Task RunPreviewAsync()
+    {
+        if (_vm == null || Application.Current is not App app) return;
+
+        var service = app.Services.GetRequiredService<DataAutomationService>();
+        var (regions, anchor) = _vm.GetCalibrationSnapshot();
+
+        if (regions.Count == 0 && anchor == null)
+        {
+            _vm.StatusText = "Nothing to preview — no calibration set.";
+            return;
+        }
+
+        _vm.StatusText = "Capturing TradingView for preview...";
+        var snap = await service.PrepareCalibrationAsync();
+        if (snap == null)
+        {
+            _vm.StatusText = "Failed to capture TradingView for preview.";
+            return;
+        }
+
+        AvaloniaBitmap avSnap;
+        using (var ms = new MemoryStream())
+        {
+            snap.Image.Save(ms, ImageFormat.Png);
+            ms.Position = 0;
+            avSnap = new AvaloniaBitmap(ms);
+        }
+        snap.Image.Dispose();
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        int physW = snap.WindowRect.Width;
+        int physH = snap.WindowRect.Height;
+
+        double initialScale = owner?.RenderScaling ?? 1.0;
+        if (initialScale <= 0) initialScale = 1.0;
+
+        var preview = new CalibrationPreviewWindow(avSnap, regions, anchor)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Position = new PixelPoint(snap.WindowRect.X, snap.WindowRect.Y),
+            Width  = physW / initialScale,
+            Height = physH / initialScale
+        };
+
+        void FitToMonitor()
+        {
+            double s = preview.RenderScaling;
+            if (s <= 0) return;
+            preview.Width  = physW / s;
+            preview.Height = physH / s;
+            preview.RefreshLayout(s);
+        }
+
+        preview.ScalingChanged += (_, _) => FitToMonitor();
+        preview.Opened += (_, _) =>
+            Dispatcher.UIThread.Post(FitToMonitor, DispatcherPriority.Loaded);
+
+        if (owner != null) await preview.ShowDialog(owner);
+        else preview.Show();
+
+        _vm.StatusText = "Preview closed.";
+    }
+}
+
+public sealed class CalibrationPreviewWindow : Window
+{
+    private readonly Canvas _canvas;
+    private readonly AvaloniaBitmap _snapshot;
+    private readonly Dictionary<string, DrawingRect> _regions;
+    private readonly DrawingPoint? _anchor;
+
+    public CalibrationPreviewWindow(
+        AvaloniaBitmap snapshot,
+        Dictionary<string, DrawingRect> regions,
+        DrawingPoint? anchor)
+    {
+        _snapshot = snapshot;
+        _regions = regions;
+        _anchor = anchor;
+
+        SystemDecorations = SystemDecorations.None;
+        CanResize = false;
+        ShowInTaskbar = false;
+        Topmost = true;
+        Background = Brushes.Black;
+        Cursor = new Cursor(StandardCursorType.Hand);
+
+        var grid = new Grid();
+        grid.Children.Add(new Image { Source = snapshot, Stretch = Stretch.Fill });
+
+        _canvas = new Canvas();
+        grid.Children.Add(_canvas);
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = "Preview — press ESC or click anywhere to close.",
+            Foreground = Brushes.White,
+            Background = new SolidColorBrush(Color.FromArgb(0xA0, 0, 0, 0)),
+            Padding = new Thickness(12, 6),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 16, 0, 0),
+            FontSize = 14
+        });
+
+        Content = grid;
+
+        KeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+        PointerPressed += (_, _) => Close();
+    }
+
+    public void RefreshLayout(double scale)
+    {
+        _canvas.Children.Clear();
+
+        foreach (var (label, rect) in _regions)
+            DrawRegion(label, rect, scale);
+
+        if (_anchor is { } a)
+            DrawAnchor(a, scale);
+    }
+
+    private void DrawRegion(string label, DrawingRect rect, double scale)
+    {
+        double x = rect.X / scale;
+        double y = rect.Y / scale;
+        double w = rect.Width / scale;
+        double h = rect.Height / scale;
+
+        var box = new AvaloniaShapeRect
+        {
+            Width = w,
+            Height = h,
+            Stroke = Brushes.Lime,
+            StrokeThickness = 2,
+            Fill = new SolidColorBrush(Color.FromArgb(0x30, 0, 255, 0))
+        };
+        Canvas.SetLeft(box, x);
+        Canvas.SetTop(box, y);
+        _canvas.Children.Add(box);
+
+        var tag = new TextBlock
+        {
+            Text = label,
+            Foreground = Brushes.Black,
+            Background = Brushes.Lime,
+            FontWeight = FontWeight.Bold,
+            FontSize = 12,
+            Padding = new Thickness(4, 1)
+        };
+        Canvas.SetLeft(tag, x);
+        Canvas.SetTop(tag, Math.Max(0, y - 18));
+        _canvas.Children.Add(tag);
+    }
+
+    private void DrawAnchor(DrawingPoint p, double scale)
+    {
+        double x = p.X / scale;
+        double y = p.Y / scale;
+
+        var marker = new AvaloniaShapeRect
+        {
+            Width = 14,
+            Height = 14,
+            Stroke = Brushes.Cyan,
+            StrokeThickness = 2,
+            Fill = new SolidColorBrush(Color.FromArgb(0x50, 0, 255, 255))
+        };
+        Canvas.SetLeft(marker, x - 7);
+        Canvas.SetTop(marker, y - 7);
+        _canvas.Children.Add(marker);
+
+        var tag = new TextBlock
+        {
+            Text = "Anchor",
+            Foreground = Brushes.Black,
+            Background = Brushes.Cyan,
+            FontWeight = FontWeight.Bold,
+            FontSize = 12,
+            Padding = new Thickness(4, 1)
+        };
+        Canvas.SetLeft(tag, x + 12);
+        Canvas.SetTop(tag, y - 8);
+        _canvas.Children.Add(tag);
     }
 }
 
@@ -188,8 +366,8 @@ public sealed class CalibrationOverlayWindow : Window
         grid.Children.Add(new TextBlock
         {
             Text = mode == CalibrationMode.Region
-                ? "Drag to select OHLCV region.  ESC to cancel."
-                : "Click the chart focus point.  ESC to cancel.",
+                ? "Drag over the value (digits only).  ESC to cancel."
+                : "Click empty space to the right of the newest candle.  ESC to cancel.",
             Foreground = Brushes.White,
             Background = new SolidColorBrush(Color.FromArgb(0xA0, 0, 0, 0)),
             Padding = new Thickness(12, 6),
@@ -247,7 +425,7 @@ public sealed class CalibrationOverlayWindow : Window
         if (_mode == CalibrationMode.Point || !_dragging) return;
         _dragging = false;
 
-        if (_current.Width >= 10 && _current.Height >= 10)
+        if (_current.Width >= 5 && _current.Height >= 5)
             RegionResult = ((int)Math.Round(_current.X), (int)Math.Round(_current.Y),
                             (int)Math.Round(_current.Width), (int)Math.Round(_current.Height));
 

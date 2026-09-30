@@ -75,6 +75,7 @@ public partial class App : Application
 
         // Data Automation
         services.AddSingleton<DataAutomationService>();
+        services.AddSingleton<OcrWorkerClient>();
 
         services.AddTransient<MainViewModel>();
         services.AddTransient<ChartViewModel>();

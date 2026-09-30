@@ -5,4 +5,12 @@ data/cache
 logs/
 config/settings.json
 /data/shots
+/data/shots - Copy
+config/data_automation.json
+src/gui/DataAutomation/DataAutomationView.axaml
+data/parsed/
+scratch/O_vs_H
+scratch/datetime/
+scratch
+/scratch
 config/data_automation.json
