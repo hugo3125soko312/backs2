@@ -1,4 +1,3 @@
-// src/core/ConfigManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,12 +22,15 @@ public class AppSettings
     public string LogLevel { get; set; } = "Info";
 
     public List<string> QueuedDatasets { get; set; } = new();
+
+    // MT5 raw tick bridge
+    public string Mt5Host      { get; set; } = "127.0.0.1";
+    public int    Mt5Port      { get; set; } = 5555;
+    public int    Mt5TimeoutMs { get; set; } = 15000;
 }
 
 public class ConfigManager
 {
-    // Sentinels accepted in .env to mean "I don't have this key yet".
-    // Kept so a filled-out .env can be scanned visually at a glance.
     private static readonly string[] PlaceholderKeys = { "key", "placeholder", "todo", "xxx" };
 
     private readonly string _configPath = "config/settings.json";
@@ -132,6 +134,7 @@ public class ConfigManager
         Settings.ActiveAccountSize ??= "";
         Settings.LogLevel ??= "Info";
         Settings.QueuedDatasets ??= new List<string>();
+        Settings.Mt5Host ??= "127.0.0.1";
     }
 
     public void SaveConfig()

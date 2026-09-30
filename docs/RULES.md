@@ -1,4 +1,3 @@
-<!-- docs\RULES.md -->
 ONLY SPEAK IN ENGLISH
 
 # Development Rules
@@ -86,6 +85,21 @@ ONLY SPEAK IN ENGLISH
 - The view's code-behind owns the calibration overlay. Do not extract it to a standalone .axaml.
 - Do not commit config/data_automation.json.
 
+## MT5 Tick Bridge
+- Transport is raw TCP via BCL `System.Net.Sockets`. Never add ZeroMQ, NetMQ, or any other IPC dependency. One EA, one C# listener, localhost — the BCL covers it.
+- The MT5 EA is a TCP **client**. It connects out to a C# `TcpListener`. MQL5 does not implement `SocketBind`/`SocketListen`/`SocketAccept` — do not attempt to make the EA a server.
+- The EA has **no inputs**. Host, port, timeout, and `CopyTicks` cap are `#define` constants. Every fetch parameter (symbol, lookback, target, chunk size) is commanded from C#.
+- `Mt5TickService` and `Mt5TickServer` are registered as singletons in `App.axaml.cs`. `Mt5TickViewModel` is transient. Never register tick infrastructure as an `IDataProvider`.
+- `LogTag.Provider` is the tag for all MT5 logs. Do not add an MT5-specific tag.
+- `Mt5TickWriter` is the only file in `src/core/Writers/`. The folder exists for writers that do not fit the `CacheEnvelope<KlineCompact[]>` shape. Do not move `CacheManager` there.
+- MT5 side requires `127.0.0.1` whitelisted in **Tools → Options → Expert Advisors → Allow WebRequest for listed URL**. Do not skip this — the WebRequest list governs `SocketCreate`/`SocketConnect`.
+- The EA must be attached to a live chart in the main MT5 window. The Strategy Tester sandbox blocks network calls (`SocketCreate FAILED, error 4014`).
+- Symbol names are broker-specific. OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` on OANDA returns `error 4401`.
+- `CopyTicks` has a 2000-tick hard cap per call. Paginate via `next_from_msc`. Never increase the chunk size above 2000.
+- Default chunk size is 250. Larger values starve the progress bar and stall the UI on the trailing burst.
+- `Mt5TimeoutMs` must exceed the EA's worst-case serialization time. A 2000-tick response takes ~5 s on MQL5's O(n²) string concatenation. Default is 15000.
+- `data/ticks/` is git-ignored. Never commit fetched tick CSVs.
+
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:
 
@@ -95,7 +109,7 @@ When a phase is completed, ship a commit with the message format:
     - <bullet 2>
 
 Types: feat, fix, perf, docs, refactor, chore, wip.
-Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue.
+Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue, mt5, writers.
 
 Summary: one line, imperative mood, no trailing period. Under 72 characters.
 

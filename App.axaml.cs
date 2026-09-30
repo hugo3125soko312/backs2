@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using backs2.Core;
 using backs2.Core.Accounts;
 using backs2.Core.DataAutomation;
+using backs2.Core.MT5;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 using backs2.ViewModels;
@@ -36,6 +37,18 @@ public partial class App : Application
         var cfg = Services.GetRequiredService<ConfigManager>();
         LogManager.SetMinimumLevel(cfg.Settings.LogLevel);
         LogManager.Info(LogTag.App, $"Log level set to {cfg.Settings.LogLevel}");
+
+        // Start the MT5 TCP listener before any view is constructed,
+        // so the EA can connect as soon as the window appears.
+        try
+        {
+            var mt5Server = Services.GetRequiredService<Mt5TickServer>();
+            mt5Server.Start();
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.App, "Failed to start MT5 tick server", ex);
+        }
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -77,6 +90,10 @@ public partial class App : Application
         services.AddSingleton<DataAutomationService>();
         services.AddSingleton<OcrWorkerClient>();
 
+        // MT5 raw tick data
+        services.AddSingleton<Mt5TickServer>();
+        services.AddSingleton<Mt5TickService>();
+
         services.AddTransient<MainViewModel>();
         services.AddTransient<ChartViewModel>();
         services.AddTransient<DataViewModel>();
@@ -89,6 +106,7 @@ public partial class App : Application
         services.AddTransient<ConfigViewModel>();
         services.AddTransient<ProvidersViewModel>();
         services.AddTransient<DataAutomationViewModel>();
+        services.AddTransient<Mt5TickViewModel>();
 
         services.AddHttpClient("ResilientClient")
             .AddStandardResilienceHandler(options =>

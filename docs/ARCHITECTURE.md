@@ -4,7 +4,7 @@
 ## 1. Core Services & Dependency Injection
 - DI Container: Microsoft.Extensions.DependencyInjection, managed in App.axaml.cs.
 - Service Lifecycle:
-    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager.
+    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager, Mt5TickServer, Mt5TickService.
     - Transients/Keyed: IDataProvider implementations (resolved via GetRequiredKeyedService).
 - Enforcement: No static global variables. All dependencies resolved via constructor injection.
 
@@ -132,6 +132,8 @@
 - Metrics — metric catalog browser.
 - Accounts — prop-firm rule browser and active selection.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
+- Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
+- MT5 Ticks — raw tick streaming from MetaTrader 5. See §19.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
@@ -142,10 +144,10 @@
 - LogManager is a **static class** in `src/core/LogManager.cs`. It is the sole static in the codebase, and the only exception to the "no static globals" rule — it must initialize before the DI container exists.
 - Bootstrap: `Program.Main` calls `LogManager.Initialize()` before `BuildAvaloniaApp().StartWithClassicDesktopLifetime(...)`. The log file is open and writable before any Avalonia XAML loads.
 - Crash safety: the entire `Main` body is wrapped in try/catch. Any exception at process level is written to the log with the `[App]` tag, then rethrown so the process exits non-zero.
-- Tag enum `LogTag`: `App`, `Cache`, `Data`, `Provider`, `Strategy`, `Runner`, `Account`, `MonteCarlo`, `Overview`, `Chart`, `Config`, `Metric`. Providers use a single `Provider` tag; the provider name is embedded in the message.
+- Tag enum `LogTag`: `App`, `Cache`, `Data`, `Provider`, `Strategy`, `Runner`, `Account`, `MonteCarlo`, `Overview`, `Chart`, `Config`, `Metric`. Providers use a single `Provider` tag; the provider name is embedded in the message. MT5 tick data also logs under `Provider`.
 - Severity levels:
   - `Info` — main flow. Service started, strategy executed, cache saved, account activated, provider returned data.
-  - `Debug` — troubleshooting. RAM hit/miss, per-attempt traces, compile cache hits, firm expansion counts, provider discovery.
+  - `Debug` — troubleshooting. RAM hit/miss, per-attempt traces, compile cache hits, firm expansion counts, provider discovery, MT5 wire traffic.
   - `Warn` — recoverable abnormal. Provider fallback triggered, cache miss on a file that should have existed, stale settings entry.
   - `Error` — exception or failure. Always carries the `Exception` object when available.
 - No filtering. Every log line goes to the ring buffer and the file, regardless of level. `SetMinimumLevel` is a no-op kept for API compatibility.
@@ -331,7 +333,7 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 - Location:
   - Core: `src/core/DataAutomation/` — `ExtractionCore.cs` (window detection, input, capture, calibration, orchestrator), `ParsingCore.cs` (OCR parsing pipeline), `BatchedOcrRecognizer.cs` (ONNX Runtime wrapper), `OcrWorkerHost.cs` / `OcrWorkerClient.cs` (out-of-process worker), `AnalysisService.cs` (parsed-file diagnostics).
   - GUI: `src/gui/DataAutomation/DataAutomationView.axaml`, `.axaml.cs`, `DataAutomationViewModel.cs`.
-- Tab position: `MainWindow.axaml` places Data Automation between Data and Providers.
+- Tab position: `MainWindow.axaml` places Data Automation between Data and MT5 Ticks.
 
 ### Extraction subtab
 
@@ -363,30 +365,50 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 public sealed record AutomationParameters(
     string Symbol, string Timeframe, int StepCount, int DelayMs,
     Dictionary<string, Rectangle> ValueRegions, int ClickX, int ClickY);
-```
 
-### Parsing subtab
 
-- `BatchedOcrRecognizer` — ONNX Runtime wrapper. Loads `models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx` and `ppocrv5_latin_dict.txt`. Appends the CUDA execution provider when `UseGpu` is true; falls back to CPU otherwise. `RecognizeBatch(SKBitmap?[])` issues one inference call per field-batch; nulls in the input array are treated as blank.
-- `ShotParsingService.ParseAsync(ParseRequest, IProgress, CancellationToken)`:
-  - Enumerates step indices by globbing `data/shots/{symbol}_{timeframe}_*_O.png` and sorting numerically.
-  - Batches up to 64 steps at a time. Each batch issues seven `RecognizeBatch` calls (DATE, TIME, O, H, L, C, V).
-  - Retry pass: every crop that came back blank is padded 2 px, upscaled 2×, and re-OCR'd. Recovered texts replace the blanks.
-  - Timestamp derivation: for each step, if DATE+TIME parsed and the candidate is strictly before the previous timestamp within a 30-day window, use it; otherwise step back one timeframe interval from the previous timestamp.
-  - Field parsing: regex `([\d,]+\.?\d*)\s*([KMB]?)`. Volume with a K/M/B suffix is scaled; a bare volume in `[1, 1000)` is multiplied by 1000 if the result clears the 100 floor.
-  - O-recovery: when O misses but H and L parse, set O to `clamp(lastParsedClose ?? (H+L)/2, L, H)`.
-  - Rejects: OHLC sanity (H ≥ L, O/C within `[L, H]`, positive prices, intra-bar range ≤ 5% of H), volume floor ≥ 100.
-  - Output: `data/parsed/{symbol}_{timeframe}_{n}.json`, `n` chosen as the first unused integer. Flat list of `{T, O, H, L, C, V}` — same field names as KlineCompact. Reversed to ascending time order before serialization.
-  - Misses: step indices that failed any reject are written to `data/parsed/{symbol}_{timeframe}_misses.txt` (one per line, ascending). File is deleted when there are zero misses.
-- `OcrWorkerHost` / `OcrWorkerClient` — parsing runs out-of-process so a native ONNX Runtime crash cannot take down the GUI. The client marshals `ParseRequest`, progress reports, and the `ParseResult` over an anonymous pipe.
+## 19. MT5 Tick Data
 
-### Analysis subtab
-
-- `AnalysisService.AnalyzeAsync(path, timezoneOffset, sessionClosedHours, skipWeekend, ct)`:
-  - Loads `List<Bar>` (same shape as parsed JSON: `{T, O, H, L, C, V}`) and sorts ascending by `T`.
-  - Infers the expected bar interval from the most common gap (rounded to 2 decimals).
-  - Classifies expected closures (Session / Weekend / Holiday?) and flags everything else as a `TimeUnexpected` problem.
-  - Flags `PriceGap` when `|O - prevC| / prevC > 1%`.
-  - Flags `VolumeSpike` when a bar's volume exceeds 5× the trailing-20 mean.
-  - Returns a text report (summary, category counts, first 30 problems, closure breakdown) rendered in the Analysis subtab's read-only TextBox.
-- Supersedes the standalone `docs/analyze-parsed.ps1`, which is deleted. Do not resurrect it.
+- Purpose: fetch raw `MqlTick` records from a running MetaTrader 5 terminal over a local TCP bridge. Separate from `IDataProvider` — the shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit the Kline-centric provider contract.
+- Topology (inverted from a typical server-client setup because MQL5 sockets are client-only):
+  - **C# side is the TCP server.** `Mt5TickServer` (singleton) owns a `TcpListener` on `127.0.0.1:{Mt5Port}` and accepts exactly one EA connection at a time.
+  - **MT5 side is the TCP client.** `docs/Backs2TickBridge.mq5` (v1.06) is an Expert Advisor that connects out to backs2's listener on `OnInit`, and retries every 3 s if the socket drops.
+- **Protocol**: newline-delimited JSON over TCP. Every request carries a monotonically increasing `id`; the EA echoes it back in the response so responses are matched to request waiters via a `ConcurrentDictionary<int, TaskCompletionSource<string>>`.
+  - Request: `{"id":N,"action":"PING"}` / `{"id":N,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":0,"count":250}` / `{"id":N,"action":"GET_TERMINAL_INFO"}`.
+  - Response: `{"id":N,"status":"OK",...}` on success, `{"id":N,"status":"ERROR","message":"..."}` on failure.
+- Core types (`src/core/MT5/`):
+  - `Mt5Tick` — readonly record struct. `TimeMsc`, `Bid`, `Ask`, `Last`, `Volume`, `VolumeReal`, `Flags`. Computed `Timestamp` and `FlagsDisplay` (decodes the MQL5 flag bitmask: Bid=2, Ask=4, Last=8, Vol=16, Buy=32, Sell=64).
+  - `Mt5TerminalInfo` — `Company`, `Account`, `Server`, `Currency`, `Leverage`, `ServerTimeUtc`.
+  - `Mt5PingResult` — `Success`, `LatencyMs`, `Error`.
+  - `Mt5FetchProgress` — `Fetched`, `Total`, `Phase`, `NewTicks`. `NewTicks` carries each batch so the ViewModel can stream rows into the DataGrid.
+- `Mt5TickServer` (`src/core/MT5/Mt5TickServer.cs`):
+  - `Start()` opens the listener on `AppSettings.Mt5Host : AppSettings.Mt5Port`. Called once from `App.OnFrameworkInitializationCompleted`.
+  - `Stop()` cancels the accept loop, closes the listener and client. Called by `Dispose`.
+  - `SendRequestAsync(action, extraJson, timeoutMs, ct)` — allocates a request id, registers a `TaskCompletionSource`, writes the payload under a `SemaphoreSlim(1,1)` write lock, and awaits either the response or a timeout. Returns `null` on timeout or if no client is connected.
+  - Read loop accumulates bytes into a `StringBuilder`, splits on `\n`, and dispatches each JSON line to the waiter registered for its `id`. Responses without a matching waiter are logged and dropped (`no waiter for id=N, orphan response dropped`).
+- `Mt5TickService` (`src/core/MT5/Mt5TickService.cs`):
+  - `PingAsync(ct)` — round-trip latency.
+  - `FetchTicksAsync(symbol, fromMsc, targetTicks, chunkSize, progress, ct)` — paginates by chunk until `targetTicks` accumulated or the EA returns fewer than requested. Every iteration reports `Mt5FetchProgress` with the batch's `NewTicks` list. Trims `symbol` at the boundary — a stray leading space becomes an unknown symbol to `CopyTicks` and returns error 4401.
+  - `GetTerminalInfoAsync(ct)`.
+  - Never throws. Returns empty list / null on failure. Logs with `LogTag.Provider`. No new tag.
+- `Mt5TickWriter` (`src/core/Writers/Mt5TickWriter.cs`) — the only file in `src/core/Writers/`. The folder exists for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape used by every existing provider; `CacheManager` remains the writer for all Kline data. Writes flat CSV at `data/ticks/{symbol}_{yyyyMMdd-HHmmss}.csv`. Header: `time_msc,bid,ask,last,volume,volume_real,flags`. `data/ticks/` is git-ignored.
+- GUI (`src/gui/MT5/`):
+  - `Mt5TickView.axaml` — Grid with five rows: connection toolbar, fetch parameters, action buttons + progress, ticks DataGrid, terminal-info text block.
+  - `Mt5TickViewModel` — `Symbol`, `LookbackHours`, `TargetTicks`, `ChunkSize`, plus display state (`StatusText`, `IsConnected`, `LatencyMs`, `FetchProgress`, `TerminalInfoText`, `ConnectionInfoText`). `Ticks` is an `ObservableCollection<Mt5Tick>`; the progress callback appends each batch as it arrives.
+  - Commands: `PingCommand`, `FetchTicksCommand`, `StopCommand`, `GetTerminalInfoCommand`, `SaveCsvCommand`.
+- Tab position: `MainWindow.axaml` places MT5 Ticks between Data Automation and Providers.
+- Configuration (auto-rendered in the Config tab):
+  - `Mt5Host` (string, default `"127.0.0.1"`) — bridge host. Changing this also requires editing the `#define BRIDGE_HOST` in `docs/Backs2TickBridge.mq5`.
+  - `Mt5Port` (int, default `5555`) — same caveat; edit `#define BRIDGE_PORT` to match.
+  - `Mt5TimeoutMs` (int, default `15000`) — per-request timeout. Must exceed the EA's worst-case serialization time (~5 s for a 2000-tick batch).
+- MT5-side setup requirements:
+  - **Tools → Options → Expert Advisors** must have `Allow algorithmic trading` and `Allow DLL imports` checked, and `Allow WebRequest for listed URL` checked with **`127.0.0.1`** in the list. The WebRequest whitelist governs `SocketCreate`/`SocketConnect` — without the entry, the EA's socket calls fail.
+  - `Disable algorithmic trading when the account has been changed` and `...when the profile has been changed` should be unchecked on OANDA demo — the terminal auto-flips AlgoTrading off on every login when they are enabled.
+  - The EA must be attached to a **live chart** in the main MT5 window. The Strategy Tester sandbox blocks network calls (`SocketCreate FAILED, error 4014`).
+- Known constraints:
+  - **2000-tick cap** per `CopyTicks` call. Automatic pagination via `next_from_msc`.
+  - **First-call broker sync.** A cold symbol's first `CopyTicks` can block up to 45 s while the terminal downloads tick history from the trade server. Raise `Mt5TimeoutMs` to 60000 in the Config tab for the first fetch of a new symbol.
+  - **MQL5 string concatenation is O(n²).** A 2000-tick response serializes in ~5 s. Chunk size 250 keeps each round trip under ~600 ms and enables streaming progress.
+  - **Forex/metals ticks have empty `last`/`volume`/`volume_real`.** Bid/ask movement is the signal.
+  - **No DOM.** `SYMBOL_TICKS_BOOKDEPTH` is 0 for OTC forex CFDs. Order book is not implemented.
+  - **Symbol naming is broker-specific.** OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` returns `error 4401` (ERR_HISTORY_NOT_FOUND).

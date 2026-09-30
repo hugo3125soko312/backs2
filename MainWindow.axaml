@@ -33,6 +33,7 @@
             <TabItem Header="Accounts"><views:AccountView /></TabItem>
             <TabItem Header="Data"><views:DataView /></TabItem>
             <TabItem Header="Data Automation"><views:DataAutomationView /></TabItem>
+            <TabItem Header="MT5 Ticks"><views:Mt5TickView /></TabItem>
             <TabItem Header="Providers"><views:ProvidersView /></TabItem>
             <TabItem Header="Chart"><views:ChartView /></TabItem>
             <TabItem Header="Logs"><views:LogsView /></TabItem>

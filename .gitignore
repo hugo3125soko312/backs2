@@ -4,6 +4,7 @@
 data/cache
 logs/
 config/settings.json
+/data/ticks
 /data/shots
 /data/shots - Copy
 config/data_automation.json
@@ -13,4 +14,3 @@ scratch/O_vs_H
 scratch/datetime/
 scratch
 /scratch
-config/data_automation.json

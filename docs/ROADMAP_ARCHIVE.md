@@ -394,3 +394,95 @@ If any feature/phase isnt ticked as done, ignore it and take it as a ticked phas
 
 ### Deferred
 - OCR extraction of the shots into JSON. See ROADMAP.md Phase 11E.
+
+
+---
+
+## Phase 13: MetaTrader 5 Tick Bridge [COMPLETED]
+
+Ship date: 2026-09-30.
+
+Bridges raw MqlTick data from a running MetaTrader 5 terminal into backs2. **ZeroMQ was originally planned and then dropped** — MT5's native socket API plus a BCL `TcpListener` on the C# side covers the case with zero extra dependencies. The EA is a TCP **client** that connects out to backs2, because MQL5's socket API does not implement `SocketBind`/`SocketListen`/`SocketAccept` (server-side sockets are not supported by MT5).
+
+### Phase 13A -- MQL5 bridge script [COMPLETED]
+- `docs/Backs2TickBridge.mq5` — Expert Advisor (not a script). Version 1.06.
+- **No inputs.** Host, port, timeout, tick cap are all `#define` constants. Every fetch parameter is commanded from C#.
+- `OnInit` calls `SocketCreate` + `SocketConnect` to `127.0.0.1:5555` and installs a 200 ms timer.
+- `OnTimer` polls `SocketIsReadable`, accumulates bytes into a line buffer, splits on `\n`, dispatches each JSON request.
+- On disconnect, retries every 3 seconds in `OnTimer`.
+- Actions: `PING`, `GET_TICKS`, `GET_TERMINAL_INFO`. Unknown actions return `{"status":"ERROR","message":"Unknown action: X"}`.
+- `GET_TICKS` request: `{ "action":"GET_TICKS", "symbol":"GOLD.pro", "from_msc":1700000000000, "count":250 }`.
+- Response is wrapped with the request's `id` echoed back: `{ "id":N, "status":"OK", "count":250, "next_from_msc":<ms+1>, "ticks":[...] }`.
+- Tick fields serialized: `time_msc`, `bid`, `ask`, `last`, `volume`, `volume_real`, `flags`.
+- `CopyTicks` hard cap per call is 2000; EA clamps `count` to `COPYTICKS_CAP`.
+- Default window when `from_msc=0`: `TimeCurrent() - 86400` (last 24h).
+
+### Phase 13B -- Mt5TickServer + Mt5TickService [COMPLETED]
+- `src/core/MT5/Mt5Tick.cs`:
+  - `Mt5Tick` readonly record struct — `TimeMsc`, `Bid`, `Ask`, `Last`, `Volume`, `VolumeReal`, `Flags`. `Timestamp` computed property. `FlagsDisplay` decodes the MQL5 flag bitmask (Bid=2, Ask=4, Last=8, Vol=16, Buy=32, Sell=64).
+  - `Mt5TerminalInfo` record — `Company`, `Account`, `Server`, `Currency`, `Leverage`, `ServerTimeUtc`.
+  - `Mt5PingResult` record — `Success`, `LatencyMs`, `Error`.
+  - `Mt5FetchProgress` record — `Fetched`, `Total`, `Phase`, `NewTicks` (per-batch list for streaming UI updates).
+- `src/core/MT5/Mt5TickServer.cs` — singleton. Owns `TcpListener` on `127.0.0.1:{Mt5Port}`. One client at a time (the EA reconnects on drop). Requests are tagged with a monotonically increasing `id`; responses are matched back to `TaskCompletionSource` waiters via a `ConcurrentDictionary`. Write path is serialized with a `SemaphoreSlim(1,1)`.
+- `src/core/MT5/Mt5TickService.cs` — singleton. Public API:
+  - `Task<Mt5PingResult> PingAsync(ct)`.
+  - `Task<List<Mt5Tick>> FetchTicksAsync(string symbol, long fromMsc, int targetTicks, int chunkSize, IProgress<Mt5FetchProgress>?, ct)` — paginates by chunk until `targetTicks` is reached or the EA returns fewer than requested (broker ran out of history).
+  - `Task<Mt5TerminalInfo?> GetTerminalInfoAsync(ct)`.
+  - Trim is applied to `symbol` at the service boundary — a stray leading space becomes an unknown symbol to `CopyTicks` and returns error 4401.
+  - Never throws. Returns empty list / null on failure. Logs with `LogTag.Provider`.
+
+### Phase 13C -- Config + DI wiring [COMPLETED]
+- `AppSettings.Mt5Host` (string, default `"127.0.0.1"`).
+- `AppSettings.Mt5Port` (int, default `5555`).
+- `AppSettings.Mt5TimeoutMs` (int, default `15000`) — per-request timeout. The EA's JSON serialization can take ~5 s for a 2000-tick batch; a 3 s timeout caused responses to arrive after the waiter gave up.
+- All three auto-render in the Config tab via the reflection engine.
+- `App.axaml.cs` registers `Mt5TickServer` and `Mt5TickService` as singletons, and calls `mt5Server.Start()` in `OnFrameworkInitializationCompleted` inside a try/catch so a port-bind failure logs and continues.
+- `Mt5TickViewModel` registered as transient.
+- No `IDataProvider` registration — tick data does not fit the Kline-centric provider contract.
+- No new `LogTag` — MT5 uses `LogTag.Provider`.
+
+### Phase 13D -- MT5 Ticks tab [COMPLETED]
+- `src/gui/MT5/Mt5TickView.axaml`, `Mt5TickView.axaml.cs`, `Mt5TickViewModel.cs`.
+- Tab position in `MainWindow.axaml`: after Data Automation, before Providers.
+- Controls:
+  - **Row 0:** `Ping` button, connection info label (`Server listening on 127.0.0.1:5555`), status text.
+  - **Row 1:** Symbol TextBox, Lookback hours `NumericUpDown` (0-8760), Target ticks `NumericUpDown` (1-500000), Chunk size `NumericUpDown` (50-2000).
+  - **Row 2:** Fetch Ticks, Stop, Terminal Info, Save CSV buttons + ProgressBar + progress text.
+  - **Row 3:** `DataGrid` of ticks — Time (UTC), Bid, Ask, Last, Volume, Volume Real, Flags.
+  - **Row 4:** Terminal info read-only text block.
+- `Ticks` is an `ObservableCollection<Mt5Tick>`. The progress callback appends each batch as it arrives, so the grid fills incrementally instead of all at once at the end.
+- `LookbackHours <= 0` sends `from_msc=0` to the EA, triggering its 24h default window. Positive values compute an explicit `from_msc = now - hours*3600*1000`.
+- `ChunkSize` default is 250 (not 2000) — smooth progress at ~20 updates per 5000-tick fetch. Larger chunks make the progress bar meaningless and the grid pops in one shot.
+
+### Phase 13E -- Mt5TickWriter (CSV) [COMPLETED]
+- `src/core/Writers/Mt5TickWriter.cs` — the **only** file in the `Writers/` folder today.
+- The folder exists for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape used by every existing provider. `CacheManager` remains the writer for all Kline data.
+- `WriteAsync(symbol, ticks, outputDir?)` — flat CSV at `data/ticks/{symbol}_{yyyyMMdd-HHmmss}.csv`. Header: `time_msc,bid,ask,last,volume,volume_real,flags`.
+- `ReadAsync(path)` — inverse, used to reload for inspection.
+- `data/ticks/` is git-ignored (user-fetched data, same class as `logs/`).
+
+### Phase 13F -- Deployment guide [COMPLETED]
+- `docs/MT5_TICK_GUIDE.md` — setup walkthrough, protocol spec, known constraints.
+
+### Deployment requirements
+- MT5 → **Tools → Options → Expert Advisors**:
+  - `Allow algorithmic trading` — checked.
+  - `Allow DLL imports` — checked (native socket API does not require it, but some MT5 builds gate `SocketCreate` behind it anyway).
+  - `Allow WebRequest for listed URL` — checked, with **`127.0.0.1`** in the list. MQL5's socket API honors the WebRequest whitelist for outbound connections; without the entry, `SocketCreate`/`SocketConnect` fail.
+  - `Disable algorithmic trading when the account has been changed` — unchecked (the OANDA demo toggles this off automatically on every login).
+  - `Disable algorithmic trading when the profile has been changed` — unchecked.
+- The EA must be attached to a **live chart** in the main MT5 window. It cannot run in the Strategy Tester — the tester sandbox blocks all network calls (`SocketCreate FAILED, error 4014`).
+- Symbol naming is broker-specific. OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` returns `error 4401` (ERR_HISTORY_NOT_FOUND) on OANDA.
+
+### Known constraints
+- **2000-tick cap per `CopyTicks` call.** Automatic pagination via `next_from_msc`.
+- **First-call broker sync.** The first `CopyTicks` for a cold symbol can block up to 45 s while MT5 downloads history from the trade server. Raise `Mt5TimeoutMs` in the Config tab to 60000 if a first fetch times out.
+- **MQL5 string concatenation is O(n²).** A 2000-tick response serializes in ~5 s. Chunk size 250 keeps each batch under ~600 ms and enables streaming updates.
+- **Forex/metals ticks have empty `last`, `volume`, `volume_real`.** Bid/ask movement is the signal. `Last`, `Volume`, `VolumeReal` being zero is expected.
+- **No DOM.** `SYMBOL_TICKS_BOOKDEPTH` is 0 for OTC forex CFDs. Order book is not implemented and is not viable for retail forex.
+
+### Architecture decisions
+- **Raw TCP, not ZeroMQ.** One client, one server, localhost. `System.Net.Sockets` from the BCL covers it with zero NuGet dependencies. ZeroMQ's value (many publishers, complex routing, unreliable networks) does not apply here.
+- **EA is a client, C# is a server.** MQL5 sockets do not support server-side operations. This inverted topology is the only working pattern.
+- **Tick data is not an `IDataProvider`.** The shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit `List<Kline>`. `Mt5TickService` is a separate singleton consumed only by the MT5 Ticks tab.
+- **All fetch parameters come from C#.** The EA has no inputs. Everything from symbol to chunk size to lookback is commanded by the client.
