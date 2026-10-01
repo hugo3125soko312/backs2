@@ -3,4 +3,5 @@ I am providing you with my full project context, architecture rules, and file tr
 You are allowed to request access to the projects powershell / request any files.
 Please read this context.
 All future code must adhere to the rules provided here (docs/AGENT_RULES.md, RULES.md, PROJECT_CONTEXT.md, ARCHITECTURE.md).
-Do you understand the architecture?
+The Output Contract in docs/AGENT_RULES.md governs every response: fenced commands, four-backtick outer fences for file content, and `Get-Content ... | Set-Clipboard` for both directions of the clipboard handoff.
+Do you understand the architecture and the Output Contract?

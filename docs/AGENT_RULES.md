@@ -18,6 +18,178 @@
 - Inside XAML templates, use Binding DataContext.Prop with RelativeSource AncestorType=UserControl. Do not use $parent[UserControl].((vm:Type)DataContext).Prop.
 - When a build error list contains a mix of real C# errors (CS####) and “Compiled binding path … is invalid” errors, treat the CS errors as the real cause. The binding errors are cascades from the compiler bailing on the first hard error. Fix the CS errors first, then re-evaluate.
 
+## Output Contract (applies to EVERY response)
+
+These rules govern how every response is rendered. They override any default
+formatting behavior. If any other rule conflicts with this section, this
+section wins.
+
+### 1. Shell commands are always fenced and always copy-ready
+- Any command the user is expected to run MUST be inside a fenced code block
+  tagged `powershell`. No exceptions, even for one-liners.
+- Never inline a command in prose with single backticks when the user may need
+  to run it. Inline backticks are for identifiers (class names, paths, symbols),
+  not for commands.
+- The block must be directly copy-pasteable: no `PS>` prompt, no leading `$`,
+  no line numbers, no trailing commentary on the same line.
+- Multiple commands go in one block, one per line, in execution order.
+
+### 2. File contents are always wrapped in an outer fence
+Your response is rendered as Markdown. If you emit a `.md`, `.cs`, `.axaml`,
+`.json`, `.ps1`, or any other text file inside a ``` fence, and that file
+itself contains ``` fences (or ~~~~ fences, or any run of 3+ backticks),
+the outer fence will close early and the message will render as a mess.
+
+Rule:
+- When emitting file content, ALWAYS wrap it in an OUTER fence of FOUR
+  backticks (````). Use three backticks only when the file provably contains
+  no backtick runs.
+- Tag the outer fence with the file's language as usual: ````csharp`,
+  ````markdown`, ````powershell`, ````xml`.
+- Never nest a fenced block inside another fenced block. If the file content
+  itself needs to show a fence, increase the outer fence length by one
+  (five backticks, etc.).
+- One file per block. Do not concatenate multiple files into a single block.
+- Before emitting a block, scan the file content for the sequence ``` or
+  ~~~. If present, escalate the outer fence length.
+
+### 3. The clipboard handoff is bidirectional
+There are two directions. They use different commands. Do not confuse them.
+
+**(a) You need files FROM the user.** (Covered in "Requesting Files from the
+User" — repeated here for emphasis.) Emit exactly one line:
+
+    Get-Content path\to\file1.cs, path\to\file2.axaml | Set-Clipboard
+
+**(b) The user asks YOU for a file's contents.** ("show me X.cs", "what's in
+RULES.md", "give me the current App.axaml") Emit exactly one line:
+
+    Get-Content path\to\file.cs -Raw | Set-Clipboard
+
+…and stop. Do not print the file contents. Do not narrate. The `-Raw` flag
+preserves newlines; the pipe delivers the file to the user's clipboard so
+they can paste it back to you on the next turn.
+
+Never emit bare `Get-Content path\to\file.cs` as a response to "show me X".
+That prints to the terminal, which is not the handoff the user wants.
+
+### 4. Escalation to a stronger reasoning LLM (planning tasks)
+backs2 uses two LLMs. DeepSeek handles implementation, refactoring, and
+routine reasoning. Gemini handles thinking/planning tasks: architecture
+trade-offs, algorithm design, concurrency correctness, math-heavy
+derivations, and anything where the answer is a plan rather than code.
+
+This is a division of labor, not a failure mode. Escalating is the
+correct behavior when the task belongs to the planner, not when you
+have "failed."
+
+If you (DeepSeek) assess that the current task is a planning task rather
+than an implementation task, do NOT guess, do NOT produce a partial draft
+"just in case", and do NOT hedge. Escalate to Gemini.
+
+If the user names a different target in the current turn, use that name
+instead of Gemini.
+
+Triggers for escalation (any one is sufficient):
+- The problem requires reasoning depth you are not confident about
+  (novel algorithms, concurrency correctness, math-heavy derivations,
+  subtle architecture trade-offs with non-obvious second-order effects).
+- Two or more plausible solutions exist and you cannot defensibly rank them.
+- The task requires holding a large cross-cutting change in your head at
+  once and you would be guessing at interactions.
+- The answer the user needs is a plan, a decision, or a design — not code.
+- You catch yourself about to write "I think", "probably", "roughly", or
+  "this should work" as the load-bearing claim.
+
+Do NOT escalate when:
+- The problem is answerable from the bundled docs, from project rules, or
+  from standard .NET / Avalonia / C# knowledge.
+- You are missing a file. Use §3(a) (the clipboard request command) instead.
+- The task is routine implementation, refactoring, or bug-fixing.
+- The task is implementation, even if it is large. Large ≠ planning.
+- You are only uncertain about style or naming. Pick the convention already
+  used elsewhere in the repo and move on.
+
+How to escalate:
+
+1. One or two sentences explaining to the user WHY you are escalating.
+   No hedging, no apologies, no self-deprecation. State the specific reason.
+   (This is the one exception to "never narrate in prose" — escalation
+   always gets a one-sentence reason.)
+
+2. Emit the exact prompt for the stronger LLM inside an outer fence of
+   FOUR backticks, tagged `markdown`. The extra length matters: the
+   escalation prompt will usually itself contain fenced code blocks,
+   file paths, or snippets, and they must survive the outer fence.
+   Follow the §2 rules for fence length escalation.
+
+3. The escalation prompt you write MUST be self-contained. The receiving
+   LLM has no access to this conversation, no access to the bundle, no
+   access to the repo, and no memory of prior turns. Include:
+     - The goal, stated in one sentence.
+     - Every constraint and rule that applies (quote them from the docs,
+       do not paraphrase).
+     - Every relevant file path and interface signature.
+     - Prior decisions already made in this conversation, if any.
+     - The exact shape of the answer you need back (a plan? a code
+       block? a decision between N options?).
+   If the problem needs repo context the receiving LLM does not have,
+   tell the user to prepend the bundle by running .\docs\pack.ps1 and
+   pasting it before the escalation prompt.
+
+4. After the closing fence, emit exactly one line, on its own:
+
+       Awaiting response from <LLM name>. Paste it back and I'll continue.
+
+5. Stop. Do not continue working. Do not pre-empt the answer. Do not
+   produce a "meanwhile, here's a draft" section. The turn ends with the
+   awaiting line.
+
+When the user pastes the stronger LLM's response back:
+- Treat it as authoritative for the specific question you escalated.
+- Do not second-guess it in prose. If you believe it is wrong, say so
+  in one sentence and re-escalate with the new evidence.
+- Continue the original task from where you paused.
+
+### 5. Context refresh / re-orientation
+When the user starts a fresh chat and re-pastes the bundle (via
+.\docs\pack.ps1) with a "continue where we left off" instruction, the
+new chat has the docs but NOT the working state. Do not guess at what
+was in flight. Request it.
+
+Emit exactly one line (per §3a) asking for the working state:
+
+    git status --short; git log --oneline -5; git diff --stat | Set-Clipboard
+
+Wait for the user to paste the output back. Read it and then:
+- State in one or two sentences what you now understand the in-flight
+  work to be (uncommitted changes, last commit, branch state).
+- Ask the user to confirm before proceeding, OR ask for the one or two
+  files that the diff touches, per §3a.
+
+Do NOT:
+- Assume the working tree is clean.
+- Assume the last commit is where the user wants to continue.
+- Start editing files before you have the working state.
+
+Note: this is a clipboard handoff in the §3a direction, not §3b. The
+user is supplying the working state to you, not the other way around.
+
+### 6. Pre-send self-check
+Before sending any response, verify:
+- [ ] Every command the user might run is inside a ```powershell block.
+- [ ] Every embedded file is inside an outer ```` block (or longer).
+- [ ] No fenced block contains a fence of equal or greater length.
+- [ ] Every "give me file X" request is a `| Set-Clipboard` command, not a
+      bare `Get-Content` and not prose.
+- [ ] No thinking, rationale, or caveats are inside a file-content block.
+- [ ] If this is a fresh chat and the user said "continue where we left
+      off", you requested the working state via §5 before doing anything.
+- [ ] If escalating, the escalation prompt is inside an outer four-backtick
+      block and the turn ends with the "Awaiting response from..." line.
+- [ ] If uncertain but NOT escalating, you stated your confidence level
+      explicitly instead of guessing silently.
+
 ## Completion Protocol (applies to EVERY unit of work)
 This protocol fires whenever ANY of the following is completed:
 - A phase or sub-phase in docs/ROADMAP.md.
