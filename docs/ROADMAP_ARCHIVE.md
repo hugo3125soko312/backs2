@@ -532,3 +532,57 @@ Raised MT5 tick fetch throughput from ~2,300 t/s to ~16,000 t/s — a ~7× impro
 - **`CopyTicks` is the wall.** ~50 µs/tick warm, terminal-internal, not controllable from the C# side.
 - Prewarm cost is one extra round trip (~100–120 ms) on the first fetch per symbol per process. Subsequent fetches pay nothing.
 - First-call cold-symbol 45 s broker sync remains (Phase 13, unchanged).
+
+## Phase 14: MT5 Fetch Optimization & UX [COMPLETED]
+
+Ship date: 2026-10-01.
+
+Raised MT5 tick fetch throughput from ~2,300 t/s to ~16,000 t/s sustained, and eliminated the inclusive-boundary correctness bugs that had been silently dropping and duplicating ticks at every batch seam. Final verification: `VerifyTickRangeExact` returns a count byte-identical to the fetch, over 48 boundaries and ~960,000 ticks.
+
+### Phase 14A -- Progress UX & ETA stream [COMPLETED]
+- `Mt5FetchProgress` extended: `Percent`, `TicksPerSecond`, `EtaSeconds`, `CurrentChunk`, `TotalChunks` (all defaulted, so existing positional call sites stay source-compatible).
+- `Mt5TickService.FetchTicksAsync` maintains a 5-chunk rolling window `Queue<(ElapsedMs, Ticks)>` over the fetch. Throughput = Δticks / Δms; ETA = remaining / throughput.
+- `Mt5TickView.axaml` shows bar + `Fetched/Total` + `N t/s` + `ETA Xm` side by side.
+
+### Phase 14B -- UI thread decoupling & bulk render [COMPLETED]
+- New `RangeObservableCollection<T>` at `src/gui/MT5/RangeObservableCollection.cs`. `AddRange` writes to the backing `Items` list, then raises one `NotifyCollectionChangedAction.Reset`. Replaces N per-item `CollectionChanged` events with one.
+- `Mt5TickViewModel.Ticks` is now `RangeObservableCollection<Mt5Tick>`.
+
+### Phase 14C -- MQL5 serialization overhaul [COMPLETED]
+- `Backs2TickBridge.mq5` v1.08 → v1.09.
+- Byte-buffer serialization replaces MQL5 string concatenation. `AppendStr(uchar &dest[], int &pos, string s)` writes ASCII chars into a pre-sized `uchar[]` byte buffer. `SocketSend` takes the buffer directly.
+- Performance: `ea_ser` dropped from **39,915 ms → 13.8 ms** for a 20,000-tick batch (~2900×).
+
+### Phase 14D -- CSV streaming [COMPLETED]
+- New `Mt5TickStreamWriter` class in `src/core/Writers/Mt5TickWriter.cs`. `OpenAsync` → `AppendAsync` per batch → `CompleteAsync`. `StreamWriter` over a 64 KB async `FileStream`, `AutoFlush=false`.
+- `Mt5TickViewModel.FetchTicks` wires `onBatch` to a bounded `Channel<IReadOnlyList<Mt5Tick>>` (capacity 64), drains it in a background `Task`. The socket read loop never awaits disk I/O.
+- `Mt5TickService.FetchTicksAsync` gained an `onBatch` parameter (`Func<IReadOnlyList<Mt5Tick>, Task>?`) that is awaited inside the loop — deliberate backpressure.
+
+### Phase 14E -- EA-side batching + PREWARM [COMPLETED]
+- EA v1.10 accepts `count` up to `MAX_REQUEST_TICKS=50000`. Internally loops `CopyTicks` in 2000-tick slices, chaining via `next_from_msc` inside EA RAM.
+- New `PREWARM` action: a small (500-tick) `CopyTicks` call before the real fetch. First `CopyTicks` per symbol costs ~2× warm (tick-DB page-in). Prewarm makes iter #1 run at warm speed.
+- `Mt5TickService.PrewarmAsync` — idempotent per symbol per process via `HashSet<string> _warmedSymbols`.
+- Default batch size raised from 250 (v1.07) to **20000** (v1.10).
+- `perf_copy_us` and `perf_ser_us` returned by the EA in every `GET_TICKS` response.
+
+### Phase 14F -- Inclusive-cursor boundary correctness [COMPLETED]
+- **Bug 1 (v1.09/1.10):** The EA sent `next_from_msc = lastMsc + 1`. `CopyTicks` treats `from_msc` as inclusive, so `+1` skipped every tick that shared a millisecond with the previous batch's tail. Measured: 344 missing ticks in a 959,628-tick fetch.
+- **Bug 2 (v1.11):** The naive fix — remove `+1` and drop one leading duplicate on the C# side — was too aggressive. Multiple ticks often share a millisecond at batch boundaries (~2 per boundary on OANDA `GOLD.pro`), so dropping exactly one left K-1 duplicates per seam. Measured: +914 extra ticks over ground truth.
+- **Final fix (v1.12, current):**
+  - EA sends `next_from_msc = lastMsc` (inclusive). Its internal `CopyTicks` loop skips exactly `lastTimeTrailing` leading ticks on each subsequent slice, where `lastTimeTrailing` is the count of consecutive same-`time_msc` ticks at the tail of the previous slice. This makes the internal EA-side batching correct too.
+  - C# `FetchTicksAsync` tracks `_lastEmittedTimeMsc` and `_lastEmittedTrailing` (post-dedupe), and drops exactly that many leading ticks from each batch after the first.
+  - The broker-ran-out-of-history exit check now uses the **raw** count from the EA (before C# dedupe), not the deduped count. Comparing the deduped count against the requested size was falsely tripping on every batch after the first.
+  - Log line now shows `kept N of M | ... dedupe=K (cumulative X, total-deduped Y)` so duplicates are visible in-line.
+- **Verified:** `VerifyTickRangeExact` returns **960,958** for a fetch that returned **960,958**. Byte-exact. `96 boundary dupes dropped` across 48 boundaries (2 per seam).
+
+### Measured results
+- Serialization: 39,915 ms → 13.8 ms for 20,000 ticks (~2900×).
+- `ea_copy` warm: ~35–60 µs/tick (terminal's `CopyTicks` floor, varies with DB temperature and concurrent load).
+- `ea_copy` hot (4096-tick fast cache): ~0.03–0.05 µs/tick — up to 1500× faster on the tail.
+- End-to-end: 50,000 ticks in ~3.1 s wall = ~16,000 t/s sustained. Ceiling is ~20,000 t/s (cold `CopyTicks`-bound).
+
+### Known remaining constraints
+- **`CopyTicks` is the wall.** ~35–60 µs/tick warm, terminal-internal, not controllable from the C# side.
+- **MT5 keeps a 4,096-tick fast access cache per symbol.** Requests landing inside it run at ~0.03 µs/tick. The cache fills only from live tick flow, not from historical reads — backfilling a fresh symbol never fills it. Live-tail fetches (≤4096 ticks from `now`) hit it every time.
+- Prewarm cost is one extra round trip (~100–120 ms warm, up to ~1 s cold) on the first fetch per symbol per process.
+- First-call cold-symbol 45 s broker sync remains (Phase 13, unchanged).

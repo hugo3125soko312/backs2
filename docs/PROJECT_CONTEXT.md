@@ -41,7 +41,7 @@
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe.
     - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
     - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE §18.
-    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.10) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
+    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.12) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, FINNHUB_API_KEY, FCS_PUBLIC_API_KEY.
@@ -78,13 +78,14 @@
     - All MT5 fetch parameters (symbol, lookback, target, chunk/batch size) come from C#. The EA has no inputs — host/port/timeout/cap are `#define` constants. Edit both sides if the port changes.
     - MT5 must whitelist `127.0.0.1` in Tools → Options → Expert Advisors → "Allow WebRequest for listed URL". The WebRequest list governs `SocketCreate`/`SocketConnect`. Do not skip this.
     - MT5 EA serialization must use the `uchar[]` byte-buffer path. Never use MQL5 `string` concat (`+=` or `StringAdd`) on the hot path — both reallocate on every append and are O(N²).
+    - MT5 `CopyTicks` `from_msc` is inclusive. Never send `next_from_msc = lastMsc + 1` — it drops same-ms ticks at every seam. Send `next_from_msc = lastMsc` and dedupe the trailing same-ms count on the next slice (see ARCHITECTURE §19).
     - MT5 prewarm is per-symbol per-process. `Mt5TickService.PrewarmAsync` is idempotent via `HashSet<string> _warmedSymbols`. Do not bypass it — first `CopyTicks` per symbol costs ~2× warm.
     - MT5 `onBatch` is awaited inside the fetch loop. Do not change it to a fire-and-forget write — the deliberate backpressure is what bounds memory.
     - `data/ticks/` is git-ignored (user-fetched data, same class as logs/).
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/, data_automation.json).
     - `data/`: engine-managed (cache/, strategies/, accounts/, shots/, parsed/, ticks/).
-    - `docs/`: documentation plus the MQL5 bridge source (`docs/Backs2TickBridge.mq5`).
+    - `docs/`: documentation plus the MQL5 bridge source (`docs/Backs2TickBridge.mq5`) and the tick-range verifier (`docs/VerifyTickRangeExact.mq5`).
 - Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), MT5 Ticks, Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).

@@ -7,7 +7,7 @@
 //|  sides if you change the port.                                    |
 //+------------------------------------------------------------------+
 #property copyright "backs2"
-#property version   "1.10"
+#property version   "1.12"
 #property description "Connects to the backs2 C# server and serves raw MqlTick data"
 #property strict
 
@@ -27,7 +27,7 @@ bool   g_timerLogged = false;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print(">>> Backs2TickBridge v1.10: OnInit ENTRY");
+   Print(">>> Backs2TickBridge v1.12: OnInit ENTRY");
    if(!ConnectToServer())
       Print(">>> Backs2TickBridge: initial connection failed, will retry in OnTimer");
    else
@@ -142,10 +142,6 @@ void ProcessRequest(string json)
 // append — measured O(N²): 20k ticks took 40 s. Writing into a
 // pre-sized byte buffer and SocketSend'ing it directly is O(N):
 // the same 20k ticks serialize in ~14 ms.
-//
-// AppendStr assumes the input is pure ASCII. Our JSON output is:
-// digits, '.', '-', '"', '{', '}', '[', ']', ',', ':', letters in
-// fixed JSON keys. No non-ASCII ever reaches the wire from this EA.
 //+------------------------------------------------------------------+
 void AppendStr(uchar &dest[], int &pos, string s)
 {
@@ -159,15 +155,6 @@ void AppendStr(uchar &dest[], int &pos, string s)
       dest[pos++] = (uchar)StringGetCharacter(s, i);
 }
 
-//+------------------------------------------------------------------+
-// Prewarm (v1.10):
-//   First CopyTicks call for a symbol costs ~2× the warm time
-//   (page-in of the tick DB in the terminal, or MQL5 array-pool
-//   warmup). We pay it once with a small throwaway call before the
-//   real fetch starts, so iter #1 runs at the warm per-tick rate.
-//
-//   C# gates this per-symbol per-session via a HashSet — this handler
-//   is only reached once per symbol per app run.
 //+------------------------------------------------------------------+
 void HandlePrewarm(string id, string json)
 {
@@ -204,6 +191,27 @@ void HandlePrewarm(string id, string json)
 }
 
 //+------------------------------------------------------------------+
+// v1.12: correct handling of ticks that share a millisecond at slice
+// boundaries.
+//
+// CopyTicks(from_msc, count) is INCLUSIVE: it returns ticks with
+// time_msc >= from_msc. That means after a slice that ends with K
+// ticks at time T, the next CopyTicks(from=T) call re-emits ALL ticks
+// at time T — the K we already had, plus any that didn't fit in the
+// previous slice's count cap.
+//
+// v1.11 used cursor = lastMsc but dropped only the FIRST re-emitted
+// tick, leaving K-1 duplicates per boundary. Measured: 914 extra ticks
+// across 48 boundaries of a 962k-tick fetch (~19 dupes per boundary,
+// avg ~2 ticks per millisecond at boundary times).
+//
+// v1.12 tracks the trailing same-ms count on each slice and skips
+// exactly that many leading ticks on the next slice. Mathematical
+// property: if the DB has N ticks at time T, and slice K captured K0
+// of them (the first K0 in DB order), skipping K0 on slice K+1 gives
+// exactly N-K0 new ticks — total emitted across K and K+1 at time T
+// equals N. Correct.
+//+------------------------------------------------------------------+
 void HandleGetTicks(string id, string json)
 {
    string symbol  = JsonGetString(json, "symbol");
@@ -228,9 +236,11 @@ void HandleGetTicks(string id, string json)
    MqlTick collected[];
    ArrayResize(collected, want);
 
-   int    total       = 0;
-   ulong  perfCopyUs  = 0;
-   bool   endOfHist   = false;
+   int    total           = 0;
+   ulong  perfCopyUs      = 0;
+   bool   endOfHist       = false;
+   long   lastTimeMsc     = -1;
+   int    lastTimeTrailing = 0;
 
    while(total < want && !endOfHist)
    {
@@ -254,19 +264,52 @@ void HandleGetTicks(string id, string json)
          break;
       }
 
-      ArrayCopy(collected, temp, total, 0, copied);
-      total += copied;
-
-      if(copied < thisBatch)
+      // Skip the leading re-emission of the previous slice's same-ms tail.
+      int startIdx = 0;
+      if(lastTimeMsc >= 0 && lastTimeTrailing > 0)
       {
-         endOfHist = true;
-         break;
+         int skipped = 0;
+         while(startIdx < copied
+               && (long)temp[startIdx].time_msc == lastTimeMsc
+               && skipped < lastTimeTrailing)
+         {
+            startIdx++;
+            skipped++;
+         }
       }
 
-      cursor = (ulong)temp[copied - 1].time_msc + 1;
+      int newCount = copied - startIdx;
+      if(newCount <= 0)
+      {
+         // Entire slice was duplicate — advance past this millisecond.
+         cursor = (ulong)temp[copied - 1].time_msc + 1;
+         if(copied < thisBatch) { endOfHist = true; break; }
+         continue;
+      }
+
+      int take = newCount;
+      if(total + take > want) take = want - total;
+
+      ArrayCopy(collected, temp, total, startIdx, take);
+      total += take;
+
+      // Trailing same-ms count on the emitted portion of this slice.
+      long sliceLastTime = (long)temp[copied - 1].time_msc;
+      int sliceTrailing = 0;
+      for(int i = copied - 1; i >= startIdx; i--)
+      {
+         if((long)temp[i].time_msc == sliceLastTime) sliceTrailing++;
+         else break;
+      }
+      lastTimeMsc      = sliceLastTime;
+      lastTimeTrailing = sliceTrailing;
+
+      if(copied < thisBatch) { endOfHist = true; break; }
+
+      cursor = (ulong)temp[copied - 1].time_msc;
    }
 
-   long lastMsc = (total > 0) ? (long)collected[total - 1].time_msc : 0;
+   long lastEmittedTimeMsc = (total > 0) ? (long)collected[total - 1].time_msc : 0;
 
    int cap = total * 200 + 512;
    uchar buf[];
@@ -278,7 +321,7 @@ void HandleGetTicks(string id, string json)
    AppendStr(buf, pos, ",\"status\":\"OK\",\"count\":");
    AppendStr(buf, pos, IntegerToString(total));
    AppendStr(buf, pos, ",\"next_from_msc\":");
-   AppendStr(buf, pos, IntegerToString(lastMsc + 1));
+   AppendStr(buf, pos, IntegerToString(lastEmittedTimeMsc));
    AppendStr(buf, pos, ",\"perf_copy_us\":");
    AppendStr(buf, pos, IntegerToString((long)perfCopyUs));
    AppendStr(buf, pos, ",\"ticks\":[");

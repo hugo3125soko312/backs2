@@ -18,6 +18,20 @@ public class Mt5TickService
     private readonly HashSet<string> _warmedSymbols = new(StringComparer.Ordinal);
     private readonly object _warmedLock = new();
 
+    // Dedupe state across batches. The EA now uses an inclusive cursor
+    // (from_msc = last tick's time_msc) and internally skips leading
+    // duplicates, but the top-level boundary is still re-emitted by the
+    // EA — the first request of a new batch carries the previous batch's
+    // last-tick time, and the EA re-sends every tick at that ms.
+    //
+    // _lastEmittedTimeMsc — time_msc of the last tick emitted by the
+    //     previous batch.
+    // _lastEmittedTrailing — number of consecutive ticks at that same
+    //     time_msc at the tail of the previous batch (post-dedupe). This
+    //     is exactly how many leading ticks to drop from the next batch.
+    private long _lastEmittedTimeMsc = -1;
+    private int  _lastEmittedTrailing = 0;
+
     public Mt5TickService(ConfigManager config, Mt5TickServer server)
     {
         _config = config;
@@ -51,12 +65,6 @@ public class Mt5TickService
         }
     }
 
-    /// <summary>
-    /// Fires a single small CopyTicks call to page in the symbol's tick DB
-    /// before the real fetch. Idempotent per-symbol per-process. Never throws,
-    /// never blocks for more than Mt5TimeoutMs, and is safe to call before
-    /// every fetch — subsequent calls short-circuit on the HashSet.
-    /// </summary>
     public async Task PrewarmAsync(string symbol, long fromMsc, CancellationToken ct)
     {
         string key = symbol?.Trim() ?? "";
@@ -134,6 +142,9 @@ public class Mt5TickService
             Percent: 0));
         await PrewarmAsync(symbol, fromMsc, ct);
 
+        _lastEmittedTimeMsc = -1;
+        _lastEmittedTrailing = 0;
+
         var result = new List<Mt5Tick>(Math.Min(targetTicks, 500_000));
         long cursor = fromMsc;
         int remaining = targetTicks;
@@ -141,6 +152,7 @@ public class Mt5TickService
         int totalChunks = targetTicks > 0
             ? (targetTicks + chunkSize - 1) / chunkSize
             : 0;
+        int totalDeduped = 0;
 
         const int WindowSize = 5;
         var window = new Queue<(long ElapsedMs, int Ticks)>(WindowSize);
@@ -173,6 +185,8 @@ public class Mt5TickService
                 long batchMs = 0;
                 long eaCopyUs = 0;
                 long eaSerUs = 0;
+                int rawBatchCount = 0;
+                int dedupedThisBatch = 0;
 
                 var parseSw = Stopwatch.StartNew();
                 var batchTicks = new List<Mt5Tick>(batchSize);
@@ -211,6 +225,49 @@ public class Mt5TickService
                 parseSw.Stop();
                 parseMs = parseSw.ElapsedMilliseconds;
 
+                rawBatchCount = batchTicks.Count;
+
+                // Drop leading re-emissions of the previous batch's same-ms
+                // tail. The EA sends next_from_msc = last tick's time_msc
+                // (inclusive), so the next batch re-emits every tick at that
+                // ms. We already recorded how many of them were in the
+                // previous batch's tail — drop exactly that many.
+                if (_lastEmittedTimeMsc >= 0
+                    && _lastEmittedTrailing > 0
+                    && batchTicks.Count > 0)
+                {
+                    int startIdx = 0;
+                    int skipped = 0;
+                    while (startIdx < batchTicks.Count
+                        && batchTicks[startIdx].TimeMsc == _lastEmittedTimeMsc
+                        && skipped < _lastEmittedTrailing)
+                    {
+                        startIdx++;
+                        skipped++;
+                    }
+                    if (startIdx > 0)
+                    {
+                        batchTicks.RemoveRange(0, startIdx);
+                        dedupedThisBatch = startIdx;
+                        totalDeduped += startIdx;
+                    }
+                }
+
+                // Record the new tail: the last tick's time_msc, and how many
+                // consecutive ticks share that time_msc at the end.
+                if (batchTicks.Count > 0)
+                {
+                    long lastTime = batchTicks[^1].TimeMsc;
+                    int trailing = 0;
+                    for (int i = batchTicks.Count - 1; i >= 0; i--)
+                    {
+                        if (batchTicks[i].TimeMsc == lastTime) trailing++;
+                        else break;
+                    }
+                    _lastEmittedTimeMsc = lastTime;
+                    _lastEmittedTrailing = trailing;
+                }
+
                 result.AddRange(batchTicks);
                 remaining -= batchTicks.Count;
 
@@ -222,13 +279,14 @@ public class Mt5TickService
                     batchMs = batchSw.ElapsedMilliseconds;
                 }
 
-                double usPerTick = eaCopyUs / (double)Math.Max(1, batchTicks.Count);
+                double usPerTick = eaCopyUs / (double)Math.Max(1, rawBatchCount);
                 LogManager.Info(LogTag.Provider,
-                    $"MT5: fetch iter #{iteration} — {batchTicks.Count} ticks | " +
+                    $"MT5: fetch iter #{iteration} — kept {batchTicks.Count} of {rawBatchCount} | " +
                     $"rtt={rttMs}ms parse={parseMs}ms batch={batchMs}ms | " +
                     $"ea_copy={eaCopyUs / 1000.0:F1}ms ({usPerTick:F1}us/t) " +
                     $"ea_ser={eaSerUs / 1000.0:F1}ms " +
-                    $"(cumulative {result.Count})");
+                    (dedupedThisBatch > 0 ? $"dedupe={dedupedThisBatch} " : "") +
+                    $"(cumulative {result.Count}, total-deduped {totalDeduped})");
 
                 long nowMs = wall.ElapsedMilliseconds;
                 window.Enqueue((nowMs, result.Count));
@@ -269,7 +327,11 @@ public class Mt5TickService
 
                 cursor = nextFrom;
 
-                if (batchTicks.Count < batchSize)
+                // Broker-ran-out-of-history check uses the RAW count from
+                // the EA (before our dedupe). A short raw batch means
+                // CopyTicks returned fewer ticks than requested — end of
+                // available history.
+                if (rawBatchCount < batchSize)
                     break;
             }
             catch (JsonException jex)
@@ -281,7 +343,7 @@ public class Mt5TickService
         }
 
         LogManager.Info(LogTag.Provider,
-            $"MT5: FetchTicksAsync EXIT — {result.Count} ticks across {iteration} iteration(s)");
+            $"MT5: FetchTicksAsync EXIT — {result.Count} ticks across {iteration} iteration(s), {totalDeduped} boundary dupes dropped");
 
         progress?.Report(new Mt5FetchProgress(
             Fetched: result.Count,
