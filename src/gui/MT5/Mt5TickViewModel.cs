@@ -20,6 +20,10 @@ namespace backs2.ViewModels;
 
 public partial class Mt5TickViewModel : ObservableObject
 {
+    // Grid preview hard cap. The fetch continues to stream every tick to
+    // CSV beyond this; the DataGrid simply stops growing.
+    public const int MaxGridRows = 100_000;
+
     // ── Fetch settings ──────────────────────────────────────────────
     [ObservableProperty] private string _symbol = "GOLD.pro";
     [ObservableProperty] private int    _lookbackHours = 24;
@@ -37,6 +41,7 @@ public partial class Mt5TickViewModel : ObservableObject
     [ObservableProperty] private string _fetchSpeedText = "";
     [ObservableProperty] private string _terminalInfoText = "";
     [ObservableProperty] private string _connectionInfoText = "";
+    [ObservableProperty] private string _gridCapText = "";
 
     // ── Parsing state ───────────────────────────────────────────────
     [ObservableProperty] private string _parseFilePath = "";
@@ -98,6 +103,18 @@ public partial class Mt5TickViewModel : ObservableObject
 
     private bool CanRunIdle() => !IsBusy;
 
+    // Auto-disable grid population when TargetTicks would clearly blow
+    // past the cap. Guards against the freeze class: the user typing a
+    // huge number and forgetting to uncheck the box.
+    partial void OnTargetTicksChanged(int value)
+    {
+        if (value > 500_000 && PopulateGrid)
+        {
+            PopulateGrid = false;
+            GridCapText = $"Grid auto-disabled — target {value:N0} exceeds 500,000. CSV streaming continues.";
+        }
+    }
+
     // ── Ping ────────────────────────────────────────────────────────
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task Ping()
@@ -134,6 +151,7 @@ public partial class Mt5TickViewModel : ObservableObject
         FetchProgressText = "";
         FetchEtaText = "";
         FetchSpeedText = "";
+        GridCapText = "";
         StatusText = "Opening stream writer...";
 
         _cts = new CancellationTokenSource();
@@ -145,7 +163,7 @@ public partial class Mt5TickViewModel : ObservableObject
         Mt5TickStreamWriter? writer = null;
         Channel<IReadOnlyList<Mt5Tick>>? channel = null;
         Task? flushTask = null;
-        
+
         int trackedFetched = 0;
         long trackedLastMsc = 0;
 
@@ -189,19 +207,42 @@ public partial class Mt5TickViewModel : ObservableObject
                 FetchSpeedText = p.TicksPerSecond > 0
                     ? $"{p.TicksPerSecond:F0} t/s"
                     : "";
-                StatusText = p.TotalChunks > 0
-                    ? $"{p.Phase} — chunk {p.CurrentChunk}/{p.TotalChunks}"
-                    : p.Phase;
 
                 if (p.NewTicks != null && p.NewTicks.Count > 0)
                 {
                     trackedLastMsc = p.NewTicks[p.NewTicks.Count - 1].TimeMsc;
+
                     if (PopulateGrid)
                     {
-                        if (Ticks.Count > 100_000) Ticks.Clear();
-                        Ticks.AddRange(p.NewTicks);
+                        // Cap-at-N semantics: append only the room left.
+                        // Once full, stop appending and show the banner.
+                        // The fetch itself never notices — CSV streaming
+                        // continues through the channel.
+                        int room = MaxGridRows - Ticks.Count;
+                        if (room > 0)
+                        {
+                            if (p.NewTicks.Count <= room)
+                            {
+                                Ticks.AddRange(p.NewTicks);
+                            }
+                            else
+                            {
+                                var slice = new List<Mt5Tick>(room);
+                                for (int i = 0; i < room; i++) slice.Add(p.NewTicks[i]);
+                                Ticks.AddRange(slice);
+                            }
+                        }
+                        if (Ticks.Count >= MaxGridRows)
+                        {
+                            PopulateGrid = false;
+                            GridCapText = $"Grid preview capped at {MaxGridRows:N0} rows — full data in CSV.";
+                        }
                     }
                 }
+
+                StatusText = p.TotalChunks > 0
+                    ? $"{p.Phase} — chunk {p.CurrentChunk}/{p.TotalChunks}"
+                    : p.Phase;
             });
 
             var ct = _cts.Token;
@@ -218,10 +259,11 @@ public partial class Mt5TickViewModel : ObservableObject
             FetchProgressText = $"{trackedFetched} / {trackedFetched}";
             FetchEtaText = "";
             FetchSpeedText = "";
-            StatusText = $"Loaded {trackedFetched} ticks → {writer.Path}";
-            if (!PopulateGrid) StatusText += " (Grid disabled)";
+            StatusText = $"Loaded {trackedFetched:N0} ticks → {writer.Path}";
+            if (!PopulateGrid && trackedFetched > MaxGridRows)
+                StatusText += $" (grid shows first {MaxGridRows:N0})";
 
-            if (trackedFetched > 0)
+            if (trackedFetched > 0 && trackedLastMsc > 0)
             {
                 _lastFetchFromMsc = fromMsc;
                 _lastFetchEndMsc  = trackedLastMsc;
@@ -266,6 +308,19 @@ public partial class Mt5TickViewModel : ObservableObject
     }
 
     // ── Parse CSV ───────────────────────────────────────────────────
+    //
+    // Correctness notes:
+    //  - The whole parse runs inside Task.Run — synchronous, background
+    //    thread. The entire body is CPU-bound; background-thread execution
+    //    via Task.Run is a single clear boundary the UI thread can't
+    //    accidentally re-enter.
+    //  - Progress is marshalled via IProgress<T> — Task.Run reports on a
+    //    threadpool thread, Progress<T> posts to the captured context.
+    //  - GetBucketStart is epoch-relative for all intraday timeframes.
+    //    The old per-hour anchoring broke 45m; see the comment on the
+    //    method for details.
+    //  - zeroBidTicks is capped at 10k entries so an anomalous feed
+    //    cannot grow it without bound.
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task ParseCsv()
     {
@@ -283,88 +338,44 @@ public partial class Mt5TickViewModel : ObservableObject
         {
             var fileName = Path.GetFileNameWithoutExtension(ParseFilePath);
             var symbol = fileName.Split('_')[0];
+            var tf = ParseTimeframe;
+            var path = ParseFilePath;
 
-            var klines = new List<Kline>();
-            var zeroBidTicks = new List<long>();
-            long currentBucket = -1;
-            double o = 0, h = double.MinValue, l = double.MaxValue, c = 0;
-            long v = 0;
-
-            using var fs = new FileStream(ParseFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, true);
-            using var sr = new StreamReader(fs);
-            long totalLength = fs.Length;
-
-            string? line = await sr.ReadLineAsync(); // skip header
-            int linesRead = 0;
-
-            while ((line = await sr.ReadLineAsync()) != null)
+            var progress = new Progress<ParseProgressReport>(p =>
             {
-                linesRead++;
-                if (linesRead % 100000 == 0)
-                {
-                    ParseProgress = (double)fs.Position / totalLength * 100;
-                    ParseStatusText = $"Parsing... {linesRead:N0} ticks processed";
-                }
+                ParseProgress = p.Percent;
+                ParseStatusText = p.Message;
+            });
 
-                if (!TryParseTickLine(line, out long timeMsc, out double bid)) continue;
+            var result = await Task.Run(() => ParseCsvCore(path, tf, progress));
 
-                if (bid <= 0)
-                {
-                    zeroBidTicks.Add(timeMsc);
-                    continue;
-                }
-
-                long bucket = GetBucketStart(timeMsc, ParseTimeframe);
-
-                if (bucket != currentBucket)
-                {
-                    if (currentBucket != -1)
-                    {
-                        klines.Add(new Kline(DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime, o, h, l, c, v));
-                    }
-                    currentBucket = bucket;
-                    o = h = l = c = bid;
-                    v = 1;
-                }
-                else
-                {
-                    if (bid > h) h = bid;
-                    if (bid < l) l = bid;
-                    c = bid;
-                    v++;
-                }
-            }
-
-            // Flush the last bucket
-            if (currentBucket != -1)
+            if (result.ZeroBidTicks.Count > 25)
             {
-                klines.Add(new Kline(DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime, o, h, l, c, v));
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: dropped {result.ZeroBidTicks.Count:N0} ticks with zero bid during parsing.");
             }
-
-            // Log zero-bid anomalies
-            if (zeroBidTicks.Count > 25)
-            {
-                LogManager.Warn(LogTag.Provider, $"MT5: dropped {zeroBidTicks.Count:N0} ticks with zero bid during parsing.");
-            }
-            else if (zeroBidTicks.Count > 0)
+            else if (result.ZeroBidTicks.Count > 0)
             {
                 var sb = new StringBuilder();
-                foreach (var t in zeroBidTicks)
+                foreach (var t in result.ZeroBidTicks)
                 {
-                    sb.Append(DateTimeOffset.FromUnixTimeMilliseconds(t).UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    sb.Append(DateTimeOffset.FromUnixTimeMilliseconds(t).UtcDateTime
+                              .ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
                     sb.Append(", ");
                 }
-                LogManager.Warn(LogTag.Provider, $"MT5: dropped {zeroBidTicks.Count} ticks with zero bid at: {sb.ToString().TrimEnd(',', ' ')}");
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: dropped {result.ZeroBidTicks.Count} ticks with zero bid at: {sb.ToString().TrimEnd(',', ' ')}");
             }
 
             ParseProgress = 100;
-            ParseStatusText = $"Saving {klines.Count:N0} bars to cache...";
+            ParseStatusText = $"Saving {result.Klines.Count:N0} bars to cache...";
 
-            string cacheKey = $"{symbol}@{ParseTimeframe}";
-            await _cache.SaveCacheAsync(cacheKey, klines, "MT5 Parsed");
+            string cacheKey = $"{symbol}@{tf}";
+            await _cache.SaveCacheAsync(cacheKey, result.Klines, "MT5 Parsed");
 
-            ParseStatusText = $"Success. Saved {klines.Count:N0} bars for {symbol}@{ParseTimeframe}.";
-            LogManager.Info(LogTag.Provider, $"MT5: parsed {linesRead} ticks into {klines.Count} bars ({symbol}@{ParseTimeframe})");
+            ParseStatusText = $"Success. Saved {result.Klines.Count:N0} bars for {symbol}@{tf}.";
+            LogManager.Info(LogTag.Provider,
+                $"MT5: parsed {result.LinesRead:N0} ticks into {result.Klines.Count:N0} bars ({symbol}@{tf})");
         }
         catch (Exception ex)
         {
@@ -377,50 +388,154 @@ public partial class Mt5TickViewModel : ObservableObject
         }
     }
 
+    private sealed record ParseProgressReport(double Percent, string Message);
+
+    private sealed record ParseCsvResult(
+        int LinesRead,
+        List<Kline> Klines,
+        List<long> ZeroBidTicks);
+
+    private static ParseCsvResult ParseCsvCore(
+        string path, string timeframe, IProgress<ParseProgressReport> progress)
+    {
+        const int MaxZeroBidSamples = 10_000;
+
+        var klines = new List<Kline>();
+        var zeroBidTicks = new List<long>();
+        long currentBucket = -1;
+        double o = 0, h = double.MinValue, l = double.MaxValue, c = 0;
+        long v = 0;
+
+        using var fs = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+            64 * 1024, FileOptions.SequentialScan);
+        using var sr = new StreamReader(fs);
+        long totalLength = fs.Length;
+        int linesRead = 0;
+
+        sr.ReadLine(); // skip header
+
+        string? line;
+        while ((line = sr.ReadLine()) != null)
+        {
+            linesRead++;
+            if (linesRead % 100_000 == 0)
+            {
+                double pct = totalLength > 0
+                    ? (double)fs.Position / totalLength * 100
+                    : 0;
+                progress.Report(new ParseProgressReport(pct, $"Parsing... {linesRead:N0} ticks processed"));
+            }
+
+            if (!TryParseTickLine(line, out long timeMsc, out double bid)) continue;
+
+            if (bid <= 0)
+            {
+                if (zeroBidTicks.Count < MaxZeroBidSamples)
+                    zeroBidTicks.Add(timeMsc);
+                continue;
+            }
+
+            long bucket = GetBucketStart(timeMsc, timeframe);
+
+            if (bucket != currentBucket)
+            {
+                if (currentBucket != -1)
+                {
+                    klines.Add(new Kline(
+                        DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime,
+                        o, h, l, c, v));
+                }
+                currentBucket = bucket;
+                o = h = l = c = bid;
+                v = 1;
+            }
+            else
+            {
+                if (bid > h) h = bid;
+                if (bid < l) l = bid;
+                c = bid;
+                v++;
+            }
+        }
+
+        if (currentBucket != -1)
+        {
+            klines.Add(new Kline(
+                DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime,
+                o, h, l, c, v));
+        }
+
+        return new ParseCsvResult(linesRead, klines, zeroBidTicks);
+    }
+
     private static bool TryParseTickLine(string line, out long timeMsc, out double bid)
     {
         timeMsc = 0;
         bid = 0;
-        
+
         int idx1 = line.IndexOf(',');
         if (idx1 < 0) return false;
-        
+
         int idx2 = line.IndexOf(',', idx1 + 1);
         if (idx2 < 0) return false;
 
         var timeSpan = line.AsSpan(0, idx1);
-        var bidSpan = line.AsSpan(idx1 + 1, idx2 - idx1 - 1);
+        var bidSpan  = line.AsSpan(idx1 + 1, idx2 - idx1 - 1);
 
-        if (!long.TryParse(timeSpan, out timeMsc)) return false;
-        if (!double.TryParse(bidSpan, CultureInfo.InvariantCulture, out bid)) return false;
+        if (!long.TryParse(timeSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out timeMsc))
+            return false;
+        if (!double.TryParse(bidSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out bid))
+            return false;
 
         return true;
     }
 
+    // Epoch-relative alignment for every intraday timeframe. The formula
+    // `(timeMsc / tfMs) * tfMs` produces buckets that always tile evenly:
+    // every 45m bucket is exactly 45 minutes, and no bucket straddles the
+    // hour in a way that splits it. The previous per-hour anchoring was
+    // only correct for divisors of 60; 45m produced alternating 45- and
+    // 15-minute bars.
+    //
+    //   1D → UTC midnight, epoch-relative. MT5's PERIOD_D1 uses the
+    //        broker's server-day boundary (typically GMT+2/3 on OANDA),
+    //        so parsed daily bars will be offset from what the MT5 chart
+    //        shows. Documented limitation; not adjustable yet.
+    //   1W → ISO Monday, UTC-aligned. Same broker-offset caveat.
     private static long GetBucketStart(long timeMsc, string tf)
     {
-        var dt = DateTimeOffset.FromUnixTimeMilliseconds(timeMsc).UtcDateTime;
-        if (tf.EndsWith("m") && int.TryParse(tf.TrimEnd('m'), out int m))
+        long tfMs = tf switch
         {
-            int bucketMin = (dt.Minute / m) * m;
-            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, dt.Hour, bucketMin, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        }
-        if (tf.EndsWith("h") && int.TryParse(tf.TrimEnd('h'), out int h))
-        {
-            int bucketHour = (dt.Hour / h) * h;
-            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, bucketHour, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        }
-        if (tf == "1D")
-        {
-            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        }
+            "1m"  =>            60_000L,
+            "2m"  =>           120_000L,
+            "3m"  =>           180_000L,
+            "5m"  =>           300_000L,
+            "15m" =>           900_000L,
+            "30m" =>         1_800_000L,
+            "45m" =>         2_700_000L,
+            "1h"  =>         3_600_000L,
+            "2h"  =>         7_200_000L,
+            "3h"  =>        10_800_000L,
+            "4h"  =>        14_400_000L,
+            "1D"  =>        86_400_000L,
+            _     => 0L
+        };
+
+        if (tfMs > 0)
+            return (timeMsc / tfMs) * tfMs;
+
         if (tf == "1W")
         {
+            var dt = DateTimeOffset.FromUnixTimeMilliseconds(timeMsc).UtcDateTime;
             int diff = (7 + (dt.DayOfWeek - DayOfWeek.Monday)) % 7;
-            var start = dt.Date.AddDays(-1 * diff);
-            return new DateTimeOffset(start, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            var monday = dt.Date.AddDays(-diff);
+            return new DateTimeOffset(monday, TimeSpan.Zero).ToUnixTimeMilliseconds();
         }
-        return timeMsc; // fallback
+
+        // Unknown timeframe — one bar per tick. Should never fire; the
+        // ComboBox is bound to TimeframeMap.All.
+        return timeMsc;
     }
 
     // ── Terminal info ───────────────────────────────────────────────
@@ -609,7 +724,7 @@ public partial class Mt5TickViewModel : ObservableObject
             long target = (long)_lastVerifyCount + Math.Max(1000L, _lastVerifyCount / 100L);
             if (target > 50_000_000L) target = 50_000_000L;
             TargetTicks = (int)target;
-            
+
             if (TargetTicks > 500_000) PopulateGrid = false;
 
             VerifyStatusText =

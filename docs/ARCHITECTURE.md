@@ -133,7 +133,7 @@
 - Accounts — prop-firm rule browser and active selection.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
-- MT5 Ticks — raw tick streaming from MetaTrader 5. See §19.
+- MT5 Ticks — raw tick streaming from MetaTrader 5, range verification against the terminal, and tick-CSV parsing into kline cache. Two subtabs: Extraction (fetch + Verify Range) and Parsing (tick CSV → kline cache). See §19.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
@@ -369,14 +369,15 @@ public sealed record AutomationParameters(
 
 ## 19. MT5 Tick Data
 
-- Purpose: fetch raw `MqlTick` records from a running MetaTrader 5 terminal over a local TCP bridge. Separate from `IDataProvider` — the shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit the Kline-centric provider contract.
+- Purpose: fetch raw `MqlTick` records from a running MetaTrader 5 terminal over a local TCP bridge, verify fetched ranges directly against the terminal's tick database, and parse saved tick CSVs into standard kline cache for use by every data-consuming tab. Separate from `IDataProvider` — the shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit the Kline-centric provider contract.
 - Topology (inverted from a typical server-client setup because MQL5 sockets are client-only):
   - **C# side is the TCP server.** `Mt5TickServer` (singleton) owns a `TcpListener` on `127.0.0.1:{Mt5Port}` and accepts exactly one EA connection at a time.
-  - **MT5 side is the TCP client.** `docs/Backs2TickBridge.mq5` (v1.12) is an Expert Advisor that connects out to backs2's listener on `OnInit`, and retries every 3 s if the socket drops.
+  - **MT5 side is the TCP client.** `docs/Backs2TickBridge.mq5` (v1.13) is an Expert Advisor that connects out to backs2's listener on `OnInit`, and retries every 3 s if the socket drops.
 - **Protocol**: newline-delimited JSON over TCP. Every request carries a monotonically increasing `id`; the EA echoes it back in the response so responses are matched to request waiters via a `ConcurrentDictionary<int, TaskCompletionSource<string>>`.
-  - Request: `{"id":N,"action":"PING"}` / `{"id":N,"action":"PREWARM","symbol":"GOLD.pro","from_msc":0,"count":500}` / `{"id":N,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":0,"count":20000}` / `{"id":N,"action":"GET_TERMINAL_INFO"}`.
+  - Request: `{"id":N,"action":"PING"}` / `{"id":N,"action":"PREWARM","symbol":"GOLD.pro","from_msc":0,"count":500}` / `{"id":N,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":0,"count":20000}` / `{"id":N,"action":"COUNT_TICKS","symbol":"GOLD.pro","from_msc":1700000000000,"to_msc":1700003600000}` / `{"id":N,"action":"GET_TERMINAL_INFO"}`.
   - Response: `{"id":N,"status":"OK",...}` on success, `{"id":N,"status":"ERROR","message":"..."}` on failure.
   - `GET_TICKS` responses also carry `perf_copy_us` (total microseconds spent inside `CopyTicks`) and `perf_ser_us` (microseconds spent building the JSON payload). The C# fetch log line splits `rtt` into `ea_copy` / `ea_ser` so terminal-side and EA-side costs are separable without re-instrumenting.
+  - `COUNT_TICKS` responses carry `count` (raw tick count in the range), `first_msc` / `last_msc` (boundary ticks; `0` when the range is empty), and `perf_us`. `to_msc` is **exclusive** — `[from_msc, to_msc)` — so a range ending at `lastMsc + 1` counts every tick the fetch kept. The handler calls `CopyTicksRange` directly, bypassing the fetch loop.
 - **EA-side batching (v1.10)**: `CopyTicks` is capped at 2000 ticks per call, but the EA accepts a `count` up to `MAX_REQUEST_TICKS = 50000` and loops internally, chaining via `next_from_msc` inside EA RAM. One TCP round trip carries up to 50000 ticks. Batch size 20000 is the default.
 - **EA serialization (v1.09)**: the response is built into a pre-sized `uchar[]` byte buffer and `SocketSend`'d directly. `AppendStr(uchar &dest[], int &pos, string s)` writes ASCII chars into the array. MQL5 `string` concat primitives (both `+=` and `StringAdd`) reallocate on every append and are O(N²) — measured 39.9 s for a 20,000-tick response in v1.08. The byte-buffer path brings the same payload down to ~14 ms.
 
@@ -398,6 +399,7 @@ The broker-ran-out-of-history exit check compares the **raw** count from the EA 
   - `Mt5TerminalInfo` — `Company`, `Account`, `Server`, `Currency`, `Leverage`, `ServerTimeUtc`.
   - `Mt5PingResult` — `Success`, `LatencyMs`, `Error`.
   - `Mt5FetchProgress` — `Fetched`, `Total`, `Phase`, `NewTicks`, plus rolling stats `Percent`, `TicksPerSecond`, `EtaSeconds`, `CurrentChunk`, `TotalChunks`.
+  - `Mt5CountResult` — `Count`, `FirstMsc`, `LastMsc`, `PerfUs`. Returned by `CountTicksAsync`; `Count` is the terminal's raw tick count in `[from_msc, to_msc)`.
 - `Mt5TickServer` (`src/core/MT5/Mt5TickServer.cs`):
   - `Start()` opens the listener on `AppSettings.Mt5Host : AppSettings.Mt5Port`. Called once from `App.OnFrameworkInitializationCompleted`.
   - `Stop()` cancels the accept loop, closes the listener and client. Called by `Dispose`.
@@ -407,6 +409,7 @@ The broker-ran-out-of-history exit check compares the **raw** count from the EA 
   - `PingAsync(ct)` — round-trip latency.
   - `PrewarmAsync(symbol, fromMsc, ct)` — idempotent first-`CopyTicks` page-in.
   - `FetchTicksAsync(symbol, fromMsc, targetTicks, chunkSize, progress, ct, onBatch)` — paginates by `chunkSize` until `targetTicks` accumulated or the EA returns fewer than requested. `onBatch` is awaited inside the loop — it is the disk-write path and backpressure is deliberate. Every iteration logs `kept N of M | rtt=... parse=... batch=... | ea_copy=... (X.Xus/t) ea_ser=... [dedupe=K] (cumulative X, total-deduped Y)`.
+  - `CountTicksAsync(symbol, fromMsc, toMsc, ct)` — asks the EA to count ticks in `[fromMsc, toMsc)` without transferring them. **Adaptive timeout**: `Mt5TimeoutMs + min(spanDays, 90) × 3000 ms`. The default 15 s is sized for 20k-tick fetch batches; a 30-day range query takes ~44 s. Returns `Mt5CountResult` or null on failure/timeout. Never throws. Used by the Verify Range panel.
   - `GetTerminalInfoAsync(ct)`.
   - Never throws. Returns empty list / null on failure. Logs with `LogTag.Provider`. No new tag.
 - `Mt5TickWriter` (`src/core/Writers/Mt5TickWriter.cs`) — two writers in one file:
@@ -415,17 +418,30 @@ The broker-ran-out-of-history exit check compares the **raw** count from the EA 
   - `data/ticks/` is git-ignored.
 - `src/core/Writers/` is the folder for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape used by every existing provider. `CacheManager` remains the writer for all Kline data.
 - GUI (`src/gui/MT5/`):
-  - `Mt5TickView.axaml` — Grid with five rows: connection toolbar, fetch parameters, action buttons + progress + speed + ETA, ticks DataGrid, terminal-info text block.
-  - `Mt5TickViewModel` — `Symbol`, `LookbackHours`, `TargetTicks` (default 5000), `ChunkSize` (default 20000, the EA's per-request batch size), plus display state (`StatusText`, `IsConnected`, `LatencyMs`, `FetchProgress`, `FetchProgressText`, `FetchEtaText`, `FetchSpeedText`, `TerminalInfoText`, `ConnectionInfoText`). `Ticks` is a `RangeObservableCollection<Mt5Tick>`.
-  - Commands: `PingCommand`, `FetchTicksCommand`, `StopCommand`, `GetTerminalInfoCommand`, `SaveCsvCommand`.
-  - Fetch flow: opens an `Mt5TickStreamWriter`, wires `onBatch` to a bounded `Channel<IReadOnlyList<Mt5Tick>>` (capacity 64), drains it in a background `Task` that writes to the stream writer. The socket read loop never awaits disk I/O. Each progress callback bulk-inserts the batch into `Ticks` via `AddRange` (one `Reset` notification per batch).
-- `RangeObservableCollection<T>` (`src/gui/MT5/RangeObservableCollection.cs`) — `ObservableCollection<T>` subclass with `AddRange(IReadOnlyList<T>)`. Writes to the backing `Items` list, then raises one `NotifyCollectionChangedAction.Reset`. Replaces N per-item `CollectionChanged` events with one; this is what makes 100k+ row DataGrid streaming usable.
+  - `Mt5TickView.axaml` — `TabControl` with two subtabs. **Extraction**: Grid with seven rows — connection toolbar, fetch parameters, action buttons + progress + speed + ETA, a Verify Range `Expander`, a grid-cap banner `TextBlock`, the ticks DataGrid, and the terminal-info text block. **Parsing**: CSV picker, timeframe ComboBox, Parse-to-Cache button, progress bar, status, help text.
+  - `Mt5TickViewModel` — constructor takes `(Mt5TickService, ConfigManager, CacheManager)`. Fetch settings: `Symbol`, `LookbackHours`, `TargetTicks` (default 5000), `ChunkSize` (default 20000, the EA's per-request batch size), `PopulateGrid` (default on). Parsing state: `ParseFilePath`, `ParseTimeframe`, `ParseProgress`, `ParseStatusText`. Verify panel state: `VerifyFrom`, `VerifyTo`, `VerifyUtcOffsetHours`, `VerifyResolvedText`, `VerifyStatusText`, `VerifyComparisonText`, `VerifyComparisonBrush`, `HasLastFetch`. Grid cap state: `GridCapText`.
+  - Last-fetch tracking: after a successful fetch the ViewModel keeps `_lastFetchFromMsc` / `_lastFetchEndMsc` / `_lastFetchCount` (with `HasLastFetch`), feeding the Verify panel.
+  - Commands: `PingCommand`, `FetchTicksCommand`, `StopCommand`, `GetTerminalInfoCommand`, `SaveCsvCommand`, `LoadLastFetchRangeCommand`, `VerifyRangeCommand`, `ApplyToFetchCommand`, `ParseCsvCommand`.
+  - Fetch flow: opens an `Mt5TickStreamWriter`, wires `onBatch` to a bounded `Channel<IReadOnlyList<Mt5Tick>>` (capacity 64), drains it in a background `Task` that writes to the stream writer. The socket read loop never awaits disk I/O. Each progress callback bulk-inserts the batch into `Ticks` via `AddRange` (one `Reset` notification per batch) — only when `PopulateGrid` is on and the grid is below the cap.
+  - **Grid cap (Phase 15C)**: `MaxGridRows = 100_000`. Once the collection hits the cap, `PopulateGrid` auto-unchecks and the grid stops growing. The CSV has every tick regardless. Root cause of the pre-cap freeze: `AddRange` fires a `Reset`, and Avalonia's `DataGrid` re-evaluates the whole collection on every Reset — at 20M+ rows that saturates the UI thread. `OnTargetTicksChanged` also auto-unchecks `PopulateGrid` when `TargetTicks > 500_000`, with a banner.
+  - **Verify Range panel** (Extraction subtab, collapsed `Expander`):
+    - From/To text boxes parsed by a tolerant local parser (`YYYY/MM/DD HH:mm:ss[.mmm]`, separators `-`/`.`/`/` accepted in the date) with a panel-level UTC offset in hours (±0.5 steps). A resolved-UTC preview line updates on every keystroke; `To` is exclusive.
+    - `Load Last Fetch Range` fills From/To from the last fetch's `[fromMsc, endMsc + 1)` window so the verified range is exactly what the fetch kept.
+    - `Verify` calls `CountTicksAsync` and renders count, first-tick delta, last-tick delta, and a ✓ MATCH / ✗ MISMATCH comparison against the last fetch (green/red). Status shows the EA round-trip time.
+    - `Apply to Fetch` converts `From` → `LookbackHours` (ceil hours back from now; future From rejected) and, when a verify has run, sizes `TargetTicks` from the verified count (+1% headroom, min +1000, cap 50M); above 500k it auto-unchecks `PopulateGrid`. Symbol and batch size are preserved.
+  - **Parsing subtab** — tick CSV → kline cache:
+    - `OnSelectCsvClicked` (code-behind) opens a `StorageProvider` file picker rooted at `data/ticks/`, filtered to `*.csv`.
+    - `ParseCsv` runs the whole parse inside `Task.Run` — synchronous, background thread, no UI thread re-entry. Progress marshalled via `IProgress<T>`.
+    - `ParseCsvCore` streams the CSV (64 KB buffered `FileStream` with `FileOptions.SequentialScan`, span-based line parse), buckets ticks by the selected timeframe from `TimeframeMap.All`, builds OHLCV from `Bid` with `Volume` = tick count, and drops zero-bid ticks (≤25 listed individually, >25 collapsed to a count-only Warn, retained for the log capped at 10,000 samples).
+    - `GetBucketStart` is **epoch-relative** for every intraday timeframe: `(timeMsc / tfMs) * tfMs`. This is what makes 45m tile correctly — the earlier per-hour anchoring was only correct for divisors of 60 and produced alternating 45- and 15-minute bars. `1D` = UTC midnight; `1W` = ISO Monday UTC. Daily/weekly bars are UTC-aligned, which differs from MT5's server-day boundary (typically GMT+2/3 on OANDA) — documented limitation.
+    - The symbol comes from the CSV filename (`{symbol}_{stamp}.csv` → part before the first underscore). Bars save through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")` — the dataset appears in the Data tab with source `MT5 Parsed` and is immediately usable by Chart, Runner, and Monte Carlo like any other cached dataset.
+- `RangeObservableCollection<T>` (`src/gui/MT5/RangeObservableCollection.cs`) — `ObservableCollection<T>` subclass with `AddRange(IReadOnlyList<T>)`. Writes to the backing `Items` list, then raises one `NotifyCollectionChangedAction.Reset`. Replaces N per-item `CollectionChanged` events with one; combined with the 100k cap, this is what keeps large fetches responsive.
 - Tab position: `MainWindow.axaml` places MT5 Ticks between Data Automation and Providers.
 - Configuration (auto-rendered in the Config tab):
   - `Mt5Host` (string, default `"127.0.0.1"`) — bridge host. Changing this also requires editing the `#define BRIDGE_HOST` in `docs/Backs2TickBridge.mq5`.
   - `Mt5Port` (int, default `5555`) — same caveat; edit `#define BRIDGE_PORT` to match.
-  - `Mt5TimeoutMs` (int, default `15000`) — per-request timeout. Must exceed the EA's worst-case wall time for a batched response. A 20000-tick batch at ~50 µs/tick `CopyTicks` + ~14 ms serialization is ~1000 ms; 15000 has headroom. Raise to 60000 for the first fetch of a cold symbol (broker sync).
-- Measured throughput (OANDA demo, `GOLD.pro`, warm symbol): ~35–60 µs/tick inside `CopyTicks`, ~14 ms serialization for 20,000 ticks, ~16,000 ticks/sec end-to-end sustained. The wall is MT5's `CopyTicks`, not the bridge.
+  - `Mt5TimeoutMs` (int, default `15000`) — per-request timeout. Must exceed the EA's worst-case wall time for a batched fetch response. A 20000-tick batch at ~50 µs/tick `CopyTicks` + ~14 ms serialization is ~1000 ms; 15000 has headroom. `CountTicksAsync` adds an adaptive extension on top of it. Raise to 60000 for the first fetch of a cold symbol (broker sync).
+- Measured throughput (OANDA demo, `GOLD.pro`, warm symbol): ~35–60 µs/tick inside `CopyTicks`, ~14 ms serialization for 20,000 ticks, ~16,000 ticks/sec end-to-end sustained. `COUNT_TICKS` on the MT5 side runs at ~450k ticks/sec. The wall is MT5's `CopyTicks`, not the bridge.
 - **MT5 tick storage layers:**
   - **Cold** — tick DB on disk. ~50 µs/tick.
   - **Warm** — terminal RAM, current session after page-in. ~35 µs/tick.
@@ -437,7 +453,9 @@ The broker-ran-out-of-history exit check compares the **raw** count from the EA 
 - Known constraints:
   - **2000-tick cap** per `CopyTicks` call. Automatic pagination inside the EA.
   - **First-call broker sync.** A cold symbol's first `CopyTicks` can block up to 45 s while the terminal downloads tick history from the trade server. Prewarm triggers this once per symbol; raise `Mt5TimeoutMs` to 60000 if a cold-symbol prewarm times out.
-  - **MQL5 string concat is O(N²).** Both `+=` and `StringAdd` reallocate on every append. The v1.12 EA does not use either on the hot path — the response is written into a `uchar[]` byte buffer and `SocketSend`'d directly.
-  - **Forex/metals ticks have empty `last`/`volume`/`volume_real`.** Bid/ask movement is the signal.
+  - **MQL5 string concat is O(N²).** Both `+=` and `StringAdd` reallocate on every append. The v1.13 EA does not use either on the hot path — the response is written into a `uchar[]` byte buffer and `SocketSend`'d directly.
+  - **Forex/metals ticks have empty `last`/`volume`/`volume_real`.** Bid/ask movement is the signal. Parsed klines use `Bid`; `Volume` = tick count.
+  - **Zero-bid opening ticks.** OANDA emits one tick at the daily session open (`00:05:00.xxx UTC`) with `bid = 0`. The parse drops these; they cannot produce a valid bar.
   - **No DOM.** `SYMBOL_TICKS_BOOKDEPTH` is 0 for OTC forex CFDs. Order book is not implemented.
   - **Symbol naming is broker-specific.** OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` returns `error 4401` (ERR_HISTORY_NOT_FOUND).
+  - **UTC-aligned daily/weekly bars.** Parsed `1D` and `1W` bars align to UTC midnight and ISO Monday respectively. MT5 charts align to the broker's server day (typically GMT+2/3). Charts backtested against parsed-cache bars will be offset from the MT5 chart by the broker's UTC offset. Not adjustable yet.

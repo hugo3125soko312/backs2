@@ -1,13 +1,13 @@
-using System;
-using System.Globalization;
-using backs2.Core.Runner;
-
 // @param VolSmaLen int = 10
 // @param VolMult double = 1.8
 // @param MaxBodyPct double = 0.6
 // @param LookbackBars int = 2
 // @param RrTarget double = 2.7
 // @param SlMultiplier double = 1.7
+
+using System;
+using System.Globalization;
+using backs2.Core.Runner;
 
 var culture = CultureInfo.InvariantCulture;
 int volSmaLen = int.TryParse(Params["VolSmaLen"], out var vsl) ? vsl : 10;
@@ -52,7 +52,7 @@ for (int i = 0; i < Data.Count; i++)
             Trades.Exit(tpPrice);
             inTrade = false;
         }
-        continue; // Wait for exit before evaluating new entries
+        continue;
     }
 
     if (i < volSmaLen + lookbackBars) continue;
@@ -63,7 +63,7 @@ for (int i = 0; i < Data.Count; i++)
     {
         int prevIdx = i - j;
         var prevKline = Data[prevIdx];
-        
+
         bool prevIsDown = prevKline.Close < prevKline.Open;
         bool prevVolSpike = prevKline.Volume > (volMAs[prevIdx] * volMult);
 
@@ -82,9 +82,9 @@ for (int i = 0; i < Data.Count; i++)
 
     if (downwardVolSpike && isSlightBullish)
     {
-        double riskAmount = Math.Max(candleRange * slMultiplier, 0.00001); // Fallback to prevent 0 risk
+        double riskAmount = Math.Max(candleRange * slMultiplier, 0.00001);
         double entryPrice = kline.Close;
-        
+
         slPrice = entryPrice - riskAmount;
         tpPrice = entryPrice + (riskAmount * rrTarget);
 

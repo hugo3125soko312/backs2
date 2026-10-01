@@ -97,17 +97,33 @@ ONLY SPEAK IN ENGLISH
 - Default batch size is **20000** ticks per TCP round trip.
 - Prewarm is per-symbol per-process. `Mt5TickService.PrewarmAsync` is idempotent via `HashSet<string> _warmedSymbols`. Do not bypass it — the first `CopyTicks` per symbol costs ~2× warm (tick-DB page-in). Dropping prewarm costs ~30% of first-fetch throughput.
 - `Mt5TickService.FetchTicksAsync` takes an `onBatch` callback (`Func<IReadOnlyList<Mt5Tick>, Task>?`) that is awaited inside the fetch loop. This is deliberate backpressure: a slow disk write blocks the socket read so memory stays bounded. Never change it to fire-and-forget.
+- `Mt5TickService.CountTicksAsync` uses an adaptive timeout: `Mt5TimeoutMs + min(spanDays, 90) × 3000 ms`. The base timeout is sized for 20k-tick fetch batches, not multi-day range queries — a 30-day query takes ~44 s. Never send a fixed-timeout COUNT_TICKS request without the extension.
 - CSV streaming during a fetch uses `Mt5TickStreamWriter`, not `Mt5TickWriter.WriteAsync`. `Mt5TickStreamWriter.OpenAsync` + `AppendAsync` per batch + `CompleteAsync`. `Mt5TickWriter.WriteAsync` is the one-shot writer behind the tab's **Save CSV** button.
-- `Mt5TickService` and `Mt5TickServer` are registered as singletons in `App.axaml.cs`. `Mt5TickViewModel` is transient. Never register tick infrastructure as an `IDataProvider`.
+- `Mt5TickService` and `Mt5TickServer` are registered as singletons in `App.axaml.cs`. `Mt5TickViewModel` is transient and takes `(Mt5TickService, ConfigManager, CacheManager)`. Never register tick infrastructure as an `IDataProvider`.
 - `LogTag.Provider` is the tag for all MT5 logs. Do not add an MT5-specific tag.
 - `src/core/Writers/` holds writers that do not fit the `CacheEnvelope<KlineCompact[]>` shape. Today: `Mt5TickWriter.cs` (both `Mt5TickWriter` and `Mt5TickStreamWriter`). Do not move `CacheManager` there.
 - MT5 side requires `127.0.0.1` whitelisted in **Tools → Options → Expert Advisors → Allow WebRequest for listed URL**. Do not skip this — the WebRequest list governs `SocketCreate`/`SocketConnect`.
 - The EA must be attached to a live chart in the main MT5 window. The Strategy Tester sandbox blocks network calls (`SocketCreate FAILED, error 4014`).
 - Symbol names are broker-specific. OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` on OANDA returns `error 4401`.
-- `Mt5TimeoutMs` must exceed the EA's worst-case wall time for a batched response. A 20000-tick batch is ~1000 ms end-to-end. Default 15000 has headroom; raise to 60000 for the first fetch of a cold symbol (broker sync).
+- `Mt5TimeoutMs` must exceed the EA's worst-case wall time for a batched fetch response. A 20000-tick batch is ~1000 ms end-to-end. Default 15000 has headroom; raise to 60000 for the first fetch of a cold symbol (broker sync).
 - `data/ticks/` is git-ignored. Never commit fetched tick CSVs.
 - Performance telemetry (`perf_copy_us`, `perf_ser_us`) is returned by the EA in every `GET_TICKS` response. Do not remove — the C# log's `ea_copy` / `ea_ser` split is the only way to tell terminal-side vs EA-side cost without re-instrumenting.
 - **The MT5-side wall is `CopyTicks`.** ~35–60 µs/tick warm, ~50 µs/tick cold, ~0.03 µs/tick in the 4,096-tick fast access cache. No bridge change can beat the terminal's disk-read floor for historical backfill.
+
+### MT5 Grid Cap & Populate Grid
+- `Mt5TickViewModel.MaxGridRows = 100_000`. `PopulateGrid` auto-unchecks once the collection hits the cap; the fetch itself is unaffected — CSV streaming continues through the channel.
+- `OnTargetTicksChanged` auto-unchecks `PopulateGrid` when `TargetTicks > 500_000` and shows a banner. Guards against the freeze class: the user typing a huge number and forgetting to uncheck.
+- Never raise `MaxGridRows` without re-validating the DataGrid freeze behavior. The freeze was a `Reset`-per-batch storm (one `NotifyCollectionChangedAction.Reset` per batch, DataGrid re-evaluating the whole collection on each). It was not a memory issue.
+- `GridCapText` is the only banner. Show it when the grid is capped or auto-disabled; hide it when empty.
+
+### MT5 CSV → Cache Parsing
+- The parse **must** run inside `Task.Run`. Never inline on the UI thread — a 20M-line CSV would freeze the app.
+- Bars are built from `Bid`, `Volume` = tick count. Never use `Ask` or `Last` — forex/metals `Last` and `Volume` are empty.
+- Zero-bid ticks (`bid <= 0`) are dropped. OANDA emits one at the daily session open. Retained for the log capped at 10,000 samples.
+- Bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Never re-introduce per-hour anchoring — it breaks 45m (produced alternating 45- and 15-minute bars at hour boundaries). `1D` = UTC midnight; `1W` = ISO Monday UTC. Documented limitation: parsed daily/weekly bars are UTC-aligned, MT5 charts align to server day.
+- Symbol comes from the CSV filename before the first `_`. Never parse it from a column.
+- Cache source is **`MT5 Parsed`**. Written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`. Never write to a different location or bypass the cache.
+- `MT5 Parsed` is cache-only — never fetched over the network. It appears in the Providers tab and the Data tab like any other source.
 
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:

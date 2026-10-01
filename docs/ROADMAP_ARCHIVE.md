@@ -586,3 +586,39 @@ Raised MT5 tick fetch throughput from ~2,300 t/s to ~16,000 t/s sustained, and e
 - **MT5 keeps a 4,096-tick fast access cache per symbol.** Requests landing inside it run at ~0.03 µs/tick. The cache fills only from live tick flow, not from historical reads — backfilling a fresh symbol never fills it. Live-tail fetches (≤4096 ticks from `now`) hit it every time.
 - Prewarm cost is one extra round trip (~100–120 ms warm, up to ~1 s cold) on the first fetch per symbol per process.
 - First-call cold-symbol 45 s broker sync remains (Phase 13, unchanged).
+
+## Phase 15: MT5 Tick Extraction, Verification & Parsing [COMPLETED]
+
+Ship date: 2026-10-02.
+
+Turns the MT5 Ticks tab from a raw fetch surface into a full tick-to-cache pipeline: fetch raw ticks, verify the fetch against the terminal's own tick database, then parse the tick CSV into standard kline cache that every other tab consumes like any provider dataset.
+
+### Phase 15A -- Verify Range panel [COMPLETED]
+- EA v1.13 adds a `COUNT_TICKS` action: calls `CopyTicksRange` directly and returns `count`, `first_msc`, `last_msc`, `perf_us`. Bypasses the fetch loop entirely; reads from the same tick DB the fetch reads from. `to_msc` is exclusive.
+- `Mt5TickService.CountTicksAsync(symbol, fromMsc, toMsc, ct)` — sends the request, parses `Mt5CountResult`, logs the wall time and the adaptive timeout used.
+- **Adaptive timeout**: `Mt5TimeoutMs + min(spanDays, 90) × 3000 ms`. The default 15 s is sized for 20k-tick fetch batches and falsely times out on multi-day range queries; a 30-day query takes ~44 s and would have been dropped. The +3 s/day scaling covers the range up to a 90-day cap.
+- `Mt5CountResult` record — `Count`, `FirstMsc`, `LastMsc`, `PerfUs`.
+- `Mt5TickView` gains a collapsible Verify Range `Expander` with:
+  - `From` / `To` text inputs in `YYYY/MM/DD HH:MM:SS[.mmm]` (accepts `-`, `.`, `/` as date separators).
+  - `UTC offset` NumericUpDown (±0.5 h steps) so the entered strings can be declared in any timezone.
+  - Live resolved preview: From/To in UTC and a Span formatted as `Nd Nh Nm Ns`.
+  - `Load Last Fetch Range` — fills From/To from the last fetch's `[fromMsc, endMsc + 1)` window.
+  - `Verify` — calls `CountTicksAsync`, prints count + first/last tick deltas, compares against the last fetch's tick count with ✓ MATCH / ✗ MISMATCH in green/red.
+  - `Apply to Fetch` — copies the range into the fetch parameters. Symbol and Batch size preserved; `LookbackHours` computed as ceil hours back from now; `TargetTicks` sized from the verified count with 1% headroom (min +1000, cap 50M).
+
+### Phase 15B -- CSV → cache parsing [COMPLETED]
+- `Mt5TickView` becomes a `TabControl` with two subtabs: **Extraction** (existing fetch + verify) and **Parsing**.
+- Parsing subtab: CSV file picker rooted at `data/ticks/` (via `StorageProvider.OpenFilePickerAsync`), timeframe ComboBox (`TimeframeMap.All`), `Parse to Cache` button, progress bar, status line.
+- `Mt5TickViewModel.ParseCsv` runs the whole parse inside `Task.Run` — CPU-bound, background thread, no UI thread re-entry. Progress marshalled via `IProgress<T>`.
+- `ParseCsvCore`: 64 KB buffered `FileStream` with `FileOptions.SequentialScan`; span-based tick-line parser (`TryParseTickLine`) avoids per-token substring allocations; `CultureInfo.InvariantCulture` on both parses.
+- **Bucketing** (`GetBucketStart`): epoch-relative for every intraday timeframe — `(timeMsc / tfMs) * tfMs`. Fixes the 45m case, which the previous per-hour anchoring broke (alternating 45- and 15-minute bars at hour boundaries). `1D` = UTC midnight; `1W` = ISO Monday UTC. Daily/weekly bars are UTC-aligned, which differs from MT5's server-day boundary (typically GMT+2/3 on OANDA) — documented limitation.
+- **Zero-bid tick handling**: ticks with `bid <= 0` are dropped (forex/metals ticks carry `bid=0` on the broker's daily opening tick) and logged. Up to 10,000 are retained for the log message; >25 collapses to a count-only Warn.
+- Saves via `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`. The dataset appears in the Data tab with `source = "MT5 Parsed"` and is immediately usable by the Chart, Runner, and Monte Carlo tabs.
+- OHLCV built from `Bid`; `Volume` = tick count in the bucket. Symbol taken from the CSV filename before the first `_`.
+
+### Phase 15C -- Grid cap and Populate Grid toggle [COMPLETED]
+- `Mt5TickViewModel.MaxGridRows = 100_000`. Once the DataGrid hits the cap, `PopulateGrid` auto-unchecks and the grid stops growing. CSV streaming continues through the channel, so no data is lost — the CSV has every tick.
+- `PopulateGrid` checkbox in the Extraction toolbar. Uncheck before a large fetch to skip the DataGrid bulk-inserts entirely; the fetch proceeds identically.
+- `OnTargetTicksChanged` auto-unchecks `PopulateGrid` when `TargetTicks > 500_000` and shows a banner explaining why. Guards against the user typing a huge number and forgetting the checkbox.
+- `GridCapText` banner above the DataGrid announces the cap or the auto-disable reason. Hidden when empty.
+- Root cause of the pre-cap freeze: `RangeObservableCollection.AddRange` raises one `NotifyCollectionChangedAction.Reset` per batch, and Avalonia's `DataGrid` re-evaluates the whole collection on every Reset. At 20M+ rows that saturates the UI thread, which backs up `Progress`/`Logged` dispatches and inflates fetch RTT (measured: 1.3 s → 3.1 s over a 20M-tick fetch). Capping at 100k keeps the UI thread idle throughout.

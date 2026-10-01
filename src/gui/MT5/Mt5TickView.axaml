@@ -2,12 +2,16 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
+             xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base"
              x:Class="backs2.Views.Mt5TickView"
              x:DataType="vm:Mt5TickViewModel">
     <TabControl>
-        <!-- EXTRACTION SUBTAB -->
+        <!-- ═══════════════════════════════════════════════════════════
+             EXTRACTION SUBTAB
+             ═══════════════════════════════════════════════════════════ -->
         <TabItem Header="Extraction">
-            <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+            <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+
                 <!-- Row 0: connection status -->
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
                     <Button Content="Ping" Command="{Binding PingCommand}" Padding="12,4"/>
@@ -41,8 +45,8 @@
                                    ShowButtonSpinner="False" Width="110"/>
                     <TextBlock Text="(per request)" VerticalAlignment="Center"
                                Foreground="DimGray" FontSize="11"/>
-                    
-                    <CheckBox IsChecked="{Binding PopulateGrid}" Content="Populate Grid" 
+
+                    <CheckBox IsChecked="{Binding PopulateGrid}" Content="Populate Grid"
                               VerticalAlignment="Center" Margin="10,0,0,0"
                               ToolTip.Tip="Uncheck for large fetches to prevent UI freezing (streaming to CSV continues)"/>
                 </StackPanel>
@@ -68,7 +72,7 @@
                 <Expander Grid.Row="3" Header="Verify Range" Margin="0,10,0,0"
                           IsExpanded="{Binding IsVerifyExpanded}">
                     <Border Padding="10,8" BorderThickness="1,0,0,0" BorderBrush="#333">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                               ColumnDefinitions="Auto,220,Auto">
                             <!-- From -->
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="From:"
@@ -127,8 +131,16 @@
                     </Border>
                 </Expander>
 
-                <!-- Row 4: grid -->
-                <DataGrid Grid.Row="4" ItemsSource="{Binding Ticks}"
+                <!-- Row 4: grid cap banner (visible only when capped) -->
+                <TextBlock Grid.Row="4"
+                           Text="{Binding GridCapText}"
+                           Foreground="#FFB74D" FontSize="11" Margin="0,6,0,0"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding GridCapText,
+                                       Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}"/>
+
+                <!-- Row 5: grid -->
+                <DataGrid Grid.Row="5" ItemsSource="{Binding Ticks}"
                           AutoGenerateColumns="False"
                           IsReadOnly="True"
                           Margin="0,10,0,0">
@@ -151,38 +163,49 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <!-- Row 5: terminal info -->
-                <TextBlock Grid.Row="5" Text="{Binding TerminalInfoText}"
+                <!-- Row 6: terminal info -->
+                <TextBlock Grid.Row="6" Text="{Binding TerminalInfoText}"
                            FontFamily="Consolas" FontSize="11" Foreground="Gray"
                            TextWrapping="Wrap" Margin="0,10,0,0"/>
             </Grid>
         </TabItem>
 
-        <!-- PARSING SUBTAB -->
+        <!-- ═══════════════════════════════════════════════════════════
+             PARSING SUBTAB
+             ═══════════════════════════════════════════════════════════ -->
         <TabItem Header="Parsing">
             <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-                
+
+                <!-- Row 0: file picker -->
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
                     <Button Content="Select MT5 CSV..." Click="OnSelectCsvClicked" Padding="12,4"/>
-                    <TextBox Text="{Binding ParseFilePath}" Width="400" VerticalAlignment="Center" IsReadOnly="True" />
+                    <TextBox Text="{Binding ParseFilePath}" Width="400"
+                             VerticalAlignment="Center" IsReadOnly="True"/>
                 </StackPanel>
 
+                <!-- Row 1: timeframe + parse action -->
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,15,0,0">
                     <TextBlock Text="Target Timeframe:" VerticalAlignment="Center"/>
-                    <ComboBox ItemsSource="{Binding Timeframes}" SelectedItem="{Binding ParseTimeframe}" Width="80"/>
-                    
-                    <Button Content="Parse to Cache" Command="{Binding ParseCsvCommand}" Padding="12,4" Margin="10,0,0,0"/>
+                    <ComboBox ItemsSource="{Binding Timeframes}"
+                              SelectedItem="{Binding ParseTimeframe}" Width="80"/>
+
+                    <Button Content="Parse to Cache" Command="{Binding ParseCsvCommand}"
+                            Padding="12,4" Margin="10,0,0,0"/>
                 </StackPanel>
 
-                <ProgressBar Grid.Row="2" Value="{Binding ParseProgress}" Minimum="0" Maximum="100" 
+                <!-- Row 2: progress -->
+                <ProgressBar Grid.Row="2" Value="{Binding ParseProgress}" Minimum="0" Maximum="100"
                              Height="14" Width="400" HorizontalAlignment="Left" Margin="0,15,0,0"/>
-                
-                <TextBlock Grid.Row="3" Text="{Binding ParseStatusText}" 
+
+                <!-- Row 3: status -->
+                <TextBlock Grid.Row="3" Text="{Binding ParseStatusText}"
                            Margin="0,8,0,0" Foreground="Gray" TextWrapping="Wrap"/>
 
-                <TextBlock Grid.Row="4" Margin="0,20,0,0" Foreground="DimGray" TextWrapping="Wrap" VerticalAlignment="Top">
-                    Parsing builds standard Klines (OHLCV) using the Bid price. Volume represents Tick count. 
-                    Once parsed, the dataset will be instantly available in the Data tab (search for "MT5 Parsed" as the provider) 
+                <!-- Row 4: help text -->
+                <TextBlock Grid.Row="4" Margin="0,20,0,0"
+                           Foreground="DimGray" TextWrapping="Wrap" VerticalAlignment="Top">
+                    Parsing builds standard Klines (OHLCV) using the Bid price. Volume represents Tick count.
+                    Once parsed, the dataset will be instantly available in the Data tab (search for "MT5 Parsed" as the provider)
                     and can be used in Charting, Monte Carlo, and Backtesting.
                 </TextBlock>
             </Grid>
