@@ -51,3 +51,13 @@ public record Mt5FetchProgress(
     double EtaSeconds = 0,
     int CurrentChunk = 0,
     int TotalChunks = 0);
+
+/// <summary>
+/// Result of an EA-side CopyTicksRange ground-truth query.
+/// Produced by the COUNT_TICKS action.
+/// </summary>
+public record Mt5CountResult(
+    int Count,
+    long FirstMsc,
+    long LastMsc,
+    long PerfUs);

@@ -7,7 +7,7 @@
 //|  sides if you change the port.                                    |
 //+------------------------------------------------------------------+
 #property copyright "backs2"
-#property version   "1.12"
+#property version   "1.13"
 #property description "Connects to the backs2 C# server and serves raw MqlTick data"
 #property strict
 
@@ -27,7 +27,7 @@ bool   g_timerLogged = false;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print(">>> Backs2TickBridge v1.12: OnInit ENTRY");
+   Print(">>> Backs2TickBridge v1.13: OnInit ENTRY");
    if(!ConnectToServer())
       Print(">>> Backs2TickBridge: initial connection failed, will retry in OnTimer");
    else
@@ -128,6 +128,8 @@ void ProcessRequest(string json)
       SendResponse(id, "\"status\":\"OK\"");
    else if(action == "GET_TICKS")
       HandleGetTicks(id, json);
+   else if(action == "COUNT_TICKS")
+      HandleCountTicks(id, json);
    else if(action == "PREWARM")
       HandlePrewarm(id, json);
    else if(action == "GET_TERMINAL_INFO")
@@ -191,26 +193,79 @@ void HandlePrewarm(string id, string json)
 }
 
 //+------------------------------------------------------------------+
+// COUNT_TICKS (v1.13):
+//   Ground-truth verification. Uses CopyTicksRange — the same data
+//   the C# fetch reads from, but queried directly by the terminal.
+//   Returns the total tick count in [from_msc, to_msc), plus the
+//   actual first/last timestamps so the caller can see how far the
+//   returned range sits inside the requested one.
+//
+//   Payload is small (<200 bytes), so the string-concat path used by
+//   SendResponse is fine here — no need for the byte-buffer hot path.
+//+------------------------------------------------------------------+
+void HandleCountTicks(string id, string json)
+{
+   string symbol  = JsonGetString(json, "symbol");
+   long   fromMsc = JsonGetLong(json, "from_msc");
+   long   toMsc   = JsonGetLong(json, "to_msc");
+
+   if(symbol == "")
+   {
+      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"Missing symbol\"");
+      return;
+   }
+   if(toMsc <= fromMsc)
+   {
+      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"to_msc must be > from_msc\"");
+      return;
+   }
+
+   MqlTick ticks[];
+   ulong t0 = GetMicrosecondCount();
+   int count = CopyTicksRange(symbol, ticks, COPY_TICKS_ALL,
+                              (ulong)fromMsc, (ulong)toMsc);
+   ulong perfUs = GetMicrosecondCount() - t0;
+   int err = GetLastError();
+
+   if(count <= 0)
+   {
+      string body = "\"status\":\"ERROR\",\"message\":\"CopyTicksRange returned ";
+      body += IntegerToString(count);
+      body += ", error ";
+      body += IntegerToString(err);
+      body += "\"";
+      SendResponse(id, body);
+      return;
+   }
+
+   long firstMsc = (long)ticks[0].time_msc;
+   long lastMsc  = (long)ticks[count - 1].time_msc;
+
+   string body = "\"status\":\"OK\",\"count\":";
+   body += IntegerToString(count);
+   body += ",\"first_msc\":";
+   body += IntegerToString(firstMsc);
+   body += ",\"last_msc\":";
+   body += IntegerToString(lastMsc);
+   body += ",\"perf_us\":";
+   body += IntegerToString((long)perfUs);
+   SendResponse(id, body);
+}
+
+//+------------------------------------------------------------------+
 // v1.12: correct handling of ticks that share a millisecond at slice
 // boundaries.
 //
 // CopyTicks(from_msc, count) is INCLUSIVE: it returns ticks with
-// time_msc >= from_msc. That means after a slice that ends with K
-// ticks at time T, the next CopyTicks(from=T) call re-emits ALL ticks
-// at time T — the K we already had, plus any that didn't fit in the
-// previous slice's count cap.
+// time_msc >= from_msc. After a slice that ends with K ticks at time
+// T, the next CopyTicks(from=T) call re-emits ALL ticks at time T.
 //
-// v1.11 used cursor = lastMsc but dropped only the FIRST re-emitted
-// tick, leaving K-1 duplicates per boundary. Measured: 914 extra ticks
-// across 48 boundaries of a 962k-tick fetch (~19 dupes per boundary,
-// avg ~2 ticks per millisecond at boundary times).
+// v1.11 dropped only the FIRST re-emitted tick, leaving K-1 dupes per
+// boundary. Measured: +914 extra ticks across 48 boundaries in a 962k
+// fetch (~2 ticks per ms at boundary times).
 //
 // v1.12 tracks the trailing same-ms count on each slice and skips
-// exactly that many leading ticks on the next slice. Mathematical
-// property: if the DB has N ticks at time T, and slice K captured K0
-// of them (the first K0 in DB order), skipping K0 on slice K+1 gives
-// exactly N-K0 new ticks — total emitted across K and K+1 at time T
-// equals N. Correct.
+// exactly that many leading ticks on the next slice.
 //+------------------------------------------------------------------+
 void HandleGetTicks(string id, string json)
 {
@@ -264,7 +319,6 @@ void HandleGetTicks(string id, string json)
          break;
       }
 
-      // Skip the leading re-emission of the previous slice's same-ms tail.
       int startIdx = 0;
       if(lastTimeMsc >= 0 && lastTimeTrailing > 0)
       {
@@ -281,7 +335,6 @@ void HandleGetTicks(string id, string json)
       int newCount = copied - startIdx;
       if(newCount <= 0)
       {
-         // Entire slice was duplicate — advance past this millisecond.
          cursor = (ulong)temp[copied - 1].time_msc + 1;
          if(copied < thisBatch) { endOfHist = true; break; }
          continue;
@@ -293,7 +346,6 @@ void HandleGetTicks(string id, string json)
       ArrayCopy(collected, temp, total, startIdx, take);
       total += take;
 
-      // Trailing same-ms count on the emitted portion of this slice.
       long sliceLastTime = (long)temp[copied - 1].time_msc;
       int sliceTrailing = 0;
       for(int i = copied - 1; i >= startIdx; i--)

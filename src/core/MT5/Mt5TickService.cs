@@ -18,17 +18,11 @@ public class Mt5TickService
     private readonly HashSet<string> _warmedSymbols = new(StringComparer.Ordinal);
     private readonly object _warmedLock = new();
 
-    // Dedupe state across batches. The EA now uses an inclusive cursor
-    // (from_msc = last tick's time_msc) and internally skips leading
-    // duplicates, but the top-level boundary is still re-emitted by the
-    // EA — the first request of a new batch carries the previous batch's
-    // last-tick time, and the EA re-sends every tick at that ms.
-    //
-    // _lastEmittedTimeMsc — time_msc of the last tick emitted by the
-    //     previous batch.
-    // _lastEmittedTrailing — number of consecutive ticks at that same
-    //     time_msc at the tail of the previous batch (post-dedupe). This
-    //     is exactly how many leading ticks to drop from the next batch.
+    // Dedupe state across batches. The EA sends next_from_msc = lastMsc
+    // (inclusive), so the boundary tick repeats at the head of every batch
+    // after the first. _lastEmittedTrailing is the count of consecutive
+    // same-ms ticks at the tail of the previous batch — exactly how many
+    // leading ticks to drop from the next batch.
     private long _lastEmittedTimeMsc = -1;
     private int  _lastEmittedTrailing = 0;
 
@@ -103,6 +97,77 @@ public class Mt5TickService
         catch (Exception ex)
         {
             LogManager.Warn(LogTag.Provider, $"MT5: prewarm '{key}' response parse failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Ground-truth tick count for [fromMsc, toMsc) via the EA's COUNT_TICKS
+    /// action, which calls CopyTicksRange directly. Bypasses the fetch loop
+    /// entirely — used to verify a completed fetch against MT5's own DB.
+    ///
+    /// Timeout scales with the requested span. CopyTicksRange on the MT5
+    /// side runs at ~450k ticks/sec; a 24h GOLD.pro window carries ~1M
+    /// ticks. The default 15s per-request timeout is sized for 20k-tick
+    /// fetch batches and will falsely time out on anything wider than a
+    /// few days. We add 3s per calendar day of span on top of the
+    /// configured timeout, capped at 90 days.
+    /// </summary>
+    public async Task<Mt5CountResult?> CountTicksAsync(
+        string symbol, long fromMsc, long toMsc, CancellationToken ct)
+    {
+        string key = symbol?.Trim() ?? "";
+        if (key.Length == 0) return null;
+        if (toMsc <= fromMsc) return null;
+        if (!_server.IsClientConnected) return null;
+
+        long spanMs = toMsc - fromMsc;
+        long spanDaysCeil = (spanMs + 86_399_999L) / 86_400_000L;
+        long extraMs = Math.Min(spanDaysCeil, 90L) * 3000L;
+        int adaptiveTimeoutMs = _config.Settings.Mt5TimeoutMs + (int)extraMs;
+
+        string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}";
+        var sw = Stopwatch.StartNew();
+        var response = await _server.SendRequestAsync(
+            "COUNT_TICKS", extra, adaptiveTimeoutMs, ct);
+        sw.Stop();
+
+        if (response == null)
+        {
+            LogManager.Warn(LogTag.Provider,
+                $"MT5: COUNT_TICKS '{key}' — no response after {sw.ElapsedMilliseconds}ms (timeout was {adaptiveTimeoutMs}ms)");
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(response);
+            var root = doc.RootElement;
+
+            var status = root.TryGetProperty("status", out var st) ? st.GetString() : null;
+            if (status != "OK")
+            {
+                var msg = root.TryGetProperty("message", out var m) ? m.GetString() : status;
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: COUNT_TICKS '{key}' — EA returned status='{status}' message='{msg}'");
+                return null;
+            }
+
+            var result = new Mt5CountResult(
+                root.GetProperty("count").GetInt32(),
+                root.GetProperty("first_msc").GetInt64(),
+                root.GetProperty("last_msc").GetInt64(),
+                root.GetProperty("perf_us").GetInt64());
+
+            LogManager.Info(LogTag.Provider,
+                $"MT5: COUNT_TICKS '{key}' [{fromMsc}..{toMsc}) — {result.Count} ticks " +
+                $"in {result.PerfUs / 1000.0:F1}ms (wall {sw.ElapsedMilliseconds}ms, timeout {adaptiveTimeoutMs}ms)");
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5: COUNT_TICKS parse failed", ex);
+            return null;
         }
     }
 
@@ -227,11 +292,6 @@ public class Mt5TickService
 
                 rawBatchCount = batchTicks.Count;
 
-                // Drop leading re-emissions of the previous batch's same-ms
-                // tail. The EA sends next_from_msc = last tick's time_msc
-                // (inclusive), so the next batch re-emits every tick at that
-                // ms. We already recorded how many of them were in the
-                // previous batch's tail — drop exactly that many.
                 if (_lastEmittedTimeMsc >= 0
                     && _lastEmittedTrailing > 0
                     && batchTicks.Count > 0)
@@ -253,8 +313,6 @@ public class Mt5TickService
                     }
                 }
 
-                // Record the new tail: the last tick's time_msc, and how many
-                // consecutive ticks share that time_msc at the end.
                 if (batchTicks.Count > 0)
                 {
                     long lastTime = batchTicks[^1].TimeMsc;
@@ -327,10 +385,6 @@ public class Mt5TickService
 
                 cursor = nextFrom;
 
-                // Broker-ran-out-of-history check uses the RAW count from
-                // the EA (before our dedupe). A short raw batch means
-                // CopyTicks returned fewer ticks than requested — end of
-                // available history.
                 if (rawBatchCount < batchSize)
                     break;
             }

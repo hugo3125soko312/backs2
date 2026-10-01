@@ -1,3 +1,5 @@
+// src/gui/MT5/Mt5TickViewModel.cs
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
@@ -5,6 +7,8 @@ using backs2.Core.MT5;
 using backs2.Core.Writers;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -13,15 +17,12 @@ namespace backs2.ViewModels;
 
 public partial class Mt5TickViewModel : ObservableObject
 {
-    // ── Fetch settings (all in the tab, nothing in the MT5 script) ──
+    // ── Fetch settings ──────────────────────────────────────────────
     [ObservableProperty] private string _symbol = "GOLD.pro";
     [ObservableProperty] private int    _lookbackHours = 24;
     [ObservableProperty] private int    _targetTicks = 5000;
-
-    // Batch size per TCP request. The EA (v1.08) loops CopyTicks internally
-    // to satisfy this — the MQL5 2000-tick-per-call cap no longer binds the
-    // C# side. Larger = fewer round trips, chunkier UI updates.
     [ObservableProperty] private int    _chunkSize = 20000;
+    [ObservableProperty] private bool   _populateGrid = true;
 
     // ── Display state ───────────────────────────────────────────────
     [ObservableProperty] private string _statusText = "Not connected.";
@@ -39,11 +40,34 @@ public partial class Mt5TickViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(FetchTicksCommand))]
     [NotifyCanExecuteChangedFor(nameof(GetTerminalInfoCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(VerifyRangeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyToFetchCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isFetching;
+
+    // ── Verify panel state ──────────────────────────────────────────
+    [ObservableProperty] private bool   _isVerifyExpanded = false;
+    [ObservableProperty] private string _verifyFrom = "";
+    [ObservableProperty] private string _verifyTo = "";
+    [ObservableProperty] private double _verifyUtcOffsetHours = 0.0;
+    [ObservableProperty] private string _verifyResolvedText = "";
+    [ObservableProperty] private string _verifyStatusText = "";
+    [ObservableProperty] private string _verifyComparisonText = "";
+    [ObservableProperty] private IBrush _verifyComparisonBrush = Brushes.Gray;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LoadLastFetchRangeCommand))]
+    private bool _hasLastFetch;
+
+    private long _lastFetchFromMsc = 0;
+    private long _lastFetchEndMsc  = 0;
+    private int  _lastFetchCount   = 0;
+
+    // Populated by VerifyRange; consumed by ApplyToFetch to size TargetTicks.
+    private int _lastVerifyCount = 0;
 
     public RangeObservableCollection<Mt5Tick> Ticks { get; } = new();
 
@@ -60,6 +84,7 @@ public partial class Mt5TickViewModel : ObservableObject
 
     private bool CanRunIdle() => !IsBusy;
 
+    // ── Ping ────────────────────────────────────────────────────────
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task Ping()
     {
@@ -81,12 +106,10 @@ public partial class Mt5TickViewModel : ObservableObject
                 StatusText  = $"Disconnected — {result.Error}";
             }
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
+    // ── Fetch ───────────────────────────────────────────────────────
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task FetchTicks()
     {
@@ -108,15 +131,15 @@ public partial class Mt5TickViewModel : ObservableObject
         Mt5TickStreamWriter? writer = null;
         Channel<IReadOnlyList<Mt5Tick>>? channel = null;
         Task? flushTask = null;
+        
+        int trackedFetched = 0;
+        long trackedLastMsc = 0;
 
         try
         {
             writer = await Mt5TickStreamWriter.OpenAsync(Symbol);
             var localWriter = writer;
 
-            // Bounded channel decouples the socket read loop from disk I/O.
-            // 64 slots × ~20k ticks × 52 B ≈ 66 MB worst case, but in
-            // practice the reader keeps up and the queue never fills.
             channel = Channel.CreateBounded<IReadOnlyList<Mt5Tick>>(
                 new BoundedChannelOptions(64)
                 {
@@ -143,10 +166,11 @@ public partial class Mt5TickViewModel : ObservableObject
 
             var progress = new Progress<Mt5FetchProgress>(p =>
             {
+                trackedFetched = p.Fetched;
                 FetchProgress = p.Percent;
                 FetchProgressText = $"{p.Fetched} / {p.Total}";
                 FetchEtaText = p.EtaSeconds > 0
-                    ? $"ETA {FormatEta(p.EtaSeconds)}"
+                    ? $"ETA {FormatDuration((long)(p.EtaSeconds * 1000))}"
                     : "ETA —";
                 FetchSpeedText = p.TicksPerSecond > 0
                     ? $"{p.TicksPerSecond:F0} t/s"
@@ -156,7 +180,15 @@ public partial class Mt5TickViewModel : ObservableObject
                     : p.Phase;
 
                 if (p.NewTicks != null && p.NewTicks.Count > 0)
-                    Ticks.AddRange(p.NewTicks);
+                {
+                    trackedLastMsc = p.NewTicks[p.NewTicks.Count - 1].TimeMsc;
+                    if (PopulateGrid)
+                    {
+                        // Prevent UI freeze / OOM by capping the grid size even if checked
+                        if (Ticks.Count > 100_000) Ticks.Clear();
+                        Ticks.AddRange(p.NewTicks);
+                    }
+                }
             });
 
             var ct = _cts.Token;
@@ -170,10 +202,19 @@ public partial class Mt5TickViewModel : ObservableObject
             await writer.CompleteAsync();
 
             FetchProgress = 100;
-            FetchProgressText = $"{Ticks.Count} / {Ticks.Count}";
+            FetchProgressText = $"{trackedFetched} / {trackedFetched}";
             FetchEtaText = "";
             FetchSpeedText = "";
-            StatusText = $"Loaded {Ticks.Count} ticks → {writer.Path}";
+            StatusText = $"Loaded {trackedFetched} ticks → {writer.Path}";
+            if (!PopulateGrid) StatusText += " (Grid disabled)";
+
+            if (trackedFetched > 0)
+            {
+                _lastFetchFromMsc = fromMsc;
+                _lastFetchEndMsc  = trackedLastMsc;
+                _lastFetchCount   = trackedFetched;
+                HasLastFetch = true;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -211,6 +252,7 @@ public partial class Mt5TickViewModel : ObservableObject
         }
     }
 
+    // ── Terminal info ───────────────────────────────────────────────
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task GetTerminalInfo()
     {
@@ -233,12 +275,10 @@ public partial class Mt5TickViewModel : ObservableObject
                 $"Leverage:    1:{info.Leverage}\n" +
                 $"Server time: {info.ServerTimeUtc:yyyy-MM-dd HH:mm:ss} UTC";
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
+    // ── Save CSV ────────────────────────────────────────────────────
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task SaveCsv()
     {
@@ -258,10 +298,7 @@ public partial class Mt5TickViewModel : ObservableObject
         {
             StatusText = $"Save failed: {ex.Message}";
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
     private bool CanStop() => IsFetching;
@@ -269,11 +306,296 @@ public partial class Mt5TickViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop() => _cts?.Cancel();
 
-    private static string FormatEta(double seconds)
+    // ── Verify panel ────────────────────────────────────────────────
+    partial void OnVerifyFromChanged(string value) => UpdateResolvedPreview();
+    partial void OnVerifyToChanged(string value) => UpdateResolvedPreview();
+    partial void OnVerifyUtcOffsetHoursChanged(double value) => UpdateResolvedPreview();
+
+    private bool CanLoadLastFetchRange() => HasLastFetch;
+
+    [RelayCommand(CanExecute = nameof(CanLoadLastFetchRange))]
+    private void LoadLastFetchRange()
     {
-        if (seconds < 1)     return "<1s";
-        if (seconds < 60)    return $"{seconds:F0}s";
-        if (seconds < 3600)  return $"{seconds / 60.0:F1}m";
-        return $"{seconds / 3600.0:F1}h";
+        if (!HasLastFetch) return;
+        VerifyFrom = FormatMscForOffset(_lastFetchFromMsc, VerifyUtcOffsetHours);
+        VerifyTo   = FormatMscForOffset(_lastFetchEndMsc + 1, VerifyUtcOffsetHours);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunIdle))]
+    private async Task VerifyRange()
+    {
+        if (!TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom))
+        {
+            VerifyStatusText = $"From parse error: {errFrom}";
+            VerifyComparisonText = "";
+            VerifyComparisonBrush = Brushes.OrangeRed;
+            return;
+        }
+        if (!TryParseTimestamp(VerifyTo, VerifyUtcOffsetHours, out long toMsc, out string errTo))
+        {
+            VerifyStatusText = $"To parse error: {errTo}";
+            VerifyComparisonText = "";
+            VerifyComparisonBrush = Brushes.OrangeRed;
+            return;
+        }
+        if (toMsc <= fromMsc)
+        {
+            VerifyStatusText = "Range is empty or inverted (To must be > From).";
+            VerifyComparisonText = "";
+            VerifyComparisonBrush = Brushes.OrangeRed;
+            return;
+        }
+
+        VerifyStatusText = "Querying MT5...";
+        VerifyComparisonText = "";
+
+        try
+        {
+            var result = await _service.CountTicksAsync(Symbol, fromMsc, toMsc, CancellationToken.None);
+            if (result == null)
+            {
+                VerifyStatusText = "No response from MT5 EA.";
+                VerifyComparisonBrush = Brushes.OrangeRed;
+                return;
+            }
+
+            _lastVerifyCount = result.Count;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"MT5 count:  {result.Count:N0}");
+
+            long firstDelta = result.FirstMsc - fromMsc;
+            long lastDelta  = toMsc - result.LastMsc;
+            sb.AppendLine($"First tick: {FormatUtc(result.FirstMsc)}  (+{FormatDuration(firstDelta)} into range)");
+            sb.AppendLine($"Last tick:  {FormatUtc(result.LastMsc)}  ({FormatDuration(lastDelta)} before end)");
+
+            if (HasLastFetch)
+            {
+                if (result.Count == _lastFetchCount)
+                {
+                    sb.AppendLine($"✓ MATCH — last fetch returned {_lastFetchCount:N0} ticks");
+                    VerifyComparisonBrush = Brushes.LimeGreen;
+                }
+                else
+                {
+                    long diff = (long)result.Count - _lastFetchCount;
+                    string sign = diff > 0 ? "+" : "";
+                    sb.AppendLine($"✗ MISMATCH — last fetch returned {_lastFetchCount:N0}, delta {sign}{diff:N0}");
+                    VerifyComparisonBrush = Brushes.OrangeRed;
+                }
+            }
+            else
+            {
+                sb.AppendLine("(no fetch to compare against — run a fetch first)");
+                VerifyComparisonBrush = Brushes.Gray;
+            }
+
+            VerifyComparisonText = sb.ToString().TrimEnd();
+            VerifyStatusText = $"Queried in {result.PerfUs / 1000.0:F1} ms";
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5: verify range failed", ex);
+            VerifyStatusText = $"Error: {ex.Message}";
+            VerifyComparisonBrush = Brushes.OrangeRed;
+        }
+    }
+
+    /// <summary>
+    /// Copies the Verify Range's From/To into the Fetch parameters.
+    /// Symbol and Batch size are preserved. Lookback (h) is rounded UP so
+    /// the fetch window always covers the requested range. Target ticks is
+    /// sized from the last Verify result (count + 1% headroom) if one has
+    /// been run; otherwise it is left alone.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRunIdle))]
+    private void ApplyToFetch()
+    {
+        if (!TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom))
+        {
+            VerifyStatusText = $"Cannot apply: From parse error: {errFrom}";
+            return;
+        }
+        if (!TryParseTimestamp(VerifyTo, VerifyUtcOffsetHours, out long toMsc, out string errTo))
+        {
+            VerifyStatusText = $"Cannot apply: To parse error: {errTo}";
+            return;
+        }
+        if (toMsc <= fromMsc)
+        {
+            VerifyStatusText = "Cannot apply: empty or inverted range.";
+            return;
+        }
+
+        long nowMsc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (fromMsc >= nowMsc)
+        {
+            VerifyStatusText = "Cannot apply: From is in the future.";
+            return;
+        }
+
+        // Round UP so the fetch window covers the full requested range.
+        long lookbackMs = nowMsc - fromMsc;
+        int lookbackHours = (int)Math.Ceiling(lookbackMs / 3_600_000.0);
+        if (lookbackHours <= 0) lookbackHours = 1;
+
+        LookbackHours = lookbackHours;
+
+        if (_lastVerifyCount > 0)
+        {
+            // 1% headroom, floor 1000 ticks. The extra accounts for the
+            // fetch's rounded-up lookback window being slightly wider than
+            // the verify window — without it, the fetch could stop early
+            // when TargetTicks is reached just before Verify To.
+            long target = (long)_lastVerifyCount + Math.Max(1000L, _lastVerifyCount / 100L);
+            if (target > 50_000_000L) target = 50_000_000L;
+            TargetTicks = (int)target;
+            
+            // Auto-disable grid population for massive fetches
+            if (TargetTicks > 500_000) PopulateGrid = false;
+
+            VerifyStatusText =
+                $"Applied to fetch — Lookback = {lookbackHours} h, Target = {TargetTicks:N0}. " +
+                "Symbol and batch size unchanged.";
+        }
+        else
+        {
+            VerifyStatusText =
+                $"Applied to fetch — Lookback = {lookbackHours} h. " +
+                "Target ticks unchanged (run Verify first to auto-size it). " +
+                "Symbol and batch size unchanged.";
+        }
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────
+    private void UpdateResolvedPreview()
+    {
+        if (string.IsNullOrWhiteSpace(VerifyFrom) && string.IsNullOrWhiteSpace(VerifyTo))
+        {
+            VerifyResolvedText = "";
+            return;
+        }
+
+        bool okFrom = TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom);
+        bool okTo   = TryParseTimestamp(VerifyTo,   VerifyUtcOffsetHours, out long toMsc,   out string errTo);
+
+        if (!okFrom || !okTo)
+        {
+            VerifyResolvedText = okFrom
+                ? $"To: {errTo}"
+                : $"From: {errFrom}";
+            return;
+        }
+
+        long spanMs = toMsc - fromMsc;
+
+        VerifyResolvedText =
+            $"From:  {FormatUtc(fromMsc)}\n" +
+            $"To:    {FormatUtc(toMsc)}\n" +
+            (spanMs > 0 ? $"Span:  {FormatDuration(spanMs)}" : "Span:  (invalid — To must be > From)");
+    }
+
+    private static bool TryParseTimestamp(string s, double utcOffsetHours, out long msc, out string err)
+    {
+        msc = 0;
+        err = "";
+
+        if (string.IsNullOrWhiteSpace(s)) { err = "empty"; return false; }
+
+        var trimmed = s.Trim();
+        int spaceIdx = trimmed.IndexOf(' ');
+        if (spaceIdx < 0) { err = "missing space between date and time"; return false; }
+
+        var datePart = trimmed.Substring(0, spaceIdx).Replace('-', '/').Replace('.', '/');
+        var timePart = trimmed.Substring(spaceIdx + 1).Trim();
+
+        var dp = datePart.Split('/');
+        if (dp.Length != 3) { err = "date must be YYYY/MM/DD"; return false; }
+
+        if (!int.TryParse(dp[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int year) ||
+            !int.TryParse(dp[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int month) ||
+            !int.TryParse(dp[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int day))
+        { err = "date components must be numeric"; return false; }
+
+        int ms = 0;
+        int dotIdx = timePart.IndexOf('.');
+        string hmsPart = dotIdx < 0 ? timePart : timePart.Substring(0, dotIdx);
+        if (dotIdx >= 0)
+        {
+            var msStr = timePart.Substring(dotIdx + 1);
+            while (msStr.Length < 3) msStr += "0";
+            if (msStr.Length > 3) msStr = msStr.Substring(0, 3);
+            if (!int.TryParse(msStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ms))
+            { err = "ms fraction must be numeric"; return false; }
+        }
+
+        var tp = hmsPart.Split(':');
+        if (tp.Length != 3) { err = "time must be HH:MM:SS[.mmm]"; return false; }
+
+        if (!int.TryParse(tp[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int hour) ||
+            !int.TryParse(tp[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int minute) ||
+            !int.TryParse(tp[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int second))
+        { err = "time components must be numeric"; return false; }
+
+        if (year < 1970 || year > 9999) { err = "year out of range"; return false; }
+        if (month < 1 || month > 12)    { err = "month out of range"; return false; }
+        if (day < 1 || day > 31)        { err = "day out of range"; return false; }
+        if (hour < 0 || hour > 23)      { err = "hour out of range"; return false; }
+        if (minute < 0 || minute > 59)  { err = "minute out of range"; return false; }
+        if (second < 0 || second > 59)  { err = "second out of range"; return false; }
+
+        try
+        {
+            var dt  = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified);
+            var dto = new DateTimeOffset(dt, TimeSpan.FromHours(utcOffsetHours));
+            msc = dto.ToUnixTimeMilliseconds() + ms;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            err = ex.Message;
+            return false;
+        }
+    }
+
+    private static string FormatUtc(long msc)
+        => DateTimeOffset.FromUnixTimeMilliseconds(msc)
+           .UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + " UTC";
+
+    private static string FormatMscForOffset(long msc, double offsetHours)
+    {
+        var dto = DateTimeOffset.FromUnixTimeMilliseconds(msc);
+        var shifted = dto.ToOffset(TimeSpan.FromHours(offsetHours));
+        return shifted.ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Human-readable duration. Leading zero components are dropped:
+    ///   456 ms          -> "456 ms"
+    ///   45804 ms        -> "45.804 s"
+    ///   90000 ms        -> "1 m 30 s"
+    ///   3661000 ms      -> "1 h 1 m 1 s"
+    ///   90061000 ms     -> "1 d 1 h 1 m 1 s"
+    /// </summary>
+    private static string FormatDuration(long ms)
+    {
+        if (ms < 0) return "-" + FormatDuration(-ms);
+        if (ms < 1000) return $"{ms} ms";
+
+        long totalSec = ms / 1000;
+        long fracMs   = ms % 1000;
+        long d = totalSec / 86400; totalSec %= 86400;
+        long h = totalSec / 3600;  totalSec %= 3600;
+        long m = totalSec / 60;    totalSec %= 60;
+        long s = totalSec;
+
+        var parts = new List<string>(4);
+        if (d > 0) parts.Add($"{d} d");
+        if (h > 0) parts.Add($"{h} h");
+        if (m > 0) parts.Add($"{m} m");
+        if (s > 0 || fracMs > 0 || parts.Count == 0)
+            parts.Add(fracMs > 0 ? $"{s}.{fracMs:D3} s" : $"{s} s");
+
+        return string.Join(" ", parts);
     }
 }
