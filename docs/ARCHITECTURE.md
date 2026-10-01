@@ -372,15 +372,19 @@ public sealed record AutomationParameters(
 - Purpose: fetch raw `MqlTick` records from a running MetaTrader 5 terminal over a local TCP bridge. Separate from `IDataProvider` — the shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit the Kline-centric provider contract.
 - Topology (inverted from a typical server-client setup because MQL5 sockets are client-only):
   - **C# side is the TCP server.** `Mt5TickServer` (singleton) owns a `TcpListener` on `127.0.0.1:{Mt5Port}` and accepts exactly one EA connection at a time.
-  - **MT5 side is the TCP client.** `docs/Backs2TickBridge.mq5` (v1.06) is an Expert Advisor that connects out to backs2's listener on `OnInit`, and retries every 3 s if the socket drops.
+  - **MT5 side is the TCP client.** `docs/Backs2TickBridge.mq5` (v1.10) is an Expert Advisor that connects out to backs2's listener on `OnInit`, and retries every 3 s if the socket drops.
 - **Protocol**: newline-delimited JSON over TCP. Every request carries a monotonically increasing `id`; the EA echoes it back in the response so responses are matched to request waiters via a `ConcurrentDictionary<int, TaskCompletionSource<string>>`.
-  - Request: `{"id":N,"action":"PING"}` / `{"id":N,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":0,"count":250}` / `{"id":N,"action":"GET_TERMINAL_INFO"}`.
+  - Request: `{"id":N,"action":"PING"}` / `{"id":N,"action":"PREWARM","symbol":"GOLD.pro","from_msc":0,"count":500}` / `{"id":N,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":0,"count":20000}` / `{"id":N,"action":"GET_TERMINAL_INFO"}`.
   - Response: `{"id":N,"status":"OK",...}` on success, `{"id":N,"status":"ERROR","message":"..."}` on failure.
+  - `GET_TICKS` responses also carry `perf_copy_us` (total microseconds spent inside `CopyTicks`) and `perf_ser_us` (microseconds spent building the JSON payload). The C# fetch log line splits `rtt` into `ea_copy` / `ea_ser` so terminal-side and EA-side costs are separable without re-instrumenting.
+- **EA-side batching (v1.10)**: `CopyTicks` is capped at 2000 ticks per call, but the EA accepts a `count` up to `MAX_REQUEST_TICKS = 50000` and loops internally, chaining via `next_from_msc` inside EA RAM. One TCP round trip carries up to 50000 ticks. Batch size 20000 is the default.
+- **EA serialization (v1.10)**: the response is built into a pre-sized `uchar[]` byte buffer and `SocketSend`'d directly. `AppendStr(uchar &dest[], int &pos, string s)` writes ASCII chars into the array. MQL5 `string` concat primitives (both `+=` and `StringAdd`) reallocate on every append and are O(N²) — measured 39.9 s for a 20,000-tick response in v1.08. The byte-buffer path brings the same payload down to ~14 ms.
+- **Prewarm**: the first `CopyTicks` call for a symbol costs ~2× the warm rate (tick-DB page-in inside the terminal). `Mt5TickService.PrewarmAsync` fires a 500-tick throwaway `PREWARM` request before the real fetch. Idempotent per symbol per process via `HashSet<string> _warmedSymbols`. Never throws; drops from the set on failure so a later fetch retries.
 - Core types (`src/core/MT5/`):
   - `Mt5Tick` — readonly record struct. `TimeMsc`, `Bid`, `Ask`, `Last`, `Volume`, `VolumeReal`, `Flags`. Computed `Timestamp` and `FlagsDisplay` (decodes the MQL5 flag bitmask: Bid=2, Ask=4, Last=8, Vol=16, Buy=32, Sell=64).
   - `Mt5TerminalInfo` — `Company`, `Account`, `Server`, `Currency`, `Leverage`, `ServerTimeUtc`.
   - `Mt5PingResult` — `Success`, `LatencyMs`, `Error`.
-  - `Mt5FetchProgress` — `Fetched`, `Total`, `Phase`, `NewTicks`. `NewTicks` carries each batch so the ViewModel can stream rows into the DataGrid.
+  - `Mt5FetchProgress` — `Fetched`, `Total`, `Phase`, `NewTicks`, plus rolling stats `Percent`, `TicksPerSecond`, `EtaSeconds`, `CurrentChunk`, `TotalChunks`.
 - `Mt5TickServer` (`src/core/MT5/Mt5TickServer.cs`):
   - `Start()` opens the listener on `AppSettings.Mt5Host : AppSettings.Mt5Port`. Called once from `App.OnFrameworkInitializationCompleted`.
   - `Stop()` cancels the accept loop, closes the listener and client. Called by `Dispose`.
@@ -388,27 +392,35 @@ public sealed record AutomationParameters(
   - Read loop accumulates bytes into a `StringBuilder`, splits on `\n`, and dispatches each JSON line to the waiter registered for its `id`. Responses without a matching waiter are logged and dropped (`no waiter for id=N, orphan response dropped`).
 - `Mt5TickService` (`src/core/MT5/Mt5TickService.cs`):
   - `PingAsync(ct)` — round-trip latency.
-  - `FetchTicksAsync(symbol, fromMsc, targetTicks, chunkSize, progress, ct)` — paginates by chunk until `targetTicks` accumulated or the EA returns fewer than requested. Every iteration reports `Mt5FetchProgress` with the batch's `NewTicks` list. Trims `symbol` at the boundary — a stray leading space becomes an unknown symbol to `CopyTicks` and returns error 4401.
+  - `PrewarmAsync(symbol, fromMsc, ct)` — idempotent first-`CopyTicks` page-in.
+  - `FetchTicksAsync(symbol, fromMsc, targetTicks, chunkSize, progress, ct, onBatch)` — paginates by `chunkSize` until `targetTicks` accumulated or the EA returns fewer than requested. `onBatch` is awaited inside the loop — it is the disk-write path and backpressure is deliberate. Every iteration logs `rtt`, `parse`, `batch`, `ea_copy` (with µs/tick), and `ea_ser`.
   - `GetTerminalInfoAsync(ct)`.
   - Never throws. Returns empty list / null on failure. Logs with `LogTag.Provider`. No new tag.
-- `Mt5TickWriter` (`src/core/Writers/Mt5TickWriter.cs`) — the only file in `src/core/Writers/`. The folder exists for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape used by every existing provider; `CacheManager` remains the writer for all Kline data. Writes flat CSV at `data/ticks/{symbol}_{yyyyMMdd-HHmmss}.csv`. Header: `time_msc,bid,ask,last,volume,volume_real,flags`. `data/ticks/` is git-ignored.
+- `Mt5TickWriter` (`src/core/Writers/Mt5TickWriter.cs`) — two writers in one file:
+  - `Mt5TickWriter.WriteAsync(symbol, ticks)` — one-shot CSV at `data/ticks/{symbol}_{yyyyMMdd-HHmmss}.csv`. Used by the tab's **Save CSV** button against the in-memory `Ticks` collection.
+  - `Mt5TickStreamWriter.OpenAsync(symbol)` + `AppendAsync(batch)` + `CompleteAsync()` — streaming writer used during a fetch. `StreamWriter` over a 64 KB async `FileStream`, `AutoFlush=false`. One `WriteAsync` per batch, not per tick.
+  - `data/ticks/` is git-ignored.
+- `src/core/Writers/` is the folder for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape used by every existing provider. `CacheManager` remains the writer for all Kline data.
 - GUI (`src/gui/MT5/`):
-  - `Mt5TickView.axaml` — Grid with five rows: connection toolbar, fetch parameters, action buttons + progress, ticks DataGrid, terminal-info text block.
-  - `Mt5TickViewModel` — `Symbol`, `LookbackHours`, `TargetTicks`, `ChunkSize`, plus display state (`StatusText`, `IsConnected`, `LatencyMs`, `FetchProgress`, `TerminalInfoText`, `ConnectionInfoText`). `Ticks` is an `ObservableCollection<Mt5Tick>`; the progress callback appends each batch as it arrives.
+  - `Mt5TickView.axaml` — Grid with five rows: connection toolbar, fetch parameters, action buttons + progress + speed + ETA, ticks DataGrid, terminal-info text block.
+  - `Mt5TickViewModel` — `Symbol`, `LookbackHours`, `TargetTicks` (default 5000), `ChunkSize` (default 20000, the EA's per-request batch size), plus display state (`StatusText`, `IsConnected`, `LatencyMs`, `FetchProgress`, `FetchProgressText`, `FetchEtaText`, `FetchSpeedText`, `TerminalInfoText`, `ConnectionInfoText`). `Ticks` is a `RangeObservableCollection<Mt5Tick>`.
   - Commands: `PingCommand`, `FetchTicksCommand`, `StopCommand`, `GetTerminalInfoCommand`, `SaveCsvCommand`.
+  - Fetch flow: opens an `Mt5TickStreamWriter`, wires `onBatch` to a bounded `Channel<IReadOnlyList<Mt5Tick>>` (capacity 64), drains it in a background `Task` that writes to the stream writer. The socket read loop never awaits disk I/O. Each progress callback bulk-inserts the batch into `Ticks` via `AddRange` (one `Reset` notification per batch).
+- `RangeObservableCollection<T>` (`src/gui/MT5/RangeObservableCollection.cs`) — `ObservableCollection<T>` subclass with `AddRange(IReadOnlyList<T>)`. Writes to the backing `Items` list, then raises one `NotifyCollectionChangedAction.Reset`. Replaces N per-item `CollectionChanged` events with one; this is what makes 100k+ row DataGrid streaming usable.
 - Tab position: `MainWindow.axaml` places MT5 Ticks between Data Automation and Providers.
 - Configuration (auto-rendered in the Config tab):
   - `Mt5Host` (string, default `"127.0.0.1"`) — bridge host. Changing this also requires editing the `#define BRIDGE_HOST` in `docs/Backs2TickBridge.mq5`.
   - `Mt5Port` (int, default `5555`) — same caveat; edit `#define BRIDGE_PORT` to match.
-  - `Mt5TimeoutMs` (int, default `15000`) — per-request timeout. Must exceed the EA's worst-case serialization time (~5 s for a 2000-tick batch).
-- MT5-side setup requirements:
-  - **Tools → Options → Expert Advisors** must have `Allow algorithmic trading` and `Allow DLL imports` checked, and `Allow WebRequest for listed URL` checked with **`127.0.0.1`** in the list. The WebRequest whitelist governs `SocketCreate`/`SocketConnect` — without the entry, the EA's socket calls fail.
-  - `Disable algorithmic trading when the account has been changed` and `...when the profile has been changed` should be unchecked on OANDA demo — the terminal auto-flips AlgoTrading off on every login when they are enabled.
+  - `Mt5TimeoutMs` (int, default `15000`) — per-request timeout. Must exceed the EA's worst-case wall time for a batched response. A 20000-tick batch at ~50 µs/tick `CopyTicks` + ~14 ms serialization is ~1000 ms; 15000 has headroom. Raise to 60000 for the first fetch of a cold symbol (broker sync).
+- Measured throughput (OANDA demo, `GOLD.pro`, warm symbol): ~49–60 µs/tick inside `CopyTicks`, ~14 ms serialization for 20,000 ticks, ~16,000 ticks/sec end-to-end. The wall is MT5's `CopyTicks`, not the bridge.
+- MT5-side setup requirements (unchanged from Phase 13):
+  - **Tools → Options → Expert Advisors** must have `Allow algorithmic trading` and `Allow DLL imports` checked, and `Allow WebRequest for listed URL` checked with **`127.0.0.1`** in the list. The WebRequest whitelist governs `SocketCreate`/`SocketConnect`.
+  - `Disable algorithmic trading when the account has been changed` and `...when the profile has been changed` should be unchecked on OANDA demo.
   - The EA must be attached to a **live chart** in the main MT5 window. The Strategy Tester sandbox blocks network calls (`SocketCreate FAILED, error 4014`).
 - Known constraints:
-  - **2000-tick cap** per `CopyTicks` call. Automatic pagination via `next_from_msc`.
-  - **First-call broker sync.** A cold symbol's first `CopyTicks` can block up to 45 s while the terminal downloads tick history from the trade server. Raise `Mt5TimeoutMs` to 60000 in the Config tab for the first fetch of a new symbol.
-  - **MQL5 string concatenation is O(n²).** A 2000-tick response serializes in ~5 s. Chunk size 250 keeps each round trip under ~600 ms and enables streaming progress.
+  - **2000-tick cap** per `CopyTicks` call. Automatic pagination inside the EA.
+  - **First-call broker sync.** A cold symbol's first `CopyTicks` can block up to 45 s while the terminal downloads tick history from the trade server. Prewarm triggers this once per symbol; raise `Mt5TimeoutMs` to 60000 if a cold-symbol prewarm times out.
+  - **MQL5 string concat is O(N²).** Both `+=` and `StringAdd` reallocate on every append. The v1.10 EA does not use either on the hot path — the response is written into a `uchar[]` byte buffer and `SocketSend`'d directly.
   - **Forex/metals ticks have empty `last`/`volume`/`volume_real`.** Bid/ask movement is the signal.
   - **No DOM.** `SYMBOL_TICKS_BOOKDEPTH` is 0 for OTC forex CFDs. Order book is not implemented.
   - **Symbol naming is broker-specific.** OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` returns `error 4401` (ERR_HISTORY_NOT_FOUND).

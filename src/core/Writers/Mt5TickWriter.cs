@@ -66,3 +66,84 @@ public static class Mt5TickWriter
         return result;
     }
 }
+
+/// <summary>
+/// Streaming CSV writer for MT5 ticks. Open once per fetch, Append per batch,
+/// Complete when the fetch finishes. One async write per batch (not per tick),
+/// so the socket read loop is never blocked by disk I/O.
+/// </summary>
+public sealed class Mt5TickStreamWriter : IAsyncDisposable
+{
+    private readonly StreamWriter _writer;
+
+    public string Path { get; }
+    public long Appended { get; private set; }
+
+    private Mt5TickStreamWriter(string path, StreamWriter writer)
+    {
+        Path = path;
+        _writer = writer;
+    }
+
+    public static async Task<Mt5TickStreamWriter> OpenAsync(
+        string symbol, string? outputDir = null)
+    {
+        outputDir ??= "data/ticks";
+        Directory.CreateDirectory(outputDir);
+
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var path = System.IO.Path.Combine(outputDir, $"{symbol}_{stamp}.csv");
+
+        var fs = new FileStream(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            useAsync: true);
+        var sw = new StreamWriter(fs, new UTF8Encoding(false), 64 * 1024)
+        {
+            AutoFlush = false
+        };
+
+        await sw.WriteLineAsync("time_msc,bid,ask,last,volume,volume_real,flags");
+
+        LogManager.Info(LogTag.Provider, $"MT5: stream writer opened {path}");
+        return new Mt5TickStreamWriter(path, sw);
+    }
+
+    public async Task AppendAsync(IReadOnlyList<Mt5Tick> ticks)
+    {
+        if (ticks.Count == 0) return;
+
+        // Build the whole batch as one string, then one async write.
+        var sb = new StringBuilder(ticks.Count * 64);
+        for (int i = 0; i < ticks.Count; i++)
+        {
+            var t = ticks[i];
+            sb.Append(t.TimeMsc).Append(',');
+            sb.Append(t.Bid.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(t.Ask.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(t.Last.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(t.Volume).Append(',');
+            sb.Append(t.VolumeReal.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append(t.Flags.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
+
+        await _writer.WriteAsync(sb.ToString());
+        Appended += ticks.Count;
+    }
+
+    public async Task CompleteAsync()
+    {
+        await _writer.FlushAsync();
+        _writer.Dispose();
+        LogManager.Info(LogTag.Provider,
+            $"MT5: stream writer closed {Path} ({Appended} ticks)");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await _writer.DisposeAsync(); } catch { /* best-effort */ }
+    }
+}

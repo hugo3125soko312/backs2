@@ -88,17 +88,23 @@ ONLY SPEAK IN ENGLISH
 ## MT5 Tick Bridge
 - Transport is raw TCP via BCL `System.Net.Sockets`. Never add ZeroMQ, NetMQ, or any other IPC dependency. One EA, one C# listener, localhost — the BCL covers it.
 - The MT5 EA is a TCP **client**. It connects out to a C# `TcpListener`. MQL5 does not implement `SocketBind`/`SocketListen`/`SocketAccept` — do not attempt to make the EA a server.
-- The EA has **no inputs**. Host, port, timeout, and `CopyTicks` cap are `#define` constants. Every fetch parameter (symbol, lookback, target, chunk size) is commanded from C#.
+- The EA has **no inputs**. Host, port, timeout, and `CopyTicks` cap are `#define` constants. Every fetch parameter (symbol, lookback, target, batch size) is commanded from C#.
+- EA serialization must use the `uchar[]` byte-buffer path (`AppendStr` + `SocketSend`). Never use MQL5 `string` concat on the hot path — both `+=` and `StringAdd` reallocate on every append and are measured O(N²): 20,000 ticks took 39.9 s to serialize in v1.08; the byte-buffer path does the same in ~14 ms.
+- EA-side batching: the EA accepts `count` up to `MAX_REQUEST_TICKS = 50000`. It loops `CopyTicks` internally in 2000-tick slices, chaining via `next_from_msc` inside EA RAM. Never raise `MAX_REQUEST_TICKS` without raising `Mt5TimeoutMs` — a 50000-tick batch at ~50 µs/tick CopyTicks is ~2500 ms plus serialization.
+- `CopyTicks` has a 2000-tick hard cap per call. Paginate via `next_from_msc`. Never increase the per-call chunk size above 2000.
+- Default batch size is **20000** ticks per TCP round trip. The old 250 value existed only to keep the O(N²) serializer from blowing past `Mt5TimeoutMs`; it is obsolete in v1.10.
+- Prewarm is per-symbol per-process. `Mt5TickService.PrewarmAsync` is idempotent via `HashSet<string> _warmedSymbols`. Do not bypass it — the first `CopyTicks` per symbol costs ~2× warm (tick-DB page-in). Dropping prewarm costs ~30% of first-fetch throughput.
+- `Mt5TickService.FetchTicksAsync` takes an `onBatch` callback (`Func<IReadOnlyList<Mt5Tick>, Task>?`) that is awaited inside the fetch loop. This is deliberate backpressure: a slow disk write blocks the socket read so memory stays bounded. Never change it to fire-and-forget.
+- CSV streaming during a fetch uses `Mt5TickStreamWriter`, not `Mt5TickWriter.WriteAsync`. `Mt5TickStreamWriter.OpenAsync` + `AppendAsync` per batch + `CompleteAsync`. `Mt5TickWriter.WriteAsync` is the one-shot writer behind the tab's **Save CSV** button.
 - `Mt5TickService` and `Mt5TickServer` are registered as singletons in `App.axaml.cs`. `Mt5TickViewModel` is transient. Never register tick infrastructure as an `IDataProvider`.
 - `LogTag.Provider` is the tag for all MT5 logs. Do not add an MT5-specific tag.
-- `Mt5TickWriter` is the only file in `src/core/Writers/`. The folder exists for writers that do not fit the `CacheEnvelope<KlineCompact[]>` shape. Do not move `CacheManager` there.
+- `src/core/Writers/` holds writers that do not fit the `CacheEnvelope<KlineCompact[]>` shape. Today: `Mt5TickWriter.cs` (both `Mt5TickWriter` and `Mt5TickStreamWriter`). Do not move `CacheManager` there.
 - MT5 side requires `127.0.0.1` whitelisted in **Tools → Options → Expert Advisors → Allow WebRequest for listed URL**. Do not skip this — the WebRequest list governs `SocketCreate`/`SocketConnect`.
 - The EA must be attached to a live chart in the main MT5 window. The Strategy Tester sandbox blocks network calls (`SocketCreate FAILED, error 4014`).
 - Symbol names are broker-specific. OANDA exposes gold as `GOLD.pro`, not `XAUUSD`. `CopyTicks("XAUUSD", ...)` on OANDA returns `error 4401`.
-- `CopyTicks` has a 2000-tick hard cap per call. Paginate via `next_from_msc`. Never increase the chunk size above 2000.
-- Default chunk size is 250. Larger values starve the progress bar and stall the UI on the trailing burst.
-- `Mt5TimeoutMs` must exceed the EA's worst-case serialization time. A 2000-tick response takes ~5 s on MQL5's O(n²) string concatenation. Default is 15000.
+- `Mt5TimeoutMs` must exceed the EA's worst-case wall time for a batched response. A 20000-tick batch is ~1000 ms end-to-end. Default 15000 has headroom; raise to 60000 for the first fetch of a cold symbol (broker sync).
 - `data/ticks/` is git-ignored. Never commit fetched tick CSVs.
+- Performance telemetry (`perf_copy_us`, `perf_ser_us`) is returned by the EA in every `GET_TICKS` response. Do not remove — the C# log's `ea_copy` / `ea_ser` split is the only way to tell terminal-side vs EA-side cost without re-instrumenting.
 
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:

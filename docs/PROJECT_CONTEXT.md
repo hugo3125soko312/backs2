@@ -22,7 +22,7 @@
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
     - src/core/MT5/: Mt5Tick, Mt5TickServer, Mt5TickService. Raw tick data bridge to a running MetaTrader 5 terminal over local TCP. See ARCHITECTURE §19.
-    - src/core/Writers/: Mt5TickWriter.cs. The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
+    - src/core/Writers/: Mt5TickWriter.cs (contains Mt5TickWriter + Mt5TickStreamWriter). The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
     - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
     - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
     - src/core/DataAutomation/BatchedOcrRecognizer.cs: ONNX Runtime wrapper around the PP-OCRv5 Latin recognizer (`models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx`).
@@ -31,7 +31,7 @@
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
     - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
-    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs. Fetches raw MT5 ticks, displays them in a DataGrid, and saves to CSV.
+    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. Fetches raw MT5 ticks, displays them in a DataGrid, streams to CSV, and bulk-inserts batches via AddRange.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
@@ -41,7 +41,7 @@
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe.
     - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
     - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE §18.
-    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and can be saved as CSV to data/ticks/. See ARCHITECTURE §19.
+    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.10) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, FINNHUB_API_KEY, FCS_PUBLIC_API_KEY.
@@ -74,9 +74,12 @@
     - Analysis runs in-process via AnalysisService. The standalone docs/analyze-parsed.ps1 has been removed; do not resurrect it.
     - MT5 tick bridge uses raw TCP sockets (BCL `System.Net.Sockets`). Never add ZeroMQ or any other IPC dependency. The MQL5 EA is a TCP **client** that connects out to a C# `TcpListener` — MQL5 does not implement server-side sockets.
     - MT5 tick data is NOT an `IDataProvider`. It does not fit the `List<Kline>` contract. Consumed only by `Mt5TickService` and the MT5 Ticks tab.
-    - `Mt5TickWriter` is the only file in `src/core/Writers/`. The folder exists for writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape. `CacheManager` remains the writer for all Kline data.
-    - All MT5 fetch parameters (symbol, lookback, target, chunk size) come from C#. The EA has no inputs — host/port/timeout/cap are `#define` constants. Edit both sides if the port changes.
+    - `src/core/Writers/` holds writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape. Today: `Mt5TickWriter.cs` (both the buffered `Mt5TickWriter` and the streaming `Mt5TickStreamWriter`). Do not move `CacheManager` there.
+    - All MT5 fetch parameters (symbol, lookback, target, chunk/batch size) come from C#. The EA has no inputs — host/port/timeout/cap are `#define` constants. Edit both sides if the port changes.
     - MT5 must whitelist `127.0.0.1` in Tools → Options → Expert Advisors → "Allow WebRequest for listed URL". The WebRequest list governs `SocketCreate`/`SocketConnect`. Do not skip this.
+    - MT5 EA serialization must use the `uchar[]` byte-buffer path. Never use MQL5 `string` concat (`+=` or `StringAdd`) on the hot path — both reallocate on every append and are O(N²).
+    - MT5 prewarm is per-symbol per-process. `Mt5TickService.PrewarmAsync` is idempotent via `HashSet<string> _warmedSymbols`. Do not bypass it — first `CopyTicks` per symbol costs ~2× warm.
+    - MT5 `onBatch` is awaited inside the fetch loop. Do not change it to a fire-and-forget write — the deliberate backpressure is what bounds memory.
     - `data/ticks/` is git-ignored (user-fetched data, same class as logs/).
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/, data_automation.json).

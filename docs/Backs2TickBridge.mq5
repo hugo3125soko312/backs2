@@ -3,20 +3,21 @@
 //|                    MT5 raw tick data TCP client (EA, not script) |
 //|                                                                  |
 //|  NOTE: BridgeHost/BridgePort must match AppSettings.Mt5Host and  |
-//|  AppSettings.Mt5Port in backs2's config/settings.json. Edit both |
+//|  AppSettings.Mt5Port in backs2's config/settings.json. Edit both  |
 //|  sides if you change the port.                                    |
 //+------------------------------------------------------------------+
 #property copyright "backs2"
-#property version   "1.06"
+#property version   "1.10"
 #property description "Connects to the backs2 C# server and serves raw MqlTick data"
 #property strict
 
 // ---- Bootstrap (hardcoded, no inputs) ----
-#define BRIDGE_HOST       "127.0.0.1"
-#define BRIDGE_PORT       5555
-#define BRIDGE_TIMEOUT_MS 5000
-#define COPYTICKS_CAP     2000
-#define RECONNECT_DELAY   3
+#define BRIDGE_HOST         "127.0.0.1"
+#define BRIDGE_PORT         5555
+#define BRIDGE_TIMEOUT_MS   5000
+#define COPYTICKS_CAP       2000      // hard MQL5 cap per CopyTicks call
+#define MAX_REQUEST_TICKS   50000     // EA-side batching ceiling per request
+#define RECONNECT_DELAY     3
 
 int    g_socket    = INVALID_HANDLE;
 string g_readBuffer = "";
@@ -26,12 +27,12 @@ bool   g_timerLogged = false;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print(">>> Backs2TickBridge v1.06: OnInit ENTRY");
+   Print(">>> Backs2TickBridge v1.10: OnInit ENTRY");
    if(!ConnectToServer())
       Print(">>> Backs2TickBridge: initial connection failed, will retry in OnTimer");
    else
       Print(">>> Backs2TickBridge: initial connection OK");
-   EventSetMillisecondTimer(200);
+   EventSetMillisecondTimer(10);
    return INIT_SUCCEEDED;
 }
 
@@ -63,14 +64,17 @@ void OnTimer()
       return;
    }
 
-   uint available = SocketIsReadable(g_socket);
-   if(available == 0) return;
+   while(true)
+   {
+      uint available = SocketIsReadable(g_socket);
+      if(available == 0) break;
 
-   uchar buf[];
-   int bytesRead = SocketRead(g_socket, buf, available, 100);
-   if(bytesRead <= 0) return;
+      uchar buf[];
+      int bytesRead = SocketRead(g_socket, buf, available, 100);
+      if(bytesRead <= 0) break;
 
-   g_readBuffer += CharArrayToString(buf, 0, bytesRead);
+      g_readBuffer += CharArrayToString(buf, 0, bytesRead);
+   }
 
    int newlinePos;
    while((newlinePos = StringFind(g_readBuffer, "\n")) >= 0)
@@ -124,6 +128,8 @@ void ProcessRequest(string json)
       SendResponse(id, "\"status\":\"OK\"");
    else if(action == "GET_TICKS")
       HandleGetTicks(id, json);
+   else if(action == "PREWARM")
+      HandlePrewarm(id, json);
    else if(action == "GET_TERMINAL_INFO")
       HandleTerminalInfo(id);
    else
@@ -131,11 +137,43 @@ void ProcessRequest(string json)
 }
 
 //+------------------------------------------------------------------+
-void HandleGetTicks(string id, string json)
+// Serialization uses a uchar[] byte buffer (v1.09). MQL5's string
+// concat primitives (both `+=` and StringAdd) reallocate on every
+// append — measured O(N²): 20k ticks took 40 s. Writing into a
+// pre-sized byte buffer and SocketSend'ing it directly is O(N):
+// the same 20k ticks serialize in ~14 ms.
+//
+// AppendStr assumes the input is pure ASCII. Our JSON output is:
+// digits, '.', '-', '"', '{', '}', '[', ']', ',', ':', letters in
+// fixed JSON keys. No non-ASCII ever reaches the wire from this EA.
+//+------------------------------------------------------------------+
+void AppendStr(uchar &dest[], int &pos, string s)
+{
+   int len = StringLen(s);
+   if(len <= 0) return;
+
+   if(pos + len + 32 > ArraySize(dest))
+      ArrayResize(dest, pos + len + 8192);
+
+   for(int i = 0; i < len; i++)
+      dest[pos++] = (uchar)StringGetCharacter(s, i);
+}
+
+//+------------------------------------------------------------------+
+// Prewarm (v1.10):
+//   First CopyTicks call for a symbol costs ~2× the warm time
+//   (page-in of the tick DB in the terminal, or MQL5 array-pool
+//   warmup). We pay it once with a small throwaway call before the
+//   real fetch starts, so iter #1 runs at the warm per-tick rate.
+//
+//   C# gates this per-symbol per-session via a HashSet — this handler
+//   is only reached once per symbol per app run.
+//+------------------------------------------------------------------+
+void HandlePrewarm(string id, string json)
 {
    string symbol  = JsonGetString(json, "symbol");
    long   fromMsc = JsonGetLong(json, "from_msc");
-   int    count   = (int)JsonGetLong(json, "count");
+   long   count   = JsonGetLong(json, "count");
 
    if(symbol == "")
    {
@@ -143,44 +181,138 @@ void HandleGetTicks(string id, string json)
       return;
    }
 
-   if(count <= 0)          count = 200;
+   if(count <= 0)             count = 500;
    if(count > COPYTICKS_CAP) count = COPYTICKS_CAP;
 
-   ulong resolvedFrom = (fromMsc > 0)
+   ulong cursor = (fromMsc > 0)
       ? (ulong)fromMsc
-      : (ulong)(TimeCurrent() - 86400) * 1000;   // default: last 24h
+      : (ulong)(TimeCurrent() - 86400) * 1000;
 
-   MqlTick ticks[];
-   int copied = CopyTicks(symbol, ticks, COPY_TICKS_ALL, resolvedFrom, (uint)count);
-   int copyErr = GetLastError();
+   MqlTick warm[];
+   ulong t0 = GetMicrosecondCount();
+   int copied = CopyTicks(symbol, warm, COPY_TICKS_ALL, cursor, (uint)count);
+   ulong elapsed = GetMicrosecondCount() - t0;
+   int err = GetLastError();
 
-   if(copied <= 0)
+   string body = "\"status\":\"OK\",\"warm_us\":";
+   body += IntegerToString((long)elapsed);
+   body += ",\"warm_count\":";
+   body += IntegerToString(copied);
+   body += ",\"warm_err\":";
+   body += IntegerToString(err);
+   SendResponse(id, body);
+}
+
+//+------------------------------------------------------------------+
+void HandleGetTicks(string id, string json)
+{
+   string symbol  = JsonGetString(json, "symbol");
+   long   fromMsc = JsonGetLong(json, "from_msc");
+   long   requested = JsonGetLong(json, "count");
+
+   if(symbol == "")
    {
-      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"CopyTicks returned " +
-                   IntegerToString(copied) + ", error " + IntegerToString(copyErr) + "\"");
+      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"Missing symbol\"");
       return;
    }
 
-   long lastMsc = (long)ticks[copied - 1].time_msc;
+   if(requested <= 0)              requested = 200;
+   if(requested > MAX_REQUEST_TICKS) requested = MAX_REQUEST_TICKS;
 
-   string body = "\"status\":\"OK\",\"count\":" + IntegerToString(copied);
-   body += ",\"next_from_msc\":" + IntegerToString(lastMsc + 1);
-   body += ",\"ticks\":[";
+   ulong cursor = (fromMsc > 0)
+      ? (ulong)fromMsc
+      : (ulong)(TimeCurrent() - 86400) * 1000;
 
-   for(int i = 0; i < copied; i++)
+   int want = (int)requested;
+
+   MqlTick collected[];
+   ArrayResize(collected, want);
+
+   int    total       = 0;
+   ulong  perfCopyUs  = 0;
+   bool   endOfHist   = false;
+
+   while(total < want && !endOfHist)
    {
-      if(i > 0) body += ",";
-      body += "{\"time_msc\":"    + IntegerToString((long)ticks[i].time_msc);
-      body += ",\"bid\":"         + DoubleToString(ticks[i].bid, 8);
-      body += ",\"ask\":"         + DoubleToString(ticks[i].ask, 8);
-      body += ",\"last\":"        + DoubleToString(ticks[i].last, 8);
-      body += ",\"volume\":"      + IntegerToString((long)ticks[i].volume);
-      body += ",\"volume_real\":" + DoubleToString(ticks[i].volume_real, 8);
-      body += ",\"flags\":"       + IntegerToString((int)ticks[i].flags);
-      body += "}";
+      int remaining = want - total;
+      int thisBatch = (remaining < COPYTICKS_CAP) ? remaining : COPYTICKS_CAP;
+
+      MqlTick temp[];
+      ulong t0 = GetMicrosecondCount();
+      int copied = CopyTicks(symbol, temp, COPY_TICKS_ALL, cursor, (uint)thisBatch);
+      perfCopyUs += GetMicrosecondCount() - t0;
+      int copyErr = GetLastError();
+
+      if(copied <= 0)
+      {
+         if(total == 0)
+         {
+            SendResponse(id, "\"status\":\"ERROR\",\"message\":\"CopyTicks returned " +
+                         IntegerToString(copied) + ", error " + IntegerToString(copyErr) + "\"");
+            return;
+         }
+         break;
+      }
+
+      ArrayCopy(collected, temp, total, 0, copied);
+      total += copied;
+
+      if(copied < thisBatch)
+      {
+         endOfHist = true;
+         break;
+      }
+
+      cursor = (ulong)temp[copied - 1].time_msc + 1;
    }
-   body += "]";
-   SendResponse(id, body);
+
+   long lastMsc = (total > 0) ? (long)collected[total - 1].time_msc : 0;
+
+   int cap = total * 200 + 512;
+   uchar buf[];
+   ArrayResize(buf, cap);
+   int pos = 0;
+
+   AppendStr(buf, pos, "{\"id\":");
+   AppendStr(buf, pos, id);
+   AppendStr(buf, pos, ",\"status\":\"OK\",\"count\":");
+   AppendStr(buf, pos, IntegerToString(total));
+   AppendStr(buf, pos, ",\"next_from_msc\":");
+   AppendStr(buf, pos, IntegerToString(lastMsc + 1));
+   AppendStr(buf, pos, ",\"perf_copy_us\":");
+   AppendStr(buf, pos, IntegerToString((long)perfCopyUs));
+   AppendStr(buf, pos, ",\"ticks\":[");
+
+   ulong serStart = GetMicrosecondCount();
+
+   for(int i = 0; i < total; i++)
+   {
+      if(i > 0) AppendStr(buf, pos, ",");
+      AppendStr(buf, pos, "{\"time_msc\":");
+      AppendStr(buf, pos, IntegerToString((long)collected[i].time_msc));
+      AppendStr(buf, pos, ",\"bid\":");
+      AppendStr(buf, pos, DoubleToString(collected[i].bid, 8));
+      AppendStr(buf, pos, ",\"ask\":");
+      AppendStr(buf, pos, DoubleToString(collected[i].ask, 8));
+      AppendStr(buf, pos, ",\"last\":");
+      AppendStr(buf, pos, DoubleToString(collected[i].last, 8));
+      AppendStr(buf, pos, ",\"volume\":");
+      AppendStr(buf, pos, IntegerToString((long)collected[i].volume));
+      AppendStr(buf, pos, ",\"volume_real\":");
+      AppendStr(buf, pos, DoubleToString(collected[i].volume_real, 8));
+      AppendStr(buf, pos, ",\"flags\":");
+      AppendStr(buf, pos, IntegerToString((int)collected[i].flags));
+      AppendStr(buf, pos, "}");
+   }
+
+   ulong serUs = GetMicrosecondCount() - serStart;
+
+   AppendStr(buf, pos, "],\"perf_ser_us\":");
+   AppendStr(buf, pos, IntegerToString((long)serUs));
+   AppendStr(buf, pos, "}\n");
+
+   if(g_socket != INVALID_HANDLE && SocketIsConnected(g_socket))
+      SocketSend(g_socket, buf, (uint)pos);
 }
 
 //+------------------------------------------------------------------+

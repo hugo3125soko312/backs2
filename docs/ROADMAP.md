@@ -4,6 +4,11 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
+## Phase 14: MT5 Fetch Optimization & UX [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
+
+---
+
 ## Phase 10.15: Time-Domain Monte Carlo [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 

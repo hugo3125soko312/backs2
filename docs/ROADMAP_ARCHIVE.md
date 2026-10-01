@@ -486,3 +486,49 @@ Bridges raw MqlTick data from a running MetaTrader 5 terminal into backs2. **Zer
 - **EA is a client, C# is a server.** MQL5 sockets do not support server-side operations. This inverted topology is the only working pattern.
 - **Tick data is not an `IDataProvider`.** The shape (`bid`/`ask`/`last`/`flags`, no timeframe) does not fit `List<Kline>`. `Mt5TickService` is a separate singleton consumed only by the MT5 Ticks tab.
 - **All fetch parameters come from C#.** The EA has no inputs. Everything from symbol to chunk size to lookback is commanded by the client.
+
+## Phase 14: MT5 Fetch Optimization & UX [COMPLETED]
+
+Ship date: 2026-10-01.
+
+Raised MT5 tick fetch throughput from ~2,300 t/s to ~16,000 t/s — a ~7× improvement. The wall is now the MT5 terminal's internal `CopyTicks` (~50 µs/tick warm), not anything on the backs2 side.
+
+### Phase 14A -- Progress UX & ETA stream [COMPLETED]
+- `Mt5FetchProgress` extended: `Percent`, `TicksPerSecond`, `EtaSeconds`, `CurrentChunk`, `TotalChunks` (all defaulted, so existing positional call sites stay source-compatible).
+- `Mt5TickService.FetchTicksAsync` maintains a 5-chunk rolling window `Queue<(ElapsedMs, Ticks)>` over the fetch. Throughput = Δticks / Δms; ETA = remaining / throughput.
+- `Mt5TickView.axaml` shows bar + `Fetched/Total` + `N t/s` + `ETA Xm` side by side.
+
+### Phase 14B -- UI thread decoupling & bulk render [COMPLETED]
+- New `RangeObservableCollection<T>` at `src/gui/MT5/RangeObservableCollection.cs`. `AddRange` writes to the backing `Items` list, then raises one `NotifyCollectionChangedAction.Reset`. Replaces N per-item `CollectionChanged` events with one — this is what makes 100k+ row DataGrid streaming usable.
+- `Mt5TickViewModel.Ticks` is now `RangeObservableCollection<Mt5Tick>`.
+- Progress callback no longer iterates and calls `.Add()` per tick.
+
+### Phase 14C -- MQL5 serialization overhaul [COMPLETED]
+- `Backs2TickBridge.mq5` v1.08 → v1.09.
+- Byte-buffer serialization replaces MQL5 string concatenation. v1.07/v1.08 used `StringReserve` + `StringAdd`, which MQL5 still reallocates on every append — measured O(N²): 20,000 ticks took 39.9 s to serialize.
+- New `AppendStr(uchar &dest[], int &pos, string s)` writes ASCII chars into a pre-sized `uchar[]` byte buffer. `SocketSend` takes the buffer directly.
+- Performance: `ea_ser` dropped from **39,915 ms → 13.8 ms** for a 20,000-tick batch (~2900×).
+
+### Phase 14D -- CSV streaming [COMPLETED]
+- New `Mt5TickStreamWriter` class in `src/core/Writers/Mt5TickWriter.cs`. `OpenAsync` → `AppendAsync` per batch → `CompleteAsync`. `StreamWriter` over a 64 KB async `FileStream`, `AutoFlush=false`.
+- `Mt5TickViewModel.FetchTicks` opens a stream writer before the fetch, wires `onBatch` to a bounded `Channel<IReadOnlyList<Mt5Tick>>` (capacity 64), drains it in a background `Task`. The socket read loop no longer awaits disk I/O.
+- Memory drops from O(TotalTicks) to O(ChannelCapacity × BatchSize).
+- `Mt5TickService.FetchTicksAsync` gained an `onBatch` parameter (`Func<IReadOnlyList<Mt5Tick>, Task>?`) that is awaited inside the loop — deliberate backpressure so a slow disk never buffers unbounded.
+
+### Phase 14E -- EA-side batching + PREWARM [COMPLETED]
+- EA v1.10 accepts `count` up to `MAX_REQUEST_TICKS=50000`. Internally loops `CopyTicks` in 2000-tick slices, chaining via `next_from_msc` inside EA RAM, appending into one `collected MqlTick[]`.
+- New `PREWARM` action: a small (500-tick) `CopyTicks` call before the real fetch. First `CopyTicks` per symbol costs ~2× warm (tick-DB page-in on the MT5 side). Prewarm makes iter #1 run at warm speed.
+- `Mt5TickService.PrewarmAsync` — idempotent per symbol per process via `HashSet<string> _warmedSymbols`. Never throws; drops from the set on failure so a later fetch retries.
+- Default batch size raised from 250 (v1.07) to **20000** (v1.10). The 250 value existed only to keep the O(N²) serializer from blowing past `Mt5TimeoutMs`.
+- `perf_copy_us` and `perf_ser_us` returned by the EA in every `GET_TICKS` response. C# log line splits `rtt` into `ea_copy` (with µs/tick) and `ea_ser`.
+
+### Measured results
+- Serialization: 39,915 ms → 13.8 ms for 20,000 ticks (~2900×).
+- `ea_copy` warm: ~49–60 µs/tick (terminal's `CopyTicks` floor).
+- `ea_copy` first-call-per-symbol: ~87 µs/tick (cold) → ~50 µs/tick after prewarm.
+- End-to-end: 50,000 ticks in ~3.1 s wall = ~16,000 t/s. Ceiling is ~20,000 t/s (`CopyTicks`-bound).
+
+### Known remaining constraints
+- **`CopyTicks` is the wall.** ~50 µs/tick warm, terminal-internal, not controllable from the C# side.
+- Prewarm cost is one extra round trip (~100–120 ms) on the first fetch per symbol per process. Subsequent fetches pay nothing.
+- First-call cold-symbol 45 s broker sync remains (Phase 13, unchanged).

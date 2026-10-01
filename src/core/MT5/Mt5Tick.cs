@@ -45,4 +45,9 @@ public record Mt5FetchProgress(
     int Fetched,
     int Total,
     string Phase,
-    IReadOnlyList<Mt5Tick>? NewTicks = null);
+    IReadOnlyList<Mt5Tick>? NewTicks = null,
+    double Percent = 0,
+    double TicksPerSecond = 0,
+    double EtaSeconds = 0,
+    int CurrentChunk = 0,
+    int TotalChunks = 0);
