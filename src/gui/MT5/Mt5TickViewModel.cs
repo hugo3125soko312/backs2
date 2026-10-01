@@ -3,11 +3,14 @@ using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using backs2.Core.Models;
 using backs2.Core.MT5;
+using backs2.Core.Providers;
 using backs2.Core.Writers;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Channels;
@@ -35,6 +38,14 @@ public partial class Mt5TickViewModel : ObservableObject
     [ObservableProperty] private string _terminalInfoText = "";
     [ObservableProperty] private string _connectionInfoText = "";
 
+    // ── Parsing state ───────────────────────────────────────────────
+    [ObservableProperty] private string _parseFilePath = "";
+    [ObservableProperty] private string _parseTimeframe = "1h";
+    [ObservableProperty] private double _parseProgress;
+    [ObservableProperty] private string _parseStatusText = "Select a CSV to begin.";
+
+    public string[] Timeframes => TimeframeMap.All;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PingCommand))]
     [NotifyCanExecuteChangedFor(nameof(FetchTicksCommand))]
@@ -42,6 +53,7 @@ public partial class Mt5TickViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(VerifyRangeCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyToFetchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ParseCsvCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -73,12 +85,14 @@ public partial class Mt5TickViewModel : ObservableObject
 
     private readonly Mt5TickService _service;
     private readonly ConfigManager _config;
+    private readonly CacheManager _cache;
     private CancellationTokenSource? _cts;
 
-    public Mt5TickViewModel(Mt5TickService service, ConfigManager config)
+    public Mt5TickViewModel(Mt5TickService service, ConfigManager config, CacheManager cache)
     {
         _service = service;
         _config = config;
+        _cache = cache;
         ConnectionInfoText = $"Server listening on {_config.Settings.Mt5Host}:{_config.Settings.Mt5Port}";
     }
 
@@ -184,7 +198,6 @@ public partial class Mt5TickViewModel : ObservableObject
                     trackedLastMsc = p.NewTicks[p.NewTicks.Count - 1].TimeMsc;
                     if (PopulateGrid)
                     {
-                        // Prevent UI freeze / OOM by capping the grid size even if checked
                         if (Ticks.Count > 100_000) Ticks.Clear();
                         Ticks.AddRange(p.NewTicks);
                     }
@@ -250,6 +263,164 @@ public partial class Mt5TickViewModel : ObservableObject
         {
             try { await writer.CompleteAsync(); } catch { }
         }
+    }
+
+    // ── Parse CSV ───────────────────────────────────────────────────
+    [RelayCommand(CanExecute = nameof(CanRunIdle))]
+    private async Task ParseCsv()
+    {
+        if (string.IsNullOrWhiteSpace(ParseFilePath) || !File.Exists(ParseFilePath))
+        {
+            ParseStatusText = "File not found.";
+            return;
+        }
+
+        IsBusy = true;
+        ParseStatusText = "Parsing CSV...";
+        ParseProgress = 0;
+
+        try
+        {
+            var fileName = Path.GetFileNameWithoutExtension(ParseFilePath);
+            var symbol = fileName.Split('_')[0];
+
+            var klines = new List<Kline>();
+            var zeroBidTicks = new List<long>();
+            long currentBucket = -1;
+            double o = 0, h = double.MinValue, l = double.MaxValue, c = 0;
+            long v = 0;
+
+            using var fs = new FileStream(ParseFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, true);
+            using var sr = new StreamReader(fs);
+            long totalLength = fs.Length;
+
+            string? line = await sr.ReadLineAsync(); // skip header
+            int linesRead = 0;
+
+            while ((line = await sr.ReadLineAsync()) != null)
+            {
+                linesRead++;
+                if (linesRead % 100000 == 0)
+                {
+                    ParseProgress = (double)fs.Position / totalLength * 100;
+                    ParseStatusText = $"Parsing... {linesRead:N0} ticks processed";
+                }
+
+                if (!TryParseTickLine(line, out long timeMsc, out double bid)) continue;
+
+                if (bid <= 0)
+                {
+                    zeroBidTicks.Add(timeMsc);
+                    continue;
+                }
+
+                long bucket = GetBucketStart(timeMsc, ParseTimeframe);
+
+                if (bucket != currentBucket)
+                {
+                    if (currentBucket != -1)
+                    {
+                        klines.Add(new Kline(DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime, o, h, l, c, v));
+                    }
+                    currentBucket = bucket;
+                    o = h = l = c = bid;
+                    v = 1;
+                }
+                else
+                {
+                    if (bid > h) h = bid;
+                    if (bid < l) l = bid;
+                    c = bid;
+                    v++;
+                }
+            }
+
+            // Flush the last bucket
+            if (currentBucket != -1)
+            {
+                klines.Add(new Kline(DateTimeOffset.FromUnixTimeMilliseconds(currentBucket).UtcDateTime, o, h, l, c, v));
+            }
+
+            // Log zero-bid anomalies
+            if (zeroBidTicks.Count > 25)
+            {
+                LogManager.Warn(LogTag.Provider, $"MT5: dropped {zeroBidTicks.Count:N0} ticks with zero bid during parsing.");
+            }
+            else if (zeroBidTicks.Count > 0)
+            {
+                var sb = new StringBuilder();
+                foreach (var t in zeroBidTicks)
+                {
+                    sb.Append(DateTimeOffset.FromUnixTimeMilliseconds(t).UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    sb.Append(", ");
+                }
+                LogManager.Warn(LogTag.Provider, $"MT5: dropped {zeroBidTicks.Count} ticks with zero bid at: {sb.ToString().TrimEnd(',', ' ')}");
+            }
+
+            ParseProgress = 100;
+            ParseStatusText = $"Saving {klines.Count:N0} bars to cache...";
+
+            string cacheKey = $"{symbol}@{ParseTimeframe}";
+            await _cache.SaveCacheAsync(cacheKey, klines, "MT5 Parsed");
+
+            ParseStatusText = $"Success. Saved {klines.Count:N0} bars for {symbol}@{ParseTimeframe}.";
+            LogManager.Info(LogTag.Provider, $"MT5: parsed {linesRead} ticks into {klines.Count} bars ({symbol}@{ParseTimeframe})");
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5 parsing failed", ex);
+            ParseStatusText = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static bool TryParseTickLine(string line, out long timeMsc, out double bid)
+    {
+        timeMsc = 0;
+        bid = 0;
+        
+        int idx1 = line.IndexOf(',');
+        if (idx1 < 0) return false;
+        
+        int idx2 = line.IndexOf(',', idx1 + 1);
+        if (idx2 < 0) return false;
+
+        var timeSpan = line.AsSpan(0, idx1);
+        var bidSpan = line.AsSpan(idx1 + 1, idx2 - idx1 - 1);
+
+        if (!long.TryParse(timeSpan, out timeMsc)) return false;
+        if (!double.TryParse(bidSpan, CultureInfo.InvariantCulture, out bid)) return false;
+
+        return true;
+    }
+
+    private static long GetBucketStart(long timeMsc, string tf)
+    {
+        var dt = DateTimeOffset.FromUnixTimeMilliseconds(timeMsc).UtcDateTime;
+        if (tf.EndsWith("m") && int.TryParse(tf.TrimEnd('m'), out int m))
+        {
+            int bucketMin = (dt.Minute / m) * m;
+            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, dt.Hour, bucketMin, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        }
+        if (tf.EndsWith("h") && int.TryParse(tf.TrimEnd('h'), out int h))
+        {
+            int bucketHour = (dt.Hour / h) * h;
+            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, bucketHour, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        }
+        if (tf == "1D")
+        {
+            return new DateTimeOffset(dt.Year, dt.Month, dt.Day, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        }
+        if (tf == "1W")
+        {
+            int diff = (7 + (dt.DayOfWeek - DayOfWeek.Monday)) % 7;
+            var start = dt.Date.AddDays(-1 * diff);
+            return new DateTimeOffset(start, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        }
+        return timeMsc; // fallback
     }
 
     // ── Terminal info ───────────────────────────────────────────────
@@ -401,13 +572,6 @@ public partial class Mt5TickViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Copies the Verify Range's From/To into the Fetch parameters.
-    /// Symbol and Batch size are preserved. Lookback (h) is rounded UP so
-    /// the fetch window always covers the requested range. Target ticks is
-    /// sized from the last Verify result (count + 1% headroom) if one has
-    /// been run; otherwise it is left alone.
-    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private void ApplyToFetch()
     {
@@ -434,7 +598,6 @@ public partial class Mt5TickViewModel : ObservableObject
             return;
         }
 
-        // Round UP so the fetch window covers the full requested range.
         long lookbackMs = nowMsc - fromMsc;
         int lookbackHours = (int)Math.Ceiling(lookbackMs / 3_600_000.0);
         if (lookbackHours <= 0) lookbackHours = 1;
@@ -443,15 +606,10 @@ public partial class Mt5TickViewModel : ObservableObject
 
         if (_lastVerifyCount > 0)
         {
-            // 1% headroom, floor 1000 ticks. The extra accounts for the
-            // fetch's rounded-up lookback window being slightly wider than
-            // the verify window — without it, the fetch could stop early
-            // when TargetTicks is reached just before Verify To.
             long target = (long)_lastVerifyCount + Math.Max(1000L, _lastVerifyCount / 100L);
             if (target > 50_000_000L) target = 50_000_000L;
             TargetTicks = (int)target;
             
-            // Auto-disable grid population for massive fetches
             if (TargetTicks > 500_000) PopulateGrid = false;
 
             VerifyStatusText =
@@ -569,14 +727,6 @@ public partial class Mt5TickViewModel : ObservableObject
         return shifted.ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>
-    /// Human-readable duration. Leading zero components are dropped:
-    ///   456 ms          -> "456 ms"
-    ///   45804 ms        -> "45.804 s"
-    ///   90000 ms        -> "1 m 30 s"
-    ///   3661000 ms      -> "1 h 1 m 1 s"
-    ///   90061000 ms     -> "1 d 1 h 1 m 1 s"
-    /// </summary>
     private static string FormatDuration(long ms)
     {
         if (ms < 0) return "-" + FormatDuration(-ms);

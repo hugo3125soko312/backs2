@@ -4,154 +4,188 @@
              xmlns:vm="using:backs2.ViewModels"
              x:Class="backs2.Views.Mt5TickView"
              x:DataType="vm:Mt5TickViewModel">
-    <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+    <TabControl>
+        <!-- EXTRACTION SUBTAB -->
+        <TabItem Header="Extraction">
+            <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+                <!-- Row 0: connection status -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+                    <Button Content="Ping" Command="{Binding PingCommand}" Padding="12,4"/>
+                    <TextBlock Text="{Binding ConnectionInfoText}"
+                               VerticalAlignment="Center" Foreground="DimGray" FontSize="11"/>
+                    <TextBlock Text="{Binding StatusText}"
+                               VerticalAlignment="Center" Foreground="Gray"/>
+                </StackPanel>
 
-        <!-- Row 0: connection status -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-            <Button Content="Ping" Command="{Binding PingCommand}" Padding="12,4"/>
-            <TextBlock Text="{Binding ConnectionInfoText}"
-                       VerticalAlignment="Center" Foreground="DimGray" FontSize="11"/>
-            <TextBlock Text="{Binding StatusText}"
-                       VerticalAlignment="Center" Foreground="Gray"/>
-        </StackPanel>
+                <!-- Row 1: fetch parameters -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+                    <TextBlock Text="Symbol:" VerticalAlignment="Center"/>
+                    <TextBox Text="{Binding Symbol}" Width="120"/>
 
-        <!-- Row 1: fetch parameters -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
-            <TextBlock Text="Symbol:" VerticalAlignment="Center"/>
-            <TextBox Text="{Binding Symbol}" Width="120"/>
+                    <TextBlock Text="Lookback (h):" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <NumericUpDown Value="{Binding LookbackHours}"
+                                   Minimum="0" Maximum="8760"
+                                   Increment="1"
+                                   ShowButtonSpinner="False" Width="100"/>
 
-            <TextBlock Text="Lookback (h):" VerticalAlignment="Center" Margin="10,0,0,0"/>
-            <NumericUpDown Value="{Binding LookbackHours}"
-                           Minimum="0" Maximum="8760"
-                           Increment="1"
-                           ShowButtonSpinner="False" Width="100"/>
+                    <TextBlock Text="Target ticks:" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <NumericUpDown Value="{Binding TargetTicks}"
+                                   Minimum="1" Maximum="50000000"
+                                   Increment="500"
+                                   ShowButtonSpinner="False" Width="120"/>
 
-            <TextBlock Text="Target ticks:" VerticalAlignment="Center" Margin="10,0,0,0"/>
-            <NumericUpDown Value="{Binding TargetTicks}"
-                           Minimum="1" Maximum="50000000"
-                           Increment="500"
-                           ShowButtonSpinner="False" Width="120"/>
-
-            <TextBlock Text="Batch size:" VerticalAlignment="Center" Margin="10,0,0,0"/>
-            <NumericUpDown Value="{Binding ChunkSize}"
-                           Minimum="1000" Maximum="50000"
-                           Increment="1000"
-                           ShowButtonSpinner="False" Width="110"/>
-            <TextBlock Text="(per request)" VerticalAlignment="Center"
-                       Foreground="DimGray" FontSize="11"/>
-            
-            <CheckBox IsChecked="{Binding PopulateGrid}" Content="Populate Grid" 
-                      VerticalAlignment="Center" Margin="10,0,0,0"
-                      ToolTip.Tip="Uncheck for large fetches to prevent UI freezing (streaming to CSV continues)"/>
-        </StackPanel>
-
-        <!-- Row 2: actions + progress + ETA + speed -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
-            <Button Content="Fetch Ticks" Command="{Binding FetchTicksCommand}" Padding="12,4"/>
-            <Button Content="Stop" Command="{Binding StopCommand}" Padding="12,4"/>
-            <Button Content="Terminal Info" Command="{Binding GetTerminalInfoCommand}" Padding="12,4"/>
-            <Button Content="Save CSV" Command="{Binding SaveCsvCommand}" Padding="12,4"/>
-
-            <ProgressBar Value="{Binding FetchProgress}" Minimum="0" Maximum="100"
-                         Height="14" Width="220" Margin="10,0,0,0"/>
-            <TextBlock Text="{Binding FetchProgressText}" VerticalAlignment="Center"
-                       FontFamily="Consolas" Foreground="Gray" Width="150"/>
-            <TextBlock Text="{Binding FetchSpeedText}" VerticalAlignment="Center"
-                       FontFamily="Consolas" Foreground="Gray" Width="100"/>
-            <TextBlock Text="{Binding FetchEtaText}" VerticalAlignment="Center"
-                       FontFamily="Consolas" Foreground="Gray" Width="140"/>
-        </StackPanel>
-
-        <!-- Row 3: verify range panel -->
-        <Expander Grid.Row="3" Header="Verify Range" Margin="0,10,0,0"
-                  IsExpanded="{Binding IsVerifyExpanded}">
-            <Border Padding="10,8" BorderThickness="1,0,0,0" BorderBrush="#333">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
-                      ColumnDefinitions="Auto,220,Auto">
-                    <!-- From -->
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="From:"
-                               VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox Grid.Row="0" Grid.Column="1"
-                             Text="{Binding VerifyFrom}"
-                             Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
-                    <StackPanel Grid.Row="0" Grid.Column="2"
-                                Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
-                        <TextBlock Text="UTC offset:" VerticalAlignment="Center"/>
-                        <NumericUpDown Value="{Binding VerifyUtcOffsetHours}"
-                                       Minimum="-12" Maximum="14"
-                                       Increment="0.5"
-                                       ShowButtonSpinner="False" Width="90"/>
-                        <Button Content="Load Last"
-                                Command="{Binding LoadLastFetchRangeCommand}"
-                                Padding="10,2"/>
-                    </StackPanel>
-
-                    <!-- To -->
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="To:"
-                               VerticalAlignment="Center" Margin="0,6,8,0"/>
-                    <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
-                             Text="{Binding VerifyTo}"
-                             Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
-                    <TextBlock Grid.Row="1" Grid.Column="2" Margin="8,6,0,0"
-                               Text="(exclusive)" VerticalAlignment="Center"
+                    <TextBlock Text="Batch size:" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <NumericUpDown Value="{Binding ChunkSize}"
+                                   Minimum="1000" Maximum="50000"
+                                   Increment="1000"
+                                   ShowButtonSpinner="False" Width="110"/>
+                    <TextBlock Text="(per request)" VerticalAlignment="Center"
                                Foreground="DimGray" FontSize="11"/>
+                    
+                    <CheckBox IsChecked="{Binding PopulateGrid}" Content="Populate Grid" 
+                              VerticalAlignment="Center" Margin="10,0,0,0"
+                              ToolTip.Tip="Uncheck for large fetches to prevent UI freezing (streaming to CSV continues)"/>
+                </StackPanel>
 
-                    <!-- Resolved preview -->
-                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
-                               Text="{Binding VerifyResolvedText}"
-                               FontFamily="Consolas" FontSize="11" Foreground="Gray"
-                               Margin="0,8,0,0" TextWrapping="Wrap"/>
+                <!-- Row 2: actions + progress + ETA + speed -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+                    <Button Content="Fetch Ticks" Command="{Binding FetchTicksCommand}" Padding="12,4"/>
+                    <Button Content="Stop" Command="{Binding StopCommand}" Padding="12,4"/>
+                    <Button Content="Terminal Info" Command="{Binding GetTerminalInfoCommand}" Padding="12,4"/>
+                    <Button Content="Save CSV" Command="{Binding SaveCsvCommand}" Padding="12,4"/>
 
-                    <!-- Action buttons + status -->
-                    <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
-                                Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
-                        <Button Content="Verify" Command="{Binding VerifyRangeCommand}"
-                                Padding="14,4"/>
-                        <Button Content="Apply to Fetch" Command="{Binding ApplyToFetchCommand}"
-                                Padding="14,4"
-                                ToolTip.Tip="Copy this range into the fetch parameters (Symbol and Batch size preserved)"/>
-                        <TextBlock Text="{Binding VerifyStatusText}"
-                                   VerticalAlignment="Center" Foreground="Gray"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
+                    <ProgressBar Value="{Binding FetchProgress}" Minimum="0" Maximum="100"
+                                 Height="14" Width="220" Margin="10,0,0,0"/>
+                    <TextBlock Text="{Binding FetchProgressText}" VerticalAlignment="Center"
+                               FontFamily="Consolas" Foreground="Gray" Width="150"/>
+                    <TextBlock Text="{Binding FetchSpeedText}" VerticalAlignment="Center"
+                               FontFamily="Consolas" Foreground="Gray" Width="100"/>
+                    <TextBlock Text="{Binding FetchEtaText}" VerticalAlignment="Center"
+                               FontFamily="Consolas" Foreground="Gray" Width="140"/>
+                </StackPanel>
 
-                    <!-- Comparison result -->
-                    <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
-                               Text="{Binding VerifyComparisonText}"
-                               Foreground="{Binding VerifyComparisonBrush}"
-                               FontFamily="Consolas" FontSize="12"
-                               Margin="0,8,0,0" TextWrapping="Wrap"/>
-                </Grid>
-            </Border>
-        </Expander>
+                <!-- Row 3: verify range panel -->
+                <Expander Grid.Row="3" Header="Verify Range" Margin="0,10,0,0"
+                          IsExpanded="{Binding IsVerifyExpanded}">
+                    <Border Padding="10,8" BorderThickness="1,0,0,0" BorderBrush="#333">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              ColumnDefinitions="Auto,220,Auto">
+                            <!-- From -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="From:"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Row="0" Grid.Column="1"
+                                     Text="{Binding VerifyFrom}"
+                                     Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
+                            <StackPanel Grid.Row="0" Grid.Column="2"
+                                        Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
+                                <TextBlock Text="UTC offset:" VerticalAlignment="Center"/>
+                                <NumericUpDown Value="{Binding VerifyUtcOffsetHours}"
+                                               Minimum="-12" Maximum="14"
+                                               Increment="0.5"
+                                               ShowButtonSpinner="False" Width="90"/>
+                                <Button Content="Load Last"
+                                        Command="{Binding LoadLastFetchRangeCommand}"
+                                        Padding="10,2"/>
+                            </StackPanel>
 
-        <!-- Row 4: grid -->
-        <DataGrid Grid.Row="4" ItemsSource="{Binding Ticks}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  Margin="0,10,0,0">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Time (UTC)"
-                                    Binding="{Binding Timestamp, StringFormat='yyyy-MM-dd HH:mm:ss.fff'}"
-                                    Width="190"/>
-                <DataGridTextColumn Header="Bid"
-                                    Binding="{Binding Bid, StringFormat='F5'}" Width="100"/>
-                <DataGridTextColumn Header="Ask"
-                                    Binding="{Binding Ask, StringFormat='F5'}" Width="100"/>
-                <DataGridTextColumn Header="Last"
-                                    Binding="{Binding Last, StringFormat='F5'}" Width="100"/>
-                <DataGridTextColumn Header="Volume"
-                                    Binding="{Binding Volume}" Width="90"/>
-                <DataGridTextColumn Header="Volume Real"
-                                    Binding="{Binding VolumeReal, StringFormat='F2'}" Width="100"/>
-                <DataGridTextColumn Header="Flags"
-                                    Binding="{Binding FlagsDisplay}" Width="140"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                            <!-- To -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="To:"
+                                       VerticalAlignment="Center" Margin="0,6,8,0"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
+                                     Text="{Binding VerifyTo}"
+                                     Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Margin="8,6,0,0"
+                                       Text="(exclusive)" VerticalAlignment="Center"
+                                       Foreground="DimGray" FontSize="11"/>
 
-        <!-- Row 5: terminal info -->
-        <TextBlock Grid.Row="5" Text="{Binding TerminalInfoText}"
-                   FontFamily="Consolas" FontSize="11" Foreground="Gray"
-                   TextWrapping="Wrap" Margin="0,10,0,0"/>
-    </Grid>
+                            <!-- Resolved preview -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                       Text="{Binding VerifyResolvedText}"
+                                       FontFamily="Consolas" FontSize="11" Foreground="Gray"
+                                       Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+                            <!-- Action buttons + status -->
+                            <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                                        Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
+                                <Button Content="Verify" Command="{Binding VerifyRangeCommand}"
+                                        Padding="14,4"/>
+                                <Button Content="Apply to Fetch" Command="{Binding ApplyToFetchCommand}"
+                                        Padding="14,4"
+                                        ToolTip.Tip="Copy this range into the fetch parameters (Symbol and Batch size preserved)"/>
+                                <TextBlock Text="{Binding VerifyStatusText}"
+                                           VerticalAlignment="Center" Foreground="Gray"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- Comparison result -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
+                                       Text="{Binding VerifyComparisonText}"
+                                       Foreground="{Binding VerifyComparisonBrush}"
+                                       FontFamily="Consolas" FontSize="12"
+                                       Margin="0,8,0,0" TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
+                </Expander>
+
+                <!-- Row 4: grid -->
+                <DataGrid Grid.Row="4" ItemsSource="{Binding Ticks}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          Margin="0,10,0,0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time (UTC)"
+                                            Binding="{Binding Timestamp, StringFormat='yyyy-MM-dd HH:mm:ss.fff'}"
+                                            Width="190"/>
+                        <DataGridTextColumn Header="Bid"
+                                            Binding="{Binding Bid, StringFormat='F5'}" Width="100"/>
+                        <DataGridTextColumn Header="Ask"
+                                            Binding="{Binding Ask, StringFormat='F5'}" Width="100"/>
+                        <DataGridTextColumn Header="Last"
+                                            Binding="{Binding Last, StringFormat='F5'}" Width="100"/>
+                        <DataGridTextColumn Header="Volume"
+                                            Binding="{Binding Volume}" Width="90"/>
+                        <DataGridTextColumn Header="Volume Real"
+                                            Binding="{Binding VolumeReal, StringFormat='F2'}" Width="100"/>
+                        <DataGridTextColumn Header="Flags"
+                                            Binding="{Binding FlagsDisplay}" Width="140"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Row 5: terminal info -->
+                <TextBlock Grid.Row="5" Text="{Binding TerminalInfoText}"
+                           FontFamily="Consolas" FontSize="11" Foreground="Gray"
+                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+            </Grid>
+        </TabItem>
+
+        <!-- PARSING SUBTAB -->
+        <TabItem Header="Parsing">
+            <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+                
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+                    <Button Content="Select MT5 CSV..." Click="OnSelectCsvClicked" Padding="12,4"/>
+                    <TextBox Text="{Binding ParseFilePath}" Width="400" VerticalAlignment="Center" IsReadOnly="True" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,15,0,0">
+                    <TextBlock Text="Target Timeframe:" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding Timeframes}" SelectedItem="{Binding ParseTimeframe}" Width="80"/>
+                    
+                    <Button Content="Parse to Cache" Command="{Binding ParseCsvCommand}" Padding="12,4" Margin="10,0,0,0"/>
+                </StackPanel>
+
+                <ProgressBar Grid.Row="2" Value="{Binding ParseProgress}" Minimum="0" Maximum="100" 
+                             Height="14" Width="400" HorizontalAlignment="Left" Margin="0,15,0,0"/>
+                
+                <TextBlock Grid.Row="3" Text="{Binding ParseStatusText}" 
+                           Margin="0,8,0,0" Foreground="Gray" TextWrapping="Wrap"/>
+
+                <TextBlock Grid.Row="4" Margin="0,20,0,0" Foreground="DimGray" TextWrapping="Wrap" VerticalAlignment="Top">
+                    Parsing builds standard Klines (OHLCV) using the Bid price. Volume represents Tick count. 
+                    Once parsed, the dataset will be instantly available in the Data tab (search for "MT5 Parsed" as the provider) 
+                    and can be used in Charting, Monte Carlo, and Backtesting.
+                </TextBlock>
+            </Grid>
+        </TabItem>
+    </TabControl>
 </UserControl>
