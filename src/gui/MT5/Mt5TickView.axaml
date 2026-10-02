@@ -28,15 +28,15 @@
 
                     <TextBlock Text="Lookback (h):" VerticalAlignment="Center" Margin="10,0,0,0"/>
                     <NumericUpDown Value="{Binding LookbackHours}"
-                                   Minimum="0" Maximum="8760"
+                                   Minimum="0" Maximum="1000000"
                                    Increment="1"
-                                   ShowButtonSpinner="False" Width="100"/>
+                                   ShowButtonSpinner="False" Width="110"/>
 
                     <TextBlock Text="Target ticks:" VerticalAlignment="Center" Margin="10,0,0,0"/>
                     <NumericUpDown Value="{Binding TargetTicks}"
-                                   Minimum="1" Maximum="50000000"
-                                   Increment="500"
-                                   ShowButtonSpinner="False" Width="120"/>
+                                   Minimum="1" Maximum="2147483647"
+                                   Increment="1000"
+                                   ShowButtonSpinner="False" Width="140"/>
 
                     <TextBlock Text="Batch size:" VerticalAlignment="Center" Margin="10,0,0,0"/>
                     <NumericUpDown Value="{Binding ChunkSize}"
@@ -69,17 +69,35 @@
                 </StackPanel>
 
                 <!-- Row 3: verify range panel -->
+                <!--
+                     The range is expressed as an ANCHOR (the recent end, a wall
+                     clock date the user types) plus a SPAN (value + unit walked
+                     BACKWARD from the anchor into history). Example:
+                       (30, Years, 2026/10/02 10:00:00:000)
+                     => count ticks in
+                        [1996/10/02 10:00:00:000, 2026/10/02 10:00:00:000)
+                -->
                 <Expander Grid.Row="3" Header="Verify Range" Margin="0,10,0,0"
                           IsExpanded="{Binding IsVerifyExpanded}">
                     <Border Padding="10,8" BorderThickness="1,0,0,0" BorderBrush="#333">
                         <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
-                              ColumnDefinitions="Auto,220,Auto">
-                            <!-- From -->
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="From:"
+                              ColumnDefinitions="Auto,320,Auto">
+
+                            <!-- Span: value + unit -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Span:"
                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBox Grid.Row="0" Grid.Column="1"
-                                     Text="{Binding VerifyFrom}"
-                                     Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
+                            <StackPanel Grid.Row="0" Grid.Column="1"
+                                        Orientation="Horizontal" Spacing="6">
+                                <NumericUpDown Value="{Binding VerifySpanValue}"
+                                               Minimum="1" Maximum="1000000"
+                                               Increment="1"
+                                               FormatString="0"
+                                               ShowButtonSpinner="False"
+                                               Width="120"/>
+                                <ComboBox ItemsSource="{Binding SpanUnits}"
+                                          SelectedItem="{Binding VerifySpanUnit}"
+                                          Width="130"/>
+                            </StackPanel>
                             <StackPanel Grid.Row="0" Grid.Column="2"
                                         Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
                                 <TextBlock Text="UTC offset:" VerticalAlignment="Center"/>
@@ -92,14 +110,15 @@
                                         Padding="10,2"/>
                             </StackPanel>
 
-                            <!-- To -->
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="To:"
+                            <!-- Anchor: recent end of the range -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Anchor:"
                                        VerticalAlignment="Center" Margin="0,6,8,0"/>
                             <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
-                                     Text="{Binding VerifyTo}"
-                                     Watermark="YYYY/MM/DD HH:MM:SS.mmm"/>
+                                     Text="{Binding VerifyAnchorDate}"
+                                     Watermark="YYYY/MM/DD HH:MM:SS:mmm"/>
                             <TextBlock Grid.Row="1" Grid.Column="2" Margin="8,6,0,0"
-                                       Text="(exclusive)" VerticalAlignment="Center"
+                                       Text="(span walked backward from here)"
+                                       VerticalAlignment="Center"
                                        Foreground="DimGray" FontSize="11"/>
 
                             <!-- Resolved preview -->
@@ -115,7 +134,7 @@
                                         Padding="14,4"/>
                                 <Button Content="Apply to Fetch" Command="{Binding ApplyToFetchCommand}"
                                         Padding="14,4"
-                                        ToolTip.Tip="Copy this range into the fetch parameters (Symbol and Batch size preserved)"/>
+                                        ToolTip.Tip="Copy this range into the fetch parameters (Symbol and Batch size preserved). Requires a successful Verify to auto-size Target ticks."/>
                                 <TextBlock Text="{Binding VerifyStatusText}"
                                            VerticalAlignment="Center" Foreground="Gray"
                                            TextWrapping="Wrap"/>

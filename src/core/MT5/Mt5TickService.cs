@@ -9,22 +9,22 @@ namespace backs2.Core.MT5;
 
 public class Mt5TickService
 {
+    // v1.16: default chunk size for chunked COUNT_TICKS. 6 hours bounds
+    // per-chunk memory at ~300 MB worst-case on a hot forex symbol, and
+    // gives the C# side a PROGRESS message roughly every 0.5–2 s.
+    private const long DefaultCountChunkMs = 6L * 60 * 60 * 1000;
+
     private readonly ConfigManager _config;
     private readonly Mt5TickServer _server;
 
-    // Symbols already prewarmed this process. First CopyTicks per symbol
-    // costs ~2× the warm rate (tick-DB page-in on the MT5 side). We pay it
-    // once, up front, so the first real fetch iteration runs at warm speed.
     private readonly HashSet<string> _warmedSymbols = new(StringComparer.Ordinal);
     private readonly object _warmedLock = new();
 
-    // Dedupe state across batches. The EA sends next_from_msc = lastMsc
-    // (inclusive), so the boundary tick repeats at the head of every batch
-    // after the first. _lastEmittedTrailing is the count of consecutive
-    // same-ms ticks at the tail of the previous batch — exactly how many
-    // leading ticks to drop from the next batch.
     private long _lastEmittedTimeMsc = -1;
     private int  _lastEmittedTrailing = 0;
+
+    public bool     HasHeartbeat      => _server.HasHeartbeat;
+    public TimeSpan LastHeartbeatAge  => _server.LastHeartbeatAge;
 
     public Mt5TickService(ConfigManager config, Mt5TickServer server)
     {
@@ -102,18 +102,23 @@ public class Mt5TickService
 
     /// <summary>
     /// Ground-truth tick count for [fromMsc, toMsc) via the EA's COUNT_TICKS
-    /// action, which calls CopyTicksRange directly. Bypasses the fetch loop
-    /// entirely — used to verify a completed fetch against MT5's own DB.
+    /// action, which calls CopyTicksRange directly.
     ///
-    /// Timeout scales with the requested span. CopyTicksRange on the MT5
-    /// side runs at ~450k ticks/sec; a 24h GOLD.pro window carries ~1M
-    /// ticks. The default 15s per-request timeout is sized for 20k-tick
-    /// fetch batches and will falsely time out on anything wider than a
-    /// few days. We add 3s per calendar day of span on top of the
-    /// configured timeout, capped at 90 days.
+    /// v1.16: chunked. The EA splits the range into 6-hour pieces, processes
+    /// one piece per OnTimer tick, and streams PROGRESS messages between
+    /// them. This lets the caller show liveness during multi-minute counts
+    /// and prevents the terminal from allocating one huge MqlTick array.
+    ///
+    /// Error 4401 (ERR_HISTORY_NOT_FOUND) is logged at Info, not Warn — it
+    /// means the range is beyond the broker's available tick history, which
+    /// is a legitimate user error, not a bridge fault.
     /// </summary>
     public async Task<Mt5CountResult?> CountTicksAsync(
-        string symbol, long fromMsc, long toMsc, CancellationToken ct)
+        string symbol,
+        long fromMsc,
+        long toMsc,
+        IProgress<Mt5CountProgress>? progress,
+        CancellationToken ct)
     {
         string key = symbol?.Trim() ?? "";
         if (key.Length == 0) return null;
@@ -122,24 +127,36 @@ public class Mt5TickService
 
         long spanMs = toMsc - fromMsc;
         long spanDaysCeil = (spanMs + 86_399_999L) / 86_400_000L;
-        long extraMs = Math.Min(spanDaysCeil, 90L) * 3000L;
+        long extraMs = Math.Min(spanDaysCeil, 90L) * 5000L;
         int adaptiveTimeoutMs = _config.Settings.Mt5TimeoutMs + (int)extraMs;
 
-        string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}";
+        string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}," +
+                       $"\"chunk_ms\":{DefaultCountChunkMs}";
+
+        // Wire up progress forwarding for the duration of this call. The
+        // EA serializes chunked requests, so any PROGRESS arriving between
+        // now and the response belongs to us.
+        Action<Mt5CountProgress> handler = p => progress?.Report(p);
+        _server.CountProgress += handler;
+
         var sw = Stopwatch.StartNew();
-        var response = await _server.SendRequestAsync(
-            "COUNT_TICKS", extra, adaptiveTimeoutMs, ct);
-        sw.Stop();
-
-        if (response == null)
-        {
-            LogManager.Warn(LogTag.Provider,
-                $"MT5: COUNT_TICKS '{key}' — no response after {sw.ElapsedMilliseconds}ms (timeout was {adaptiveTimeoutMs}ms)");
-            return null;
-        }
-
         try
         {
+            var response = await _server.SendRequestAsync(
+                "COUNT_TICKS", extra, adaptiveTimeoutMs, ct);
+            sw.Stop();
+
+            if (response == null)
+            {
+                string hb = _server.HasHeartbeat
+                    ? $"{_server.LastHeartbeatAge.TotalSeconds:F1}s ago"
+                    : "never";
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: COUNT_TICKS '{key}' — no response after {sw.ElapsedMilliseconds}ms " +
+                    $"(timeout was {adaptiveTimeoutMs}ms, last heartbeat: {hb})");
+                return null;
+            }
+
             using var doc = JsonDocument.Parse(response);
             var root = doc.RootElement;
 
@@ -147,20 +164,40 @@ public class Mt5TickService
             if (status != "OK")
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : status;
-                LogManager.Warn(LogTag.Provider,
-                    $"MT5: COUNT_TICKS '{key}' — EA returned status='{status}' message='{msg}'");
+
+                bool historyNotFound = msg != null && msg.Contains("4401");
+                if (historyNotFound)
+                {
+                    LogManager.Info(LogTag.Provider,
+                        $"MT5: COUNT_TICKS '{key}' — range not available on broker " +
+                        $"(CopyTicksRange 4401). Requested [{fromMsc}..{toMsc}).");
+                }
+                else
+                {
+                    LogManager.Warn(LogTag.Provider,
+                        $"MT5: COUNT_TICKS '{key}' — EA returned status='{status}' message='{msg}'");
+                }
                 return null;
             }
 
+            // v1.16: count is Int64 on the wire because a wide range can
+            // exceed Int32. Cast to Int32 for Mt5CountResult — ranges above
+            // 2.1B ticks are outside the current UI's display budget anyway.
+            long count64 = root.GetProperty("count").GetInt64();
+            int count32 = count64 > int.MaxValue ? int.MaxValue : (int)count64;
+
+            int chunks = root.TryGetProperty("chunks", out var ch) ? ch.GetInt32() : 1;
+
             var result = new Mt5CountResult(
-                root.GetProperty("count").GetInt32(),
+                count32,
                 root.GetProperty("first_msc").GetInt64(),
                 root.GetProperty("last_msc").GetInt64(),
                 root.GetProperty("perf_us").GetInt64());
 
             LogManager.Info(LogTag.Provider,
-                $"MT5: COUNT_TICKS '{key}' [{fromMsc}..{toMsc}) — {result.Count} ticks " +
-                $"in {result.PerfUs / 1000.0:F1}ms (wall {sw.ElapsedMilliseconds}ms, timeout {adaptiveTimeoutMs}ms)");
+                $"MT5: COUNT_TICKS '{key}' [{fromMsc}..{toMsc}) — {result.Count:N0} ticks " +
+                $"in {result.PerfUs / 1000.0:F1}ms across {chunks} chunk(s) " +
+                $"(wall {sw.ElapsedMilliseconds}ms, timeout {adaptiveTimeoutMs}ms)");
 
             return result;
         }
@@ -168,6 +205,10 @@ public class Mt5TickService
         {
             LogManager.Error(LogTag.Provider, "MT5: COUNT_TICKS parse failed", ex);
             return null;
+        }
+        finally
+        {
+            _server.CountProgress -= handler;
         }
     }
 
@@ -244,156 +285,124 @@ public class Mt5TickService
                 break;
             }
 
-            try
+            var parseSw = Stopwatch.StartNew();
+            if (!TryParseTicks(
+                    response,
+                    batchSize,
+                    out var batchTicks,
+                    out long eaCopyUs,
+                    out long eaSerUs,
+                    out long nextFrom,
+                    out string? parseErr))
             {
-                long parseMs = 0;
-                long batchMs = 0;
-                long eaCopyUs = 0;
-                long eaSerUs = 0;
-                int rawBatchCount = 0;
-                int dedupedThisBatch = 0;
-
-                var parseSw = Stopwatch.StartNew();
-                var batchTicks = new List<Mt5Tick>(batchSize);
-                long nextFrom = 0;
-
-                using (var doc = JsonDocument.Parse(response))
-                {
-                    var root = doc.RootElement;
-
-                    var status = root.TryGetProperty("status", out var st) ? st.GetString() : null;
-                    if (status != "OK")
-                    {
-                        var msg = root.TryGetProperty("message", out var m) ? m.GetString() : status;
-                        LogManager.Warn(LogTag.Provider,
-                            $"MT5: fetch iter #{iteration} — EA returned status='{status}' message='{msg}'");
-                        break;
-                    }
-
-                    if (root.TryGetProperty("perf_copy_us", out var pcu)) eaCopyUs = pcu.GetInt64();
-                    if (root.TryGetProperty("perf_ser_us",  out var psu)) eaSerUs  = psu.GetInt64();
-
-                    foreach (var t in root.GetProperty("ticks").EnumerateArray())
-                    {
-                        batchTicks.Add(new Mt5Tick(
-                            t.GetProperty("time_msc").GetInt64(),
-                            t.GetProperty("bid").GetDouble(),
-                            t.GetProperty("ask").GetDouble(),
-                            t.GetProperty("last").GetDouble(),
-                            t.GetProperty("volume").GetUInt64(),
-                            t.GetProperty("volume_real").GetDouble(),
-                            t.GetProperty("flags").GetUInt32()));
-                    }
-
-                    if (root.TryGetProperty("next_from_msc", out var nf)) nextFrom = nf.GetInt64();
-                }
                 parseSw.Stop();
-                parseMs = parseSw.ElapsedMilliseconds;
-
-                rawBatchCount = batchTicks.Count;
-
-                if (_lastEmittedTimeMsc >= 0
-                    && _lastEmittedTrailing > 0
-                    && batchTicks.Count > 0)
-                {
-                    int startIdx = 0;
-                    int skipped = 0;
-                    while (startIdx < batchTicks.Count
-                        && batchTicks[startIdx].TimeMsc == _lastEmittedTimeMsc
-                        && skipped < _lastEmittedTrailing)
-                    {
-                        startIdx++;
-                        skipped++;
-                    }
-                    if (startIdx > 0)
-                    {
-                        batchTicks.RemoveRange(0, startIdx);
-                        dedupedThisBatch = startIdx;
-                        totalDeduped += startIdx;
-                    }
-                }
-
-                if (batchTicks.Count > 0)
-                {
-                    long lastTime = batchTicks[^1].TimeMsc;
-                    int trailing = 0;
-                    for (int i = batchTicks.Count - 1; i >= 0; i--)
-                    {
-                        if (batchTicks[i].TimeMsc == lastTime) trailing++;
-                        else break;
-                    }
-                    _lastEmittedTimeMsc = lastTime;
-                    _lastEmittedTrailing = trailing;
-                }
-
-                result.AddRange(batchTicks);
-                remaining -= batchTicks.Count;
-
-                if (onBatch != null && batchTicks.Count > 0)
-                {
-                    var batchSw = Stopwatch.StartNew();
-                    await onBatch(batchTicks);
-                    batchSw.Stop();
-                    batchMs = batchSw.ElapsedMilliseconds;
-                }
-
-                double usPerTick = eaCopyUs / (double)Math.Max(1, rawBatchCount);
-                LogManager.Info(LogTag.Provider,
-                    $"MT5: fetch iter #{iteration} — kept {batchTicks.Count} of {rawBatchCount} | " +
-                    $"rtt={rttMs}ms parse={parseMs}ms batch={batchMs}ms | " +
-                    $"ea_copy={eaCopyUs / 1000.0:F1}ms ({usPerTick:F1}us/t) " +
-                    $"ea_ser={eaSerUs / 1000.0:F1}ms " +
-                    (dedupedThisBatch > 0 ? $"dedupe={dedupedThisBatch} " : "") +
-                    $"(cumulative {result.Count}, total-deduped {totalDeduped})");
-
-                long nowMs = wall.ElapsedMilliseconds;
-                window.Enqueue((nowMs, result.Count));
-                while (window.Count > WindowSize) window.Dequeue();
-
-                double ticksPerSec = 0;
-                double etaSec = 0;
-                if (window.Count >= 2)
-                {
-                    var oldest = window.Peek();
-                    long dtMs = nowMs - oldest.ElapsedMs;
-                    int dTicks = result.Count - oldest.Ticks;
-                    if (dtMs > 0 && dTicks > 0)
-                    {
-                        ticksPerSec = dTicks * 1000.0 / dtMs;
-                        int left = Math.Max(0, targetTicks - result.Count);
-                        etaSec = ticksPerSec > 0 ? left / ticksPerSec : 0;
-                    }
-                }
-
-                double pct = targetTicks > 0
-                    ? Math.Min(100.0, 100.0 * result.Count / targetTicks)
-                    : 0;
-
-                progress?.Report(new Mt5FetchProgress(
-                    Fetched: result.Count,
-                    Total: targetTicks,
-                    Phase: "Fetching",
-                    NewTicks: batchTicks,
-                    Percent: pct,
-                    TicksPerSecond: ticksPerSec,
-                    EtaSeconds: etaSec,
-                    CurrentChunk: iteration,
-                    TotalChunks: totalChunks));
-
-                if (nextFrom <= 0 || batchTicks.Count == 0)
-                    break;
-
-                cursor = nextFrom;
-
-                if (rawBatchCount < batchSize)
-                    break;
-            }
-            catch (JsonException jex)
-            {
-                LogManager.Error(LogTag.Provider,
-                    $"MT5: fetch iter #{iteration} — JSON parse failed", jex);
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: fetch iter #{iteration} — parse failed: {parseErr} " +
+                    "(check EA version — expected compact array format, Backs2TickBridge v1.14+)");
                 break;
             }
+            parseSw.Stop();
+            long parseMs = parseSw.ElapsedMilliseconds;
+
+            int rawBatchCount = batchTicks.Count;
+            int dedupedThisBatch = 0;
+
+            if (_lastEmittedTimeMsc >= 0
+                && _lastEmittedTrailing > 0
+                && batchTicks.Count > 0)
+            {
+                int startIdx = 0;
+                int skipped = 0;
+                while (startIdx < batchTicks.Count
+                    && batchTicks[startIdx].TimeMsc == _lastEmittedTimeMsc
+                    && skipped < _lastEmittedTrailing)
+                {
+                    startIdx++;
+                    skipped++;
+                }
+                if (startIdx > 0)
+                {
+                    batchTicks.RemoveRange(0, startIdx);
+                    dedupedThisBatch = startIdx;
+                    totalDeduped += startIdx;
+                }
+            }
+
+            if (batchTicks.Count > 0)
+            {
+                long lastTime = batchTicks[^1].TimeMsc;
+                int trailing = 0;
+                for (int i = batchTicks.Count - 1; i >= 0; i--)
+                {
+                    if (batchTicks[i].TimeMsc == lastTime) trailing++;
+                    else break;
+                }
+                _lastEmittedTimeMsc = lastTime;
+                _lastEmittedTrailing = trailing;
+            }
+
+            result.AddRange(batchTicks);
+            remaining -= batchTicks.Count;
+
+            long batchMs = 0;
+            if (onBatch != null && batchTicks.Count > 0)
+            {
+                var batchSw = Stopwatch.StartNew();
+                await onBatch(batchTicks);
+                batchSw.Stop();
+                batchMs = batchSw.ElapsedMilliseconds;
+            }
+
+            double usPerTick = eaCopyUs / (double)Math.Max(1, rawBatchCount);
+            LogManager.Info(LogTag.Provider,
+                $"MT5: fetch iter #{iteration} — kept {batchTicks.Count} of {rawBatchCount} | " +
+                $"rtt={rttMs}ms parse={parseMs}ms batch={batchMs}ms | " +
+                $"ea_copy={eaCopyUs / 1000.0:F1}ms ({usPerTick:F1}us/t) " +
+                $"ea_ser={eaSerUs / 1000.0:F1}ms " +
+                (dedupedThisBatch > 0 ? $"dedupe={dedupedThisBatch} " : "") +
+                $"(cumulative {result.Count}, total-deduped {totalDeduped})");
+
+            long nowMs = wall.ElapsedMilliseconds;
+            window.Enqueue((nowMs, result.Count));
+            while (window.Count > WindowSize) window.Dequeue();
+
+            double ticksPerSec = 0;
+            double etaSec = 0;
+            if (window.Count >= 2)
+            {
+                var oldest = window.Peek();
+                long dtMs = nowMs - oldest.ElapsedMs;
+                int dTicks = result.Count - oldest.Ticks;
+                if (dtMs > 0 && dTicks > 0)
+                {
+                    ticksPerSec = dTicks * 1000.0 / dtMs;
+                    int left = Math.Max(0, targetTicks - result.Count);
+                    etaSec = ticksPerSec > 0 ? left / ticksPerSec : 0;
+                }
+            }
+
+            double pct = targetTicks > 0
+                ? Math.Min(100.0, 100.0 * result.Count / targetTicks)
+                : 0;
+
+            progress?.Report(new Mt5FetchProgress(
+                Fetched: result.Count,
+                Total: targetTicks,
+                Phase: "Fetching",
+                NewTicks: batchTicks,
+                Percent: pct,
+                TicksPerSecond: ticksPerSec,
+                EtaSeconds: etaSec,
+                CurrentChunk: iteration,
+                TotalChunks: totalChunks));
+
+            if (nextFrom <= 0 || batchTicks.Count == 0)
+                break;
+
+            cursor = nextFrom;
+
+            if (rawBatchCount < batchSize)
+                break;
         }
 
         LogManager.Info(LogTag.Provider,
@@ -408,6 +417,124 @@ public class Mt5TickService
             TotalChunks: totalChunks));
 
         return result;
+    }
+
+    private static bool TryParseTicks(
+        ReadOnlySpan<byte> json,
+        int expectedCount,
+        out List<Mt5Tick> ticks,
+        out long perfCopyUs,
+        out long perfSerUs,
+        out long nextFromMsc,
+        out string? error)
+    {
+        ticks = new List<Mt5Tick>(expectedCount);
+        perfCopyUs = 0;
+        perfSerUs = 0;
+        nextFromMsc = 0;
+        error = null;
+
+        string? status = null;
+        string? message = null;
+
+        var reader = new Utf8JsonReader(json);
+
+        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+        {
+            error = "expected JSON object at top level";
+            return false;
+        }
+
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject) break;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                error = $"unexpected token {reader.TokenType}";
+                return false;
+            }
+
+            if (reader.ValueTextEquals("status"u8))
+            {
+                if (!reader.Read()) { error = "truncated after status"; return false; }
+                if (reader.TokenType == JsonTokenType.String) status = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("perf_copy_us"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                { error = "perf_copy_us not a number"; return false; }
+                perfCopyUs = reader.GetInt64();
+            }
+            else if (reader.ValueTextEquals("perf_ser_us"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                { error = "perf_ser_us not a number"; return false; }
+                perfSerUs = reader.GetInt64();
+            }
+            else if (reader.ValueTextEquals("next_from_msc"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                { error = "next_from_msc not a number"; return false; }
+                nextFromMsc = reader.GetInt64();
+            }
+            else if (reader.ValueTextEquals("message"u8))
+            {
+                if (!reader.Read()) { error = "truncated after message"; return false; }
+                if (reader.TokenType == JsonTokenType.String) message = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("ticks"u8))
+            {
+                if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray)
+                { error = "ticks not an array"; return false; }
+
+                while (reader.Read())
+                {
+                    if (reader.TokenType == JsonTokenType.EndArray) break;
+                    if (reader.TokenType != JsonTokenType.Number)
+                    { error = $"tick field not number (got {reader.TokenType})"; return false; }
+
+                    long timeMsc = reader.GetInt64();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at bid"; return false; }
+                    double bid = reader.GetDouble();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at ask"; return false; }
+                    double ask = reader.GetDouble();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at last"; return false; }
+                    double last = reader.GetDouble();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at volume"; return false; }
+                    ulong volume = reader.GetUInt64();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at volume_real"; return false; }
+                    double volumeReal = reader.GetDouble();
+
+                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
+                    { error = "truncated at flags"; return false; }
+                    uint flags = reader.GetUInt32();
+
+                    ticks.Add(new Mt5Tick(timeMsc, bid, ask, last, volume, volumeReal, flags));
+                }
+            }
+            else
+            {
+                reader.Skip();
+            }
+        }
+
+        if (status != "OK")
+        {
+            error = message ?? $"EA status={status ?? "(missing)"}";
+            return false;
+        }
+
+        return true;
     }
 
     public async Task<Mt5TerminalInfo?> GetTerminalInfoAsync(CancellationToken ct)

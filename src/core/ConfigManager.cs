@@ -26,7 +26,11 @@ public class AppSettings
     // MT5 raw tick bridge
     public string Mt5Host      { get; set; } = "127.0.0.1";
     public int    Mt5Port      { get; set; } = 5555;
-    public int    Mt5TimeoutMs { get; set; } = 15000;
+    // v1.14: bumped from 15000 to cover a 50000-tick batch at ~50 µs/tick
+    // CopyTicks (~2500 ms) plus serialization and network, with headroom for
+    // a cold-symbol sync. Existing configs with the old value keep working,
+    // but a fresh settings.json picks this up.
+    public int    Mt5TimeoutMs { get; set; } = 60000;
 }
 
 public class ConfigManager

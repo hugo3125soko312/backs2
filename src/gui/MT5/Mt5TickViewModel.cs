@@ -28,7 +28,7 @@ public partial class Mt5TickViewModel : ObservableObject
     [ObservableProperty] private string _symbol = "GOLD.pro";
     [ObservableProperty] private int    _lookbackHours = 24;
     [ObservableProperty] private int    _targetTicks = 5000;
-    [ObservableProperty] private int    _chunkSize = 20000;
+    [ObservableProperty] private int    _chunkSize = 50000;
     [ObservableProperty] private bool   _populateGrid = true;
 
     // ── Display state ───────────────────────────────────────────────
@@ -66,14 +66,25 @@ public partial class Mt5TickViewModel : ObservableObject
     private bool _isFetching;
 
     // ── Verify panel state ──────────────────────────────────────────
+    //   The range is expressed as an ANCHOR (the recent end, a wall
+    //   clock date the user types) and a SPAN (value + unit walked
+    //   BACKWARD from the anchor into history). So:
+    //     (30, Years, 2026/10/02 10:00:00:000)
+    //   means the range [1996/10/02 10:00:00:000, 2026/10/02 10:00:00:000).
     [ObservableProperty] private bool   _isVerifyExpanded = false;
-    [ObservableProperty] private string _verifyFrom = "";
-    [ObservableProperty] private string _verifyTo = "";
+    [ObservableProperty] private int    _verifySpanValue = 30;
+    [ObservableProperty] private string _verifySpanUnit = "Years";
+    [ObservableProperty] private string _verifyAnchorDate = "2026/10/02 10:00:00:000";
     [ObservableProperty] private double _verifyUtcOffsetHours = 0.0;
     [ObservableProperty] private string _verifyResolvedText = "";
     [ObservableProperty] private string _verifyStatusText = "";
     [ObservableProperty] private string _verifyComparisonText = "";
     [ObservableProperty] private IBrush _verifyComparisonBrush = Brushes.Gray;
+
+    public string[] SpanUnits { get; } = new[]
+    {
+        "Seconds", "Minutes", "Hours", "Days", "Weeks", "Months", "Years"
+    };
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadLastFetchRangeCommand))]
@@ -214,10 +225,6 @@ public partial class Mt5TickViewModel : ObservableObject
 
                     if (PopulateGrid)
                     {
-                        // Cap-at-N semantics: append only the room left.
-                        // Once full, stop appending and show the banner.
-                        // The fetch itself never notices — CSV streaming
-                        // continues through the channel.
                         int room = MaxGridRows - Ticks.Count;
                         if (room > 0)
                         {
@@ -308,19 +315,6 @@ public partial class Mt5TickViewModel : ObservableObject
     }
 
     // ── Parse CSV ───────────────────────────────────────────────────
-    //
-    // Correctness notes:
-    //  - The whole parse runs inside Task.Run — synchronous, background
-    //    thread. The entire body is CPU-bound; background-thread execution
-    //    via Task.Run is a single clear boundary the UI thread can't
-    //    accidentally re-enter.
-    //  - Progress is marshalled via IProgress<T> — Task.Run reports on a
-    //    threadpool thread, Progress<T> posts to the captured context.
-    //  - GetBucketStart is epoch-relative for all intraday timeframes.
-    //    The old per-hour anchoring broke 45m; see the comment on the
-    //    method for details.
-    //  - zeroBidTicks is capped at 10k entries so an anomalous feed
-    //    cannot grow it without bound.
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task ParseCsv()
     {
@@ -491,18 +485,6 @@ public partial class Mt5TickViewModel : ObservableObject
         return true;
     }
 
-    // Epoch-relative alignment for every intraday timeframe. The formula
-    // `(timeMsc / tfMs) * tfMs` produces buckets that always tile evenly:
-    // every 45m bucket is exactly 45 minutes, and no bucket straddles the
-    // hour in a way that splits it. The previous per-hour anchoring was
-    // only correct for divisors of 60; 45m produced alternating 45- and
-    // 15-minute bars.
-    //
-    //   1D → UTC midnight, epoch-relative. MT5's PERIOD_D1 uses the
-    //        broker's server-day boundary (typically GMT+2/3 on OANDA),
-    //        so parsed daily bars will be offset from what the MT5 chart
-    //        shows. Documented limitation; not adjustable yet.
-    //   1W → ISO Monday, UTC-aligned. Same broker-offset caveat.
     private static long GetBucketStart(long timeMsc, string tf)
     {
         long tfMs = tf switch
@@ -533,8 +515,6 @@ public partial class Mt5TickViewModel : ObservableObject
             return new DateTimeOffset(monday, TimeSpan.Zero).ToUnixTimeMilliseconds();
         }
 
-        // Unknown timeframe — one bar per tick. Should never fire; the
-        // ComboBox is bound to TimeframeMap.All.
         return timeMsc;
     }
 
@@ -593,40 +573,51 @@ public partial class Mt5TickViewModel : ObservableObject
     private void Stop() => _cts?.Cancel();
 
     // ── Verify panel ────────────────────────────────────────────────
-    partial void OnVerifyFromChanged(string value) => UpdateResolvedPreview();
-    partial void OnVerifyToChanged(string value) => UpdateResolvedPreview();
-    partial void OnVerifyUtcOffsetHoursChanged(double value) => UpdateResolvedPreview();
+    partial void OnVerifySpanValueChanged(int value)          => UpdateResolvedPreview();
+    partial void OnVerifySpanUnitChanged(string value)        => UpdateResolvedPreview();
+    partial void OnVerifyAnchorDateChanged(string value)      => UpdateResolvedPreview();
+    partial void OnVerifyUtcOffsetHoursChanged(double value)  => UpdateResolvedPreview();
 
     private bool CanLoadLastFetchRange() => HasLastFetch;
 
+    // Fills the anchor from the last fetch's end, and picks the largest
+    // clean unit that exactly divides the last fetch's duration. If no
+    // unit divides cleanly, falls back to Seconds.
     [RelayCommand(CanExecute = nameof(CanLoadLastFetchRange))]
     private void LoadLastFetchRange()
     {
         if (!HasLastFetch) return;
-        VerifyFrom = FormatMscForOffset(_lastFetchFromMsc, VerifyUtcOffsetHours);
-        VerifyTo   = FormatMscForOffset(_lastFetchEndMsc + 1, VerifyUtcOffsetHours);
+
+        VerifyAnchorDate = FormatMscForOffset(_lastFetchEndMsc + 1, VerifyUtcOffsetHours);
+
+        long durMs  = _lastFetchEndMsc - _lastFetchFromMsc;
+        long durSec = Math.Max(1L, durMs / 1000L);
+
+        int val;
+        string unit;
+
+        if      (durSec % (365L * 86_400L) == 0) { val = (int)(durSec / (365L * 86_400L)); unit = "Years";   }
+        else if (durSec % ( 30L * 86_400L) == 0) { val = (int)(durSec / ( 30L * 86_400L)); unit = "Months";  }
+        else if (durSec % (  7L * 86_400L) == 0) { val = (int)(durSec / (  7L * 86_400L)); unit = "Weeks";   }
+        else if (durSec %         86_400L  == 0) { val = (int)(durSec /         86_400L);  unit = "Days";    }
+        else if (durSec %          3_600L  == 0) { val = (int)(durSec /          3_600L);  unit = "Hours";   }
+        else if (durSec %             60L  == 0) { val = (int)(durSec /             60L);  unit = "Minutes"; }
+        else                                     { val = (int)durSec;                      unit = "Seconds"; }
+
+        // Guard against int overflow on absurd durations.
+        if (val < 1) val = 1;
+        VerifySpanValue = val;
+        VerifySpanUnit  = unit;
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private async Task VerifyRange()
     {
-        if (!TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom))
+        if (!TryComputeRange(
+                VerifyAnchorDate, VerifySpanValue, VerifySpanUnit, VerifyUtcOffsetHours,
+                out long fromMsc, out long toMsc, out string err))
         {
-            VerifyStatusText = $"From parse error: {errFrom}";
-            VerifyComparisonText = "";
-            VerifyComparisonBrush = Brushes.OrangeRed;
-            return;
-        }
-        if (!TryParseTimestamp(VerifyTo, VerifyUtcOffsetHours, out long toMsc, out string errTo))
-        {
-            VerifyStatusText = $"To parse error: {errTo}";
-            VerifyComparisonText = "";
-            VerifyComparisonBrush = Brushes.OrangeRed;
-            return;
-        }
-        if (toMsc <= fromMsc)
-        {
-            VerifyStatusText = "Range is empty or inverted (To must be > From).";
+            VerifyStatusText = $"Range error: {err}";
             VerifyComparisonText = "";
             VerifyComparisonBrush = Brushes.OrangeRed;
             return;
@@ -635,12 +626,21 @@ public partial class Mt5TickViewModel : ObservableObject
         VerifyStatusText = "Querying MT5...";
         VerifyComparisonText = "";
 
+        var progress = new Progress<Mt5CountProgress>(p =>
+        {
+            VerifyStatusText =
+                $"Counting… chunk {p.ChunksDone}/{p.ChunksTotal} " +
+                $"({p.CumulativeTicks:N0} ticks)";
+        });
+
         try
         {
-            var result = await _service.CountTicksAsync(Symbol, fromMsc, toMsc, CancellationToken.None);
+            var result = await _service.CountTicksAsync(
+                Symbol, fromMsc, toMsc, progress, CancellationToken.None);
+
             if (result == null)
             {
-                VerifyStatusText = "No response from MT5 EA.";
+                VerifyStatusText = "No response from MT5 EA (range not available or EA offline).";
                 VerifyComparisonBrush = Brushes.OrangeRed;
                 return;
             }
@@ -690,26 +690,18 @@ public partial class Mt5TickViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private void ApplyToFetch()
     {
-        if (!TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom))
+        if (!TryComputeRange(
+                VerifyAnchorDate, VerifySpanValue, VerifySpanUnit, VerifyUtcOffsetHours,
+                out long fromMsc, out long toMsc, out string err))
         {
-            VerifyStatusText = $"Cannot apply: From parse error: {errFrom}";
-            return;
-        }
-        if (!TryParseTimestamp(VerifyTo, VerifyUtcOffsetHours, out long toMsc, out string errTo))
-        {
-            VerifyStatusText = $"Cannot apply: To parse error: {errTo}";
-            return;
-        }
-        if (toMsc <= fromMsc)
-        {
-            VerifyStatusText = "Cannot apply: empty or inverted range.";
+            VerifyStatusText = $"Cannot apply: {err}";
             return;
         }
 
         long nowMsc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (fromMsc >= nowMsc)
         {
-            VerifyStatusText = "Cannot apply: From is in the future.";
+            VerifyStatusText = "Cannot apply: computed From is in the future.";
             return;
         }
 
@@ -721,53 +713,114 @@ public partial class Mt5TickViewModel : ObservableObject
 
         if (_lastVerifyCount > 0)
         {
+            // +1% headroom, min +1000. TargetTicks is an int, cap at int.MaxValue.
             long target = (long)_lastVerifyCount + Math.Max(1000L, _lastVerifyCount / 100L);
-            if (target > 50_000_000L) target = 50_000_000L;
+            if (target > int.MaxValue) target = int.MaxValue;
             TargetTicks = (int)target;
 
             if (TargetTicks > 500_000) PopulateGrid = false;
 
             VerifyStatusText =
-                $"Applied to fetch — Lookback = {lookbackHours} h, Target = {TargetTicks:N0}. " +
+                $"Applied — Lookback = {lookbackHours:N0} h, Target = {TargetTicks:N0}. " +
                 "Symbol and batch size unchanged.";
         }
         else
         {
             VerifyStatusText =
-                $"Applied to fetch — Lookback = {lookbackHours} h. " +
-                "Target ticks unchanged (run Verify first to auto-size it). " +
-                "Symbol and batch size unchanged.";
+                $"Applied Lookback = {lookbackHours:N0} h. " +
+                "Target ticks UNCHANGED — run Verify first to auto-size it. " +
+                "If Verify returned 4401 the broker has no data in this range.";
         }
     }
 
+    // ── Range math ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Computes [anchor − span, anchor). The anchor is the recent end of the
+    /// range and is the wall clock time the user types. The span is walked
+    /// backwards using calendar-aware arithmetic for months and years, and
+    /// fixed-duration arithmetic for the rest.
+    /// </summary>
+    private static bool TryComputeRange(
+        string anchorStr, int spanValue, string spanUnit, double utcOffsetHours,
+        out long fromMsc, out long toMsc, out string err)
+    {
+        fromMsc = 0;
+        toMsc   = 0;
+        err     = "";
+
+        if (!TryParseTimestamp(anchorStr, utcOffsetHours, out toMsc, out err))
+            return false;
+
+        if (spanValue <= 0)
+        {
+            err = "span value must be greater than zero";
+            return false;
+        }
+
+        DateTimeOffset anchor =
+            DateTimeOffset.FromUnixTimeMilliseconds(toMsc)
+                          .ToOffset(TimeSpan.FromHours(utcOffsetHours));
+
+        DateTimeOffset from;
+        try
+        {
+            from = spanUnit switch
+            {
+                "Seconds" => anchor.AddSeconds(-spanValue),
+                "Minutes" => anchor.AddMinutes(-spanValue),
+                "Hours"   => anchor.AddHours  (-spanValue),
+                "Days"    => anchor.AddDays   (-spanValue),
+                "Weeks"   => anchor.AddDays   (-(long)spanValue * 7),
+                "Months"  => anchor.AddMonths (-spanValue),
+                "Years"   => anchor.AddYears  (-spanValue),
+                _         => anchor
+            };
+        }
+        catch (Exception ex)
+        {
+            err = $"cannot subtract {spanValue} {spanUnit}: {ex.Message}";
+            return false;
+        }
+
+        fromMsc = from.ToUnixTimeMilliseconds();
+        if (toMsc <= fromMsc)
+        {
+            err = "computed range is empty or inverted";
+            return false;
+        }
+
+        return true;
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
+
     private void UpdateResolvedPreview()
     {
-        if (string.IsNullOrWhiteSpace(VerifyFrom) && string.IsNullOrWhiteSpace(VerifyTo))
+        if (string.IsNullOrWhiteSpace(VerifyAnchorDate))
         {
             VerifyResolvedText = "";
             return;
         }
 
-        bool okFrom = TryParseTimestamp(VerifyFrom, VerifyUtcOffsetHours, out long fromMsc, out string errFrom);
-        bool okTo   = TryParseTimestamp(VerifyTo,   VerifyUtcOffsetHours, out long toMsc,   out string errTo);
-
-        if (!okFrom || !okTo)
+        if (!TryComputeRange(
+                VerifyAnchorDate, VerifySpanValue, VerifySpanUnit, VerifyUtcOffsetHours,
+                out long fromMsc, out long toMsc, out string err))
         {
-            VerifyResolvedText = okFrom
-                ? $"To: {errTo}"
-                : $"From: {errFrom}";
+            VerifyResolvedText = $"Invalid: {err}";
             return;
         }
-
-        long spanMs = toMsc - fromMsc;
 
         VerifyResolvedText =
             $"From:  {FormatUtc(fromMsc)}\n" +
             $"To:    {FormatUtc(toMsc)}\n" +
-            (spanMs > 0 ? $"Span:  {FormatDuration(spanMs)}" : "Span:  (invalid — To must be > From)");
+            $"Span:  {FormatDuration(toMsc - fromMsc)}";
     }
 
+    // Parses "YYYY/MM/DD HH:MM:SS[.mmm]" or "YYYY/MM/DD HH:MM:SS:mmm".
+    // Separators in the date accept '-', '.', '/'. The millisecond
+    // separator accepts either '.' or ':' (so the user's "10:00:00:000"
+    // form round-trips).
     private static bool TryParseTimestamp(string s, double utcOffsetHours, out long msc, out string err)
     {
         msc = 0;
@@ -790,25 +843,24 @@ public partial class Mt5TickViewModel : ObservableObject
             !int.TryParse(dp[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int day))
         { err = "date components must be numeric"; return false; }
 
-        int ms = 0;
-        int dotIdx = timePart.IndexOf('.');
-        string hmsPart = dotIdx < 0 ? timePart : timePart.Substring(0, dotIdx);
-        if (dotIdx >= 0)
-        {
-            var msStr = timePart.Substring(dotIdx + 1);
-            while (msStr.Length < 3) msStr += "0";
-            if (msStr.Length > 3) msStr = msStr.Substring(0, 3);
-            if (!int.TryParse(msStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ms))
-            { err = "ms fraction must be numeric"; return false; }
-        }
-
-        var tp = hmsPart.Split(':');
-        if (tp.Length != 3) { err = "time must be HH:MM:SS[.mmm]"; return false; }
+        var tp = timePart.Split(new[] { ':', '.' }, StringSplitOptions.None);
+        if (tp.Length < 3 || tp.Length > 4)
+        { err = "time must be HH:MM:SS or HH:MM:SS[.:]mmm"; return false; }
 
         if (!int.TryParse(tp[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int hour) ||
             !int.TryParse(tp[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int minute) ||
             !int.TryParse(tp[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int second))
         { err = "time components must be numeric"; return false; }
+
+        int ms = 0;
+        if (tp.Length == 4)
+        {
+            var msStr = tp[3];
+            while (msStr.Length < 3) msStr += "0";
+            if (msStr.Length > 3) msStr = msStr.Substring(0, 3);
+            if (!int.TryParse(msStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ms))
+            { err = "ms fraction must be numeric"; return false; }
+        }
 
         if (year < 1970 || year > 9999) { err = "year out of range"; return false; }
         if (month < 1 || month > 12)    { err = "month out of range"; return false; }
@@ -835,11 +887,14 @@ public partial class Mt5TickViewModel : ObservableObject
         => DateTimeOffset.FromUnixTimeMilliseconds(msc)
            .UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + " UTC";
 
+    // Uses ':' as the ms separator to match the input format the anchor
+    // textbox accepts.
     private static string FormatMscForOffset(long msc, double offsetHours)
     {
         var dto = DateTimeOffset.FromUnixTimeMilliseconds(msc);
         var shifted = dto.ToOffset(TimeSpan.FromHours(offsetHours));
-        return shifted.ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        return shifted.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture)
+               + ":" + shifted.Millisecond.ToString("D3", CultureInfo.InvariantCulture);
     }
 
     private static string FormatDuration(long ms)

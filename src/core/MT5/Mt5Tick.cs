@@ -61,3 +61,13 @@ public record Mt5CountResult(
     long FirstMsc,
     long LastMsc,
     long PerfUs);
+
+/// <summary>
+/// v1.16: interim progress report emitted by the EA during a chunked
+/// COUNT_TICKS. Total is the EA's own estimate and may shrink mid-flight
+/// if a chunk fails and the EA adapts chunk_ms downward.
+/// </summary>
+public record Mt5CountProgress(
+    int ChunksDone,
+    int ChunksTotal,
+    long CumulativeTicks);
