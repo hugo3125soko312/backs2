@@ -26,11 +26,15 @@ public class AppSettings
     // MT5 raw tick bridge
     public string Mt5Host      { get; set; } = "127.0.0.1";
     public int    Mt5Port      { get; set; } = 5555;
-    // v1.14: bumped from 15000 to cover a 50000-tick batch at ~50 µs/tick
-    // CopyTicks (~2500 ms) plus serialization and network, with headroom for
-    // a cold-symbol sync. Existing configs with the old value keep working,
-    // but a fresh settings.json picks this up.
     public int    Mt5TimeoutMs { get; set; } = 60000;
+
+    // MT5 .tkc cache extraction (Extract from .tkc subtab).
+    // TerminalDataRoot is the per-installation GUID folder under
+    // %APPDATA%\MetaQuotes\Terminal\. Broker is the server-side folder
+    // name under bases\ (e.g. "OANDATMS-MT5"). Both are needed to
+    // resolve bases\{broker}\ticks\{symbol}\YYYYMM.tkc.
+    public string Mt5TerminalDataRoot { get; set; } = "";
+    public string Mt5TerminalBroker   { get; set; } = "";
 }
 
 public class ConfigManager
@@ -139,6 +143,8 @@ public class ConfigManager
         Settings.LogLevel ??= "Info";
         Settings.QueuedDatasets ??= new List<string>();
         Settings.Mt5Host ??= "127.0.0.1";
+        Settings.Mt5TerminalDataRoot ??= "";
+        Settings.Mt5TerminalBroker ??= "";
     }
 
     public void SaveConfig()

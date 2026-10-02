@@ -5,10 +5,12 @@ using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Models;
 using backs2.Core.MT5;
+using backs2.Core.MT5.Tkc;
 using backs2.Core.Providers;
 using backs2.Core.Writers;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -20,8 +22,6 @@ namespace backs2.ViewModels;
 
 public partial class Mt5TickViewModel : ObservableObject
 {
-    // Grid preview hard cap. The fetch continues to stream every tick to
-    // CSV beyond this; the DataGrid simply stops growing.
     public const int MaxGridRows = 100_000;
 
     // ── Fetch settings ──────────────────────────────────────────────
@@ -49,6 +49,17 @@ public partial class Mt5TickViewModel : ObservableObject
     [ObservableProperty] private double _parseProgress;
     [ObservableProperty] private string _parseStatusText = "Select a CSV to begin.";
 
+    // ── .tkc extraction state ───────────────────────────────────────
+    [ObservableProperty] private string _terminalDataRoot = "";
+    [ObservableProperty] private string _terminalBroker = "";
+    [ObservableProperty] private string _tkcSymbol = "GOLD.pro";
+    [ObservableProperty] private string _tkcTimeframe = "1h";
+    [ObservableProperty] private int    _tkcLookbackDays = 0;
+    [ObservableProperty] private int    _tkcMaxTicks = 0;
+    [ObservableProperty] private double _tkcProgress;
+    [ObservableProperty] private string _tkcProgressText = "";
+    [ObservableProperty] private string _tkcStatusText = "";
+
     public string[] Timeframes => TimeframeMap.All;
 
     [ObservableProperty]
@@ -59,18 +70,18 @@ public partial class Mt5TickViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(VerifyRangeCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyToFetchCommand))]
     [NotifyCanExecuteChangedFor(nameof(ParseCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExtractToCacheCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isFetching;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StopCommand))]
+    private bool _isDecoding;
+
     // ── Verify panel state ──────────────────────────────────────────
-    //   The range is expressed as an ANCHOR (the recent end, a wall
-    //   clock date the user types) and a SPAN (value + unit walked
-    //   BACKWARD from the anchor into history). So:
-    //     (30, Years, 2026/10/02 10:00:00:000)
-    //   means the range [1996/10/02 10:00:00:000, 2026/10/02 10:00:00:000).
     [ObservableProperty] private bool   _isVerifyExpanded = false;
     [ObservableProperty] private int    _verifySpanValue = 30;
     [ObservableProperty] private string _verifySpanUnit = "Years";
@@ -94,7 +105,6 @@ public partial class Mt5TickViewModel : ObservableObject
     private long _lastFetchEndMsc  = 0;
     private int  _lastFetchCount   = 0;
 
-    // Populated by VerifyRange; consumed by ApplyToFetch to size TargetTicks.
     private int _lastVerifyCount = 0;
 
     public RangeObservableCollection<Mt5Tick> Ticks { get; } = new();
@@ -110,13 +120,13 @@ public partial class Mt5TickViewModel : ObservableObject
         _config = config;
         _cache = cache;
         ConnectionInfoText = $"Server listening on {_config.Settings.Mt5Host}:{_config.Settings.Mt5Port}";
+
+        TerminalDataRoot = _config.Settings.Mt5TerminalDataRoot ?? "";
+        TerminalBroker   = _config.Settings.Mt5TerminalBroker ?? "";
     }
 
     private bool CanRunIdle() => !IsBusy;
 
-    // Auto-disable grid population when TargetTicks would clearly blow
-    // past the cap. Guards against the freeze class: the user typing a
-    // huge number and forgetting to uncheck the box.
     partial void OnTargetTicksChanged(int value)
     {
         if (value > 500_000 && PopulateGrid)
@@ -407,7 +417,7 @@ public partial class Mt5TickViewModel : ObservableObject
         long totalLength = fs.Length;
         int linesRead = 0;
 
-        sr.ReadLine(); // skip header
+        sr.ReadLine();
 
         string? line;
         while ((line = sr.ReadLine()) != null)
@@ -567,10 +577,269 @@ public partial class Mt5TickViewModel : ObservableObject
         finally { IsBusy = false; }
     }
 
-    private bool CanStop() => IsFetching;
+    private bool CanStop() => IsFetching || IsDecoding;
 
     [RelayCommand(CanExecute = nameof(CanStop))]
     private void Stop() => _cts?.Cancel();
+
+    // ── .tkc extract → cache ────────────────────────────────────────
+    [RelayCommand(CanExecute = nameof(CanRunIdle))]
+    private async Task ExtractToCache()
+    {
+        string root   = TerminalDataRoot?.Trim() ?? "";
+        string broker = TerminalBroker?.Trim() ?? "";
+        string symbol = TkcSymbol?.Trim() ?? "";
+        string tf     = TkcTimeframe;
+
+        if (root.Length == 0 || broker.Length == 0 || symbol.Length == 0)
+        {
+            TkcStatusText = "Fill Terminal Data Root, Broker, and Symbol.";
+            return;
+        }
+
+        // Persist for next launch.
+        _config.Settings.Mt5TerminalDataRoot = root;
+        _config.Settings.Mt5TerminalBroker   = broker;
+        _config.SaveConfig();
+
+        var files = TkcRepository.ListSymbolFiles(root, broker, symbol);
+        if (files.Count == 0)
+        {
+            TkcStatusText = $"No .tkc files found under {root}\\bases\\{broker}\\ticks\\{symbol}";
+            return;
+        }
+
+        long? cutoffMsc = TkcLookbackDays > 0
+            ? DateTimeOffset.UtcNow.AddDays(-TkcLookbackDays).ToUnixTimeMilliseconds()
+            : null;
+
+        var inRange = new List<string>(files.Count);
+        if (cutoffMsc.HasValue)
+        {
+            foreach (var f in files)
+                if (FileOverlapsLookback(f, cutoffMsc.Value))
+                    inRange.Add(f);
+        }
+        else
+        {
+            inRange.AddRange(files);
+        }
+
+        if (inRange.Count == 0)
+        {
+            TkcStatusText = "No .tkc files fall inside the requested lookback window.";
+            return;
+        }
+
+        IsBusy = true;
+        IsDecoding = true;
+        TkcProgress = 0;
+        TkcProgressText = "Starting...";
+        TkcStatusText = "";
+
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var ct = _cts.Token;
+            int maxTicks = TkcMaxTicks;
+
+            var progress = new Progress<DecodeProgressReport>(p =>
+            {
+                TkcProgress = p.Percent;
+                TkcProgressText = p.Message;
+            });
+
+            var result = await Task.Run(
+                () => ExtractTkcCore(inRange, tf, cutoffMsc, maxTicks, progress, ct), ct);
+
+            ct.ThrowIfCancellationRequested();
+
+            TkcProgress = 100;
+            TkcProgressText = $"Saving {result.Klines.Count:N0} bars...";
+
+            string cacheKey = $"{symbol}@{tf}";
+            await _cache.SaveCacheAsync(cacheKey, result.Klines, "MT5 Parsed");
+
+            TkcProgressText = "";
+            TkcStatusText =
+                $"Success. {result.TickCount:N0} ticks → {result.Klines.Count:N0} bars " +
+                $"({cacheKey}, source MT5 Parsed).";
+
+            LogManager.Info(LogTag.Provider,
+                $"MT5: .tkc extracted {result.TickCount:N0} ticks into {result.Klines.Count:N0} bars ({cacheKey})");
+        }
+        catch (OperationCanceledException)
+        {
+            TkcStatusText = "Extract cancelled.";
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5: .tkc extract failed", ex);
+            TkcStatusText = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _cts?.Dispose();
+            _cts = null;
+            IsDecoding = false;
+            IsBusy = false;
+        }
+    }
+
+    private sealed record DecodeProgressReport(double Percent, string Message);
+
+    private sealed record DecodeResult(int TickCount, List<Kline> Klines);
+
+    /// <summary>
+    /// True if the .tkc file's month is at or after the cutoff month. Files
+    /// earlier than the cutoff contain only ticks that would be filtered
+    /// out, so we skip them entirely without decoding. Non-standard filenames
+    /// (anything but YYYYMM.tkc) are conservatively included.
+    /// </summary>
+    private static bool FileOverlapsLookback(string path, long cutoffMsc)
+    {
+        var stem = Path.GetFileNameWithoutExtension(path);
+        if (stem.Length != 6) return true;
+        if (!int.TryParse(stem.AsSpan(0, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out int y)) return true;
+        if (!int.TryParse(stem.AsSpan(4, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int m)) return true;
+        if (m < 1 || m > 12) return true;
+        if (y < 1970 || y > 9999) return true;
+
+        var firstOfNextMonth = new DateTimeOffset(y, m, 1, 0, 0, 0, TimeSpan.Zero).AddMonths(1);
+        long fileEndMsc = firstOfNextMonth.ToUnixTimeMilliseconds();
+        return fileEndMsc > cutoffMsc;
+    }
+
+    /// <summary>
+    /// Decodes .tkc files newest-first, folding ticks into a bucket
+    /// accumulator. Reverse iteration lets us stop as soon as either the
+    /// lookback cutoff or the tick-count limit is reached, without holding
+    /// all ticks in memory. Buckets track Open/Close correctly under reverse
+    /// iteration: the first bid seen in a bucket is the latest tick
+    /// (Close), the last bid seen is the earliest (Open).
+    /// </summary>
+    private static DecodeResult ExtractTkcCore(
+        IReadOnlyList<string> files,
+        string timeframe,
+        long? cutoffMsc,
+        int maxTicks,
+        IProgress<DecodeProgressReport> progress,
+        CancellationToken ct)
+    {
+        var buckets = new Dictionary<long, TkcBucket>(capacity: 8192);
+        long totalTicks = 0;
+        long droppedZeroBid = 0;
+        long tickLimit = maxTicks > 0 ? maxTicks : long.MaxValue;
+
+        int fileCount = files.Count;
+        for (int fi = fileCount - 1; fi >= 0; fi--)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string path = files[fi];
+            double pct = (double)(fileCount - 1 - fi) / fileCount * 100.0;
+            progress.Report(new DecodeProgressReport(
+                pct,
+                $"Decoding {Path.GetFileName(path)} ({fileCount - fi}/{fileCount})..."));
+
+            IReadOnlyList<TkcTick> ticks;
+            try
+            {
+                var tkc = new TkcFile(path);
+                ticks = tkc.Ticks;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: skipped '{Path.GetFileName(path)}' during decode: {ex.Message}");
+                continue;
+            }
+
+            bool stop = false;
+            for (int k = ticks.Count - 1; k >= 0; k--)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var t = ticks[k];
+
+                if (cutoffMsc.HasValue && t.TimestampMs < cutoffMsc.Value)
+                {
+                    stop = true;
+                    break;
+                }
+
+                if (t.Bid <= 0.0)
+                {
+                    droppedZeroBid++;
+                    continue;
+                }
+
+                long key = GetBucketStart(t.TimestampMs, timeframe);
+                if (buckets.TryGetValue(key, out var b))
+                {
+                    b.Open = t.Bid;
+                    if (t.Bid > b.High) b.High = t.Bid;
+                    if (t.Bid < b.Low)  b.Low  = t.Bid;
+                    b.Volume++;
+                }
+                else
+                {
+                    buckets[key] = new TkcBucket
+                    {
+                        Open   = t.Bid,
+                        High   = t.Bid,
+                        Low    = t.Bid,
+                        Close  = t.Bid,
+                        Volume = 1
+                    };
+                }
+
+                totalTicks++;
+
+                if (totalTicks >= tickLimit)
+                {
+                    stop = true;
+                    break;
+                }
+            }
+
+            if (stop) break;
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        // Materialize chronological klines.
+        var keys = new List<long>(buckets.Keys);
+        keys.Sort();
+
+        var klines = new List<Kline>(keys.Count);
+        foreach (var key in keys)
+        {
+            var b = buckets[key];
+            klines.Add(new Kline(
+                DateTimeOffset.FromUnixTimeMilliseconds(key).UtcDateTime,
+                b.Open, b.High, b.Low, b.Close, b.Volume));
+        }
+
+        if (droppedZeroBid > 0)
+        {
+            LogManager.Warn(LogTag.Provider,
+                $"MT5: dropped {droppedZeroBid:N0} zero-bid ticks during .tkc decode.");
+        }
+
+        int reportedTicks = totalTicks > int.MaxValue ? int.MaxValue : (int)totalTicks;
+        return new DecodeResult(reportedTicks, klines);
+    }
+
+    private sealed class TkcBucket
+    {
+        public double Open;
+        public double High;
+        public double Low;
+        public double Close;
+        public long   Volume;
+    }
 
     // ── Verify panel ────────────────────────────────────────────────
     partial void OnVerifySpanValueChanged(int value)          => UpdateResolvedPreview();
@@ -580,9 +849,6 @@ public partial class Mt5TickViewModel : ObservableObject
 
     private bool CanLoadLastFetchRange() => HasLastFetch;
 
-    // Fills the anchor from the last fetch's end, and picks the largest
-    // clean unit that exactly divides the last fetch's duration. If no
-    // unit divides cleanly, falls back to Seconds.
     [RelayCommand(CanExecute = nameof(CanLoadLastFetchRange))]
     private void LoadLastFetchRange()
     {
@@ -604,7 +870,6 @@ public partial class Mt5TickViewModel : ObservableObject
         else if (durSec %             60L  == 0) { val = (int)(durSec /             60L);  unit = "Minutes"; }
         else                                     { val = (int)durSec;                      unit = "Seconds"; }
 
-        // Guard against int overflow on absurd durations.
         if (val < 1) val = 1;
         VerifySpanValue = val;
         VerifySpanUnit  = unit;
@@ -713,7 +978,6 @@ public partial class Mt5TickViewModel : ObservableObject
 
         if (_lastVerifyCount > 0)
         {
-            // +1% headroom, min +1000. TargetTicks is an int, cap at int.MaxValue.
             long target = (long)_lastVerifyCount + Math.Max(1000L, _lastVerifyCount / 100L);
             if (target > int.MaxValue) target = int.MaxValue;
             TargetTicks = (int)target;
@@ -734,13 +998,6 @@ public partial class Mt5TickViewModel : ObservableObject
     }
 
     // ── Range math ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// Computes [anchor − span, anchor). The anchor is the recent end of the
-    /// range and is the wall clock time the user types. The span is walked
-    /// backwards using calendar-aware arithmetic for months and years, and
-    /// fixed-duration arithmetic for the rest.
-    /// </summary>
     private static bool TryComputeRange(
         string anchorStr, int spanValue, string spanUnit, double utcOffsetHours,
         out long fromMsc, out long toMsc, out string err)
@@ -794,7 +1051,6 @@ public partial class Mt5TickViewModel : ObservableObject
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
-
     private void UpdateResolvedPreview()
     {
         if (string.IsNullOrWhiteSpace(VerifyAnchorDate))
@@ -817,10 +1073,6 @@ public partial class Mt5TickViewModel : ObservableObject
             $"Span:  {FormatDuration(toMsc - fromMsc)}";
     }
 
-    // Parses "YYYY/MM/DD HH:MM:SS[.mmm]" or "YYYY/MM/DD HH:MM:SS:mmm".
-    // Separators in the date accept '-', '.', '/'. The millisecond
-    // separator accepts either '.' or ':' (so the user's "10:00:00:000"
-    // form round-trips).
     private static bool TryParseTimestamp(string s, double utcOffsetHours, out long msc, out string err)
     {
         msc = 0;
@@ -887,8 +1139,6 @@ public partial class Mt5TickViewModel : ObservableObject
         => DateTimeOffset.FromUnixTimeMilliseconds(msc)
            .UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + " UTC";
 
-    // Uses ':' as the ms separator to match the input format the anchor
-    // textbox accepts.
     private static string FormatMscForOffset(long msc, double offsetHours)
     {
         var dto = DateTimeOffset.FromUnixTimeMilliseconds(msc);

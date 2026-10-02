@@ -69,21 +69,12 @@
                 </StackPanel>
 
                 <!-- Row 3: verify range panel -->
-                <!--
-                     The range is expressed as an ANCHOR (the recent end, a wall
-                     clock date the user types) plus a SPAN (value + unit walked
-                     BACKWARD from the anchor into history). Example:
-                       (30, Years, 2026/10/02 10:00:00:000)
-                     => count ticks in
-                        [1996/10/02 10:00:00:000, 2026/10/02 10:00:00:000)
-                -->
                 <Expander Grid.Row="3" Header="Verify Range" Margin="0,10,0,0"
                           IsExpanded="{Binding IsVerifyExpanded}">
                     <Border Padding="10,8" BorderThickness="1,0,0,0" BorderBrush="#333">
                         <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                               ColumnDefinitions="Auto,320,Auto">
 
-                            <!-- Span: value + unit -->
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Span:"
                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <StackPanel Grid.Row="0" Grid.Column="1"
@@ -110,7 +101,6 @@
                                         Padding="10,2"/>
                             </StackPanel>
 
-                            <!-- Anchor: recent end of the range -->
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Anchor:"
                                        VerticalAlignment="Center" Margin="0,6,8,0"/>
                             <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
@@ -121,13 +111,11 @@
                                        VerticalAlignment="Center"
                                        Foreground="DimGray" FontSize="11"/>
 
-                            <!-- Resolved preview -->
                             <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
                                        Text="{Binding VerifyResolvedText}"
                                        FontFamily="Consolas" FontSize="11" Foreground="Gray"
                                        Margin="0,8,0,0" TextWrapping="Wrap"/>
 
-                            <!-- Action buttons + status -->
                             <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
                                         Orientation="Horizontal" Spacing="12" Margin="0,8,0,0">
                                 <Button Content="Verify" Command="{Binding VerifyRangeCommand}"
@@ -140,7 +128,6 @@
                                            TextWrapping="Wrap"/>
                             </StackPanel>
 
-                            <!-- Comparison result -->
                             <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
                                        Text="{Binding VerifyComparisonText}"
                                        Foreground="{Binding VerifyComparisonBrush}"
@@ -150,7 +137,7 @@
                     </Border>
                 </Expander>
 
-                <!-- Row 4: grid cap banner (visible only when capped) -->
+                <!-- Row 4: grid cap banner -->
                 <TextBlock Grid.Row="4"
                            Text="{Binding GridCapText}"
                            Foreground="#FFB74D" FontSize="11" Margin="0,6,0,0"
@@ -195,14 +182,12 @@
         <TabItem Header="Parsing">
             <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
 
-                <!-- Row 0: file picker -->
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
                     <Button Content="Select MT5 CSV..." Click="OnSelectCsvClicked" Padding="12,4"/>
                     <TextBox Text="{Binding ParseFilePath}" Width="400"
                              VerticalAlignment="Center" IsReadOnly="True"/>
                 </StackPanel>
 
-                <!-- Row 1: timeframe + parse action -->
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,15,0,0">
                     <TextBlock Text="Target Timeframe:" VerticalAlignment="Center"/>
                     <ComboBox ItemsSource="{Binding Timeframes}"
@@ -212,21 +197,103 @@
                             Padding="12,4" Margin="10,0,0,0"/>
                 </StackPanel>
 
-                <!-- Row 2: progress -->
                 <ProgressBar Grid.Row="2" Value="{Binding ParseProgress}" Minimum="0" Maximum="100"
                              Height="14" Width="400" HorizontalAlignment="Left" Margin="0,15,0,0"/>
 
-                <!-- Row 3: status -->
                 <TextBlock Grid.Row="3" Text="{Binding ParseStatusText}"
                            Margin="0,8,0,0" Foreground="Gray" TextWrapping="Wrap"/>
 
-                <!-- Row 4: help text -->
                 <TextBlock Grid.Row="4" Margin="0,20,0,0"
                            Foreground="DimGray" TextWrapping="Wrap" VerticalAlignment="Top">
                     Parsing builds standard Klines (OHLCV) using the Bid price. Volume represents Tick count.
                     Once parsed, the dataset will be instantly available in the Data tab (search for "MT5 Parsed" as the provider)
                     and can be used in Charting, Monte Carlo, and Backtesting.
                 </TextBlock>
+            </Grid>
+        </TabItem>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             EXTRACT FROM .TKC SUBTAB
+
+             Reads MetaTrader's local .tkc tick-cache files directly,
+             aggregates them to the chosen timeframe, and writes klines
+             through CacheManager with source "MT5 Parsed".
+
+             Path layout:
+               {TerminalDataRoot}\bases\{Broker}\ticks\{Symbol}\YYYYMM.tkc
+             ═══════════════════════════════════════════════════════════ -->
+        <TabItem Header="Extract from .tkc">
+            <Grid Margin="10" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+
+                <!-- Row 0: Terminal data root -->
+                <Grid Grid.Row="0" ColumnDefinitions="160,*">
+                    <TextBlock Grid.Column="0" Text="Terminal Data Root:"
+                               VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1"
+                             Text="{Binding TerminalDataRoot}"
+                             Watermark="C:\Users\...\AppData\Roaming\MetaQuotes\Terminal\{GUID}"/>
+                </Grid>
+
+                <!-- Row 1: Broker + Symbol + Timeframe -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+                    <TextBlock Text="Broker:" VerticalAlignment="Center" Width="55"/>
+                    <TextBox Text="{Binding TerminalBroker}" Width="200"
+                             Watermark="OANDATMS-MT5"/>
+                    <TextBlock Text="Symbol:" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <TextBox Text="{Binding TkcSymbol}" Width="140"
+                             Watermark="GOLD.pro"/>
+                    <TextBlock Text="Timeframe:" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <ComboBox ItemsSource="{Binding Timeframes}"
+                              SelectedItem="{Binding TkcTimeframe}"
+                              Width="80"/>
+                </StackPanel>
+
+                <!-- Row 2: Range limits -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+                    <TextBlock Text="Lookback (days):" VerticalAlignment="Center"/>
+                    <NumericUpDown Value="{Binding TkcLookbackDays}"
+                                   Minimum="0" Maximum="100000"
+                                   Increment="1" ShowButtonSpinner="False" Width="120"/>
+                    <TextBlock Text="(0 = all)" VerticalAlignment="Center"
+                               Foreground="DimGray" FontSize="11"/>
+
+                    <TextBlock Text="Max ticks:" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                    <NumericUpDown Value="{Binding TkcMaxTicks}"
+                                   Minimum="0" Maximum="2000000000"
+                                   Increment="100000" ShowButtonSpinner="False" Width="150"/>
+                    <TextBlock Text="(0 = all, keeps newest)" VerticalAlignment="Center"
+                               Foreground="DimGray" FontSize="11"/>
+                </StackPanel>
+
+                <!-- Row 3: Action -->
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="12" Margin="0,14,0,0">
+                    <Button Content="Extract &amp; Save to Cache"
+                            Command="{Binding ExtractToCacheCommand}"
+                            Padding="14,4"/>
+                    <ProgressBar Value="{Binding TkcProgress}" Minimum="0" Maximum="100"
+                                 Height="14" Width="320"/>
+                    <TextBlock Text="{Binding TkcProgressText}"
+                               VerticalAlignment="Center"
+                               FontFamily="Consolas" Foreground="Gray" Width="340"/>
+                </StackPanel>
+
+                <!-- Row 4: hint -->
+                <TextBlock Grid.Row="4" Margin="0,14,0,0"
+                           Foreground="DimGray" FontSize="11" TextWrapping="Wrap">
+                    Decodes the terminal's local monthly tick files, aggregates them to the chosen
+                    timeframe (Bid price, Volume = tick count), and writes a standard dataset into
+                    the cache as source "MT5 Parsed". To obtain a different timeframe, re-run with
+                    a different Timeframe — the decode is fast enough that no intermediate tick
+                    cache is maintained.
+                </TextBlock>
+
+                <!-- Row 5: spacer -->
+
+                <!-- Row 6: Status -->
+                <TextBlock Grid.Row="6" Text="{Binding TkcStatusText}"
+                           Margin="0,10,0,0"
+                           Foreground="Gray" FontFamily="Consolas" FontSize="11"
+                           TextWrapping="Wrap"/>
             </Grid>
         </TabItem>
     </TabControl>

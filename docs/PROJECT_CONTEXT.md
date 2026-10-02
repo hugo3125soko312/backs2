@@ -1,3 +1,4 @@
+<!-- docs\PROJECT_CONTEXT.md -->
 # Project: backs2 Trading Engine
 - GUI: Avalonia 11.0.11
 - Core: .NET 8.0, DI-based xManager Pattern
@@ -22,6 +23,7 @@
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
     - src/core/MT5/: Mt5Tick, Mt5TickServer, Mt5TickService. Raw tick data bridge to a running MetaTrader 5 terminal over local TCP, with a range verifier (COUNT_TICKS) and CSV-to-cache parsing. See ARCHITECTURE §19.
+    - src/core/MT5/tck/: TkcModels (TkcTick, TkcInfo, TkcException), TkcDecoder (static; `.tkc` → `(TkcInfo, IReadOnlyList<TkcTick>)`), TkcFile (lazy wrapper + TkcRepository.ListSymbolFiles). Decoder for MetaTrader's local monthly tick-cache files. See ARCHITECTURE §20.
     - src/core/Writers/: Mt5TickWriter.cs (contains Mt5TickWriter + Mt5TickStreamWriter). The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
     - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
     - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
@@ -31,17 +33,18 @@
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
     - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
-    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. `TabControl` with two subtabs: **Extraction** (fetch + Verify Range panel) and **Parsing** (tick CSV → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
+    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. `TabControl` with three subtabs: **Extraction** (fetch + Verify Range panel), **Parsing** (tick CSV → kline cache), and **Extract from .tkc** (terminal .tkc cache → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
     - Strategy parameters: `// @param Name Type = Default [options: ...]` lines must appear **above any `using` directives** — StrategyParameterParser stops at the first non-comment, non-blank line. See RULES.md.
     - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.
-    - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe. Parsed MT5 tick CSVs write here with source `MT5 Parsed`.
+    - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe. Parsed MT5 tick CSVs and decoded .tkc files write here with source `MT5 Parsed`.
     - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
     - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE §18.
     - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.13) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
+    - MT5 .tkc Extraction: reads MetaTrader's local monthly tick-cache files under {TerminalDataRoot}\bases\{Broker}\ticks\{Symbol}\YYYYMM.tkc, decodes them, aggregates to a TimeframeMap.All timeframe, writes kline cache as source "MT5 Parsed". No EA, no TCP — pure file I/O. See ARCHITECTURE §20.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
     - .env at repo root: TWELVEDATA_API_KEY, TIINGO_API_KEY, MASSIVE_PROVIDER_API_KEY, YAHOO_PROVIDER_API_KEY, FINNHUB_API_KEY, FCS_PUBLIC_API_KEY.
@@ -86,11 +89,15 @@
     - MT5 tick CSV parsing builds bars from `Bid`, `Volume` = tick count. Zero-bid ticks are dropped. Cache source is `MT5 Parsed`. The parse runs inside `Task.Run` — never inline on the UI thread.
     - MT5 timeframe bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Never re-introduce per-hour anchoring — it breaks 45m.
     - `data/ticks/` is git-ignored (user-fetched data, same class as logs/).
+    - MT5 `.tkc` decoding lives in `src/core/MT5/tck/`. Decoder must not emit per-day/per-block logs — exactly one `Info` line per file (`TKC 'file': N ticks, D day(s), T ms`) and one `Warn` at the end if zero-bid ticks were dropped. Anything more is spam that buried the 0-tick bug for hours.
+    - MT5 `.tkc` decode must be serial across files (never parallel). Peak memory is bounded by the largest single file's tick list + the bucket dict. Parallel decode would hold all files' ticks simultaneously (~3.6 GB for a full-history GOLD.pro set).
+    - MT5 `.tkc` decode iterates files newest-first and ticks within a file in reverse. This lets `TkcLookbackDays` and `TkcMaxTicks` stop the decode mid-file without holding all ticks. Bucket semantics under reverse iteration: first bid seen = Close, last bid seen = Open.
+    - MT5 `.tkc` value offset within a 16-byte record is per-block (first half or second half). Detect it by sampling; never hard-code.
 - Config folder vs Data folder:
     - `config/`: user-authored settings (settings.json, presets/, data_automation.json).
     - `data/`: engine-managed (cache/, strategies/, accounts/, shots/, parsed/, ticks/).
     - `docs/`: documentation plus the MQL5 bridge source (`docs/Backs2TickBridge.mq5`) and the tick-range verifier (`docs/VerifyTickRangeExact.mq5`).
-- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), MT5 Ticks (Extraction / Parsing subtabs), Providers, Chart, Logs, Config.
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), MT5 Ticks (Extraction / Parsing / Extract from .tkc subtabs), Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API".
@@ -99,4 +106,4 @@
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.
     - Binance is keyless. Finnhub historical candles are gated behind a paid plan on the free tier; the provider logs a Warn and returns empty when the API responds with a non-`ok` status.
     - Placeholder .env values (key, placeholder, todo, xxx) are normalized to empty by ConfigManager.NormalizeValue.
-    - `MT5 Parsed` is a cache-only source: written by the MT5 Ticks Parsing subtab, never fetched over the network. It appears in the Providers tab like any other source.
+    - `MT5 Parsed` is a cache-only source: written by the MT5 Ticks Parsing subtab (tick CSV) and by the MT5 Ticks Extract-from-.tkc subtab (terminal .tkc cache), never fetched over the network. It appears in the Providers tab like any other source.

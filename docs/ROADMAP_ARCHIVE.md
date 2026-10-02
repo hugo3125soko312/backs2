@@ -622,3 +622,52 @@ Turns the MT5 Ticks tab from a raw fetch surface into a full tick-to-cache pipel
 - `OnTargetTicksChanged` auto-unchecks `PopulateGrid` when `TargetTicks > 500_000` and shows a banner explaining why. Guards against the user typing a huge number and forgetting the checkbox.
 - `GridCapText` banner above the DataGrid announces the cap or the auto-disable reason. Hidden when empty.
 - Root cause of the pre-cap freeze: `RangeObservableCollection.AddRange` raises one `NotifyCollectionChangedAction.Reset` per batch, and Avalonia's `DataGrid` re-evaluates the whole collection on every Reset. At 20M+ rows that saturates the UI thread, which backs up `Progress`/`Logged` dispatches and inflates fetch RTT (measured: 1.3 s → 3.1 s over a 20M-tick fetch). Capping at 100k keeps the UI thread idle throughout.
+
+## Phase 16: MT5 .tkc Cache Extraction [COMPLETED]
+
+Ship date: 2026-10-02.
+
+Reads MetaTrader's local monthly `.tkc` tick-cache files directly from disk and aggregates them into standard kline cache. Bypasses the EA bridge entirely — the terminal has already downloaded and compressed this data, so backs2 decodes it in-process. Full-history GOLD.pro (25 files, 153.6 M ticks) decodes in ~19 s.
+
+### Phase 16A -- .tkc decoder [COMPLETED]
+- `src/core/MT5/tck/` module:
+  - `TkcModels.cs` — `TkcTick` (readonly record struct: `TimestampMs`, `Bid`, `Ask`), `TkcInfo` (`Magic`, `Symbol`, `FileSize`, `TickCount`, `StartMs`, `EndMs`), `TkcException`.
+  - `TkcDecoder.cs` — static `Decode(path)` returning `(TkcInfo, IReadOnlyList<TkcTick>)`.
+  - `TkcFile.cs` — `TkcFile` lazy wrapper (decode-once, cached), `TkcRepository.ListSymbolFiles(root, broker, symbol)`.
+- Format reverse-engineered:
+  - Magic `0x000001FD` at offset 0.
+  - Symbol as UTF-16LE in `[0xA0, 0xD0)`.
+  - Index starts at `0x00E4`, 48 bytes per entry, terminated by `size == 0` or non-monotonic `offset`.
+  - Per-day payload is a sequence of interleaved zlib streams (`0x78` + one of `0x01 | 0x5E | 0x9C | 0xDA`).
+- Records are 16 bytes:
+  - Timestamps delta-encoded — first record is absolute Unix-ms, subsequent records are `u64` deltas accumulated into a running cursor.
+  - Bid and ask are f64 stored in the **first or second half** of each record, detected per block by `DetectPriceOffset`. Never hard-code the offset.
+- `ClassifyBlock` checks the timestamp anchor **first**: if the first 8 bytes decode to a Unix-ms value in `[1.42e12, 2.0e12]`, the block is `Timestamps`. Zero-fraction checking runs only afterwards. Delta-encoded timestamps can be 0 for many consecutive ticks (many ticks per millisecond), and the previous zero-fraction-first classifier tagged valid timestamp blocks as `Empty` and silently dropped entire days.
+- `DecodeFromBlocks` walks blocks forward and decodes each `[Timestamps, Prices, Prices, ...]` group **independently**, concatenating the resulting tick chunks. The previous global-pick approach (single largest timestamp block, two closest-mid price blocks) silently dropped 95% of `202610.tkc`'s ticks on the 105-block day.
+- `InflateZlib` takes the **full remaining** `[offset..offset+size)` — `ZLibStream` self-terminates at the zlib footer. The previous 2 MB slice cap silently truncated larger streams, producing partial or undecodable payloads.
+- **Logging contract:** exactly **one** `Info` line per file (`TKC 'file': N ticks, D day(s), T ms`) plus at most one `Warn` at end (zero-bid count). Never add per-day, per-block, or per-stream logging to the decoder. A previous diagnostic pass at 60 lines/file buried a silent-tick-loss bug for hours.
+
+### Phase 16B -- Extract from .tkc subtab [COMPLETED]
+- `Mt5TickView.axaml` gains a third subtab: **Extract from .tkc**.
+- Inputs: `TerminalDataRoot` (`{...}\MetaQuotes\Terminal\{GUID}`), `TerminalBroker` (e.g. `OANDATMS-MT5`), `TkcSymbol` (e.g. `GOLD.pro`), `TkcTimeframe` (`TimeframeMap.All`), `TkcLookbackDays` (0 = all), `TkcMaxTicks` (0 = all).
+- Single action: **Extract & Save to Cache**. No scan step, no file grid.
+- `TerminalDataRoot` and `TerminalBroker` are persisted to `AppSettings.Mt5TerminalDataRoot` / `Mt5TerminalBroker` on every run.
+
+### Phase 16C -- Range limits [COMPLETED]
+- `FileOverlapsLookback` cheap-parses `YYYYMM.tkc` filenames and skips whole months before the cutoff without decoding. Non-standard filenames are conservatively included.
+- Files are iterated **newest-first**; ticks within a file are iterated in **reverse**. Both `TkcLookbackDays` and `TkcMaxTicks` therefore stop the decode mid-file without materialising every tick.
+- Bucket semantics under reverse iteration: the **first** bid seen in a bucket is **Close**, the **last** is **Open**. High/Low are symmetric.
+- Full-history GOLD.pro (25 files, 153.6 M ticks) → ~19 s. 30-day lookback → ~5 s. 5 M-tick cap → ~2 s.
+
+### Phase 16D -- Cache write [COMPLETED]
+- Bars are built from `Bid`, `Volume` = tick count. Zero-bid ticks (`Bid <= 0`) are dropped and counted.
+- Timeframe bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Same rule as the CSV parser. `1D` = UTC midnight, `1W` = ISO Monday UTC.
+- Written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`.
+- The dataset appears in the Data tab like any other cached file and is immediately usable by Chart, Runner, and Monte Carlo.
+- Verified: GOLD.pro@1h → 145,509,458 valid ticks (8,141,198 zero-bid dropped) → 10,365 bars.
+
+### Design decisions
+- **Serial across files.** Never parallel. The full-history GOLD.pro set holds ~3.6 GB of ticks in RAM if decoded in parallel. Peak memory stays bounded by the largest single file's tick list (~320 MB for `202603.tkc`) plus the bucket dict.
+- **Double-decode is the right tradeoff.** `ScanTkc` (in the earlier iteration) decoded each file once for Info; `ExtractTkcCore` decodes again for ticks. There is no random-access index in the `.tkc` format, so tick count requires a full decode. Caching decoded ticks across both operations would retain GBs; caching only `Info` would still require decoding. Not worth optimising until decode time becomes a bottleneck.
+- **Never run raw ticks through a strategy or metric.** `RunnerScriptGlobals.Data` is `List<Kline>`; `IMetric.Calculate` takes `List<Kline>`; `TimeSliceBuilder` produces one slice per Kline; `CacheManager` stores `KlineCompact[]`. Feeding ticks would require a parallel execution engine (new globals type, tick-aware metrics, tick-aware TradeRecorder, tick-aware Monte Carlo) and would silently break bar-based indicators (RSI-14 over 14 ticks, ATR = 0, etc.). Always aggregate to bars first.
+- **Different timeframe = re-run with a different `TkcTimeframe`.** No intermediate tick cache tier. The decode is fast enough (~19 s full history) that a binary tick-cache tier would add complexity without a matching benefit.

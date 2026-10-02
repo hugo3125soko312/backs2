@@ -1,3 +1,4 @@
+<!-- docs\RULES.md -->
 ONLY SPEAK IN ENGLISH
 
 # Development Rules
@@ -124,6 +125,23 @@ ONLY SPEAK IN ENGLISH
 - Symbol comes from the CSV filename before the first `_`. Never parse it from a column.
 - Cache source is **`MT5 Parsed`**. Written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`. Never write to a different location or bypass the cache.
 - `MT5 Parsed` is cache-only — never fetched over the network. It appears in the Providers tab and the Data tab like any other source.
+
+### MT5 .tkc Cache Extraction (Phase 16)
+- Decoder lives in `src/core/MT5/tck/` — `TkcModels.cs`, `TkcDecoder.cs`, `TkcFile.cs`. `TkcRepository.ListSymbolFiles(root, broker, symbol)` enumerates `{root}\bases\{broker}\ticks\{symbol}\YYYYMM.tkc`.
+- `.tkc` format: magic `0x000001FD` at offset 0; symbol as UTF-16LE in `[0xA0, 0xD0)`; index starts at `0x00E4`, 48 bytes per entry, terminated by `size == 0` or non-monotonic `offset`; day payload is a sequence of interleaved zlib streams beginning with `0x78` + one of `0x01 | 0x5E | 0x9C | 0xDA`.
+- `InflateZlib` must be given the full remaining `[offset..offset+size)` — `ZLibStream` self-terminates at the zlib footer. Never cap the input slice; larger streams silently truncate.
+- `ClassifyBlock` must check for a `Timestamps` block **first** (first 8 bytes decode as Unix-ms in `[1.42e12, 2.0e12]`). Do not check zero-fraction first — delta-encoded timestamps can be 0 for many consecutive ticks, which previously caused valid timestamp blocks to be tagged `Empty` and whole days to be dropped.
+- A day's blocks are grouped `[Timestamps, Prices, Prices, ...]`. `DecodeFromBlocks` must walk forward and decode each group independently — never pick the single largest `Timestamps` block globally. `202610.tkc` has 105 blocks in one day; the global-pick bug silently dropped 95% of its ticks.
+- Per-record layout is 16 bytes: timestamps are delta-encoded (first record absolute Unix-ms, subsequent `u64` deltas); bid/ask are f64 in the first **or** second half of the record, detected per block by `DetectPriceOffset`. Never hard-code the offset.
+- Decode is **serial across files**. Never parallel — the full-history GOLD.pro set holds ~3.6 GB of ticks in RAM if decoded in parallel. Peak memory must stay bounded by the largest single file's tick list plus the bucket dict.
+- Iterate files newest-first, ticks within a file in reverse. This lets `TkcLookbackDays` and `TkcMaxTicks` stop the decode mid-file without materialising every tick. Bucket semantics under reverse iteration: **first** bid seen in a bucket is **Close**, **last** bid seen is **Open**. High/Low are symmetric.
+- `FileOverlapsLookback` cheap-parses `YYYYMM.tkc` filenames to skip whole months before the cutoff. Non-standard filenames are conservatively included (decoded, then filtered tick-by-tick).
+- Bars are built from `Bid`, `Volume` = tick count. Zero-bid ticks (`Bid <= 0`) are dropped and counted.
+- Timeframe bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Same rule as the CSV parser. `1D` = UTC midnight, `1W` = ISO Monday UTC.
+- Cache source is **`MT5 Parsed`**. Written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`.
+- Logging: exactly **one** `Info` line per file (`TKC 'file': N ticks, D day(s), T ms`) and at most one `Warn` per run (zero-bid drop count). Never add per-day, per-block, or per-stream logging to the decoder. The last time this rule was violated, 60 lines/file of diagnostics buried a silent-tick-loss bug for hours.
+- The `MT5 Ticks` tab is an optional source: decoded bars feed any Kline consumer (Chart, Runner, Monte Carlo) exactly like a CSV-parsed dataset.
+- Never run `.tkc` ticks directly through a strategy or metric. `RunnerScriptGlobals.Data` is `List<Kline>`, `IMetric.Calculate` takes `List<Kline>`, `TimeSliceBuilder` produces one slice per Kline, and `CacheManager` stores `KlineCompact[]`. Always aggregate to bars first — running on raw ticks would need a parallel execution engine (new globals type, tick-aware metrics, tick-aware TradeRecorder, tick-aware Monte Carlo) and would silently break bar-based indicators (RSI-14 over 14 ticks, ATR = 0, etc.).
 
 ## Commit Convention
 When a phase is completed, ship a commit with the message format:
