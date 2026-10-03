@@ -136,13 +136,35 @@ public class Mt5TickService
         if (!_server.IsClientConnected) return null;
 
         long spanDays = (toMsc - fromMsc + 86_399_999L) / 86_400_000L;
-        long extraMs = Math.Min(spanDays, 60L) * 2000L;
+
+        // SYNC_TICKS_RANGE iterates one day per OnTimer tick on the EA
+        // side. The first CopyTicksRange call can trigger a broker-side
+        // history download that blocks for minutes on a cold symbol.
+        // Budget: base timeout, plus 500 ms/day of range, floored at
+        // 20 minutes, capped at 60 minutes.
+        long extraMs = spanDays * 500L;
+        if (extraMs < 20L * 60L * 1000L) extraMs = 20L * 60L * 1000L;
+        if (extraMs > 60L * 60L * 1000L) extraMs = 60L * 60L * 1000L;
         int requestTimeoutMs = _config.Settings.Mt5TimeoutMs + (int)extraMs;
+
+        LogManager.Info(LogTag.Provider,
+            $"MT5: SYNC_TICKS_RANGE '{key}' ENTRY — span {spanDays} day(s), " +
+            $"timeout {requestTimeoutMs}ms, range [{fromMsc}..{toMsc})");
 
         string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}";
 
-        Action<Mt5CountProgress> handler = p => progress?.Report(p);
+        int progressFrames = 0;
+        Action<Mt5CountProgress> handler = p =>
+        {
+            progressFrames++;
+            LogManager.Info(LogTag.Provider,
+                $"MT5: SYNC progress #{progressFrames} — req={p.RequestId} " +
+                $"chunks={p.ChunksDone}/{p.ChunksTotal} " +
+                $"synced={p.SyncedDays} skipped={p.SkippedDays}");
+            progress?.Report(p);
+        };
         _server.CountProgress += handler;
+        LogManager.Debug(LogTag.Provider, "MT5: SYNC progress handler attached");
 
         var sw = Stopwatch.StartNew();
         try
@@ -158,7 +180,8 @@ public class Mt5TickService
                     : "never";
                 LogManager.Warn(LogTag.Provider,
                     $"MT5: SYNC_TICKS_RANGE '{key}' — no response after {sw.ElapsedMilliseconds}ms " +
-                    $"(timeout was {requestTimeoutMs}ms, last heartbeat: {hb})");
+                    $"(timeout was {requestTimeoutMs}ms, last heartbeat: {hb}, " +
+                    $"progress frames received: {progressFrames})");
                 return null;
             }
 
@@ -170,7 +193,8 @@ public class Mt5TickService
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : status;
                 LogManager.Warn(LogTag.Provider,
-                    $"MT5: SYNC_TICKS_RANGE '{key}' — EA returned status='{status}' message='{msg}'");
+                    $"MT5: SYNC_TICKS_RANGE '{key}' — EA returned status='{status}' message='{msg}' " +
+                    $"(progress frames: {progressFrames})");
                 return null;
             }
 
@@ -179,8 +203,9 @@ public class Mt5TickService
             int total   = root.TryGetProperty("total_days",   out var td) ? td.GetInt32() : 0;
 
             LogManager.Info(LogTag.Provider,
-                $"MT5: SYNC_TICKS_RANGE '{key}' [{fromMsc}..{toMsc}) — {synced} synced, " +
-                $"{skipped} skipped, {total} total day(s) in {sw.ElapsedMilliseconds}ms");
+                $"MT5: SYNC_TICKS_RANGE '{key}' DONE — {synced} synced, " +
+                $"{skipped} skipped, {total} total day(s) in {sw.ElapsedMilliseconds}ms " +
+                $"({progressFrames} progress frame(s))");
 
             return new Mt5SyncResult(synced, skipped, total);
         }
@@ -192,6 +217,8 @@ public class Mt5TickService
         finally
         {
             _server.CountProgress -= handler;
+            LogManager.Debug(LogTag.Provider,
+                $"MT5: SYNC progress handler detached (received {progressFrames} frame(s))");
         }
     }
 
