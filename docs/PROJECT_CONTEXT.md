@@ -22,8 +22,9 @@
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
-    - src/core/MT5/: Mt5Tick, Mt5TickServer, Mt5TickService. Raw tick data bridge to a running MetaTrader 5 terminal over local TCP, with a range verifier (COUNT_TICKS) and CSV-to-cache parsing. See ARCHITECTURE §19.
-    - src/core/MT5/tck/: TkcModels (TkcTick, TkcInfo, TkcException), TkcDecoder (static; `.tkc` → `(TkcInfo, IReadOnlyList<TkcTick>)`), TkcFile (lazy wrapper + TkcRepository.ListSymbolFiles). Decoder for MetaTrader's local monthly tick-cache files. See ARCHITECTURE §20.
+    - src/core/MT5/: Mt5Tick, Mt5TickServer, Mt5TickService, Mt5TickParser. Raw tick data bridge to a running MetaTrader 5 terminal over local TCP, with a range verifier (COUNT_TICKS), a broker-side history downloader (SYNC_TICKS_RANGE), and CSV-to-cache parsing. See ARCHITECTURE §19.
+    - src/core/MT5/tck/: TckModels (TkcTick, TkcInfo, TkcException), TkcDecoder (static; `.tkc` → `(TkcInfo, IReadOnlyList<TkcTick>)`), TkcFile (lazy wrapper + TkcRepository.ListSymbolFiles). Decoder for MetaTrader's local monthly tick-cache files. See ARCHITECTURE §20.
+    - src/core/MT5/Mt5TickViewModel.Requester.cs: partial-class file holding `RequestSyncCommand`, `ReqSymbol`, `ReqLookbackDays`, `ReqProgress`, `ReqStatusText`. The Requester subtab drives `Mt5TickService.SyncTicksRangeAsync`.
     - src/core/Writers/: Mt5TickWriter.cs (contains Mt5TickWriter + Mt5TickStreamWriter). The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
     - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
     - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
@@ -33,7 +34,7 @@
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
     - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
-    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. `TabControl` with three subtabs: **Extraction** (fetch + Verify Range panel), **Parsing** (tick CSV → kline cache), and **Extract from .tkc** (terminal .tkc cache → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
+    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. `TabControl` with four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (broker-side history download into local `.tkc`), **.tkc Extract** (terminal .tkc cache → kline cache), and **Parsing** (tick CSV → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
@@ -43,7 +44,8 @@
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe. Parsed MT5 tick CSVs and decoded .tkc files write here with source `MT5 Parsed`.
     - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
     - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE §18.
-    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.13) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
+    - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.18) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
+    - MT5 History Requester: MQL5 action `SYNC_TICKS_RANGE` (v1.17+). Forces the terminal to download a specific tick range from the broker and write it into the local `.tkc` cache, iterating day-by-day. Emits PROGRESS frames and an immediate ack; the C# side scales its request timeout by the range span. Latest-wins: a new chunked request pre-empts an in-flight one.
     - MT5 .tkc Extraction: reads MetaTrader's local monthly tick-cache files under {TerminalDataRoot}\bases\{Broker}\ticks\{Symbol}\YYYYMM.tkc, decodes them, aggregates to a TimeframeMap.All timeframe, writes kline cache as source "MT5 Parsed". No EA, no TCP — pure file I/O. See ARCHITECTURE §20.
     - Config UI: Auto-generated via reflection from `AppSettings` and `IDataProvider`.
 - Secrets:
@@ -85,6 +87,9 @@
     - MT5 prewarm is per-symbol per-process. `Mt5TickService.PrewarmAsync` is idempotent via `HashSet<string> _warmedSymbols`. Do not bypass it — first `CopyTicks` per symbol costs ~2× warm.
     - MT5 `onBatch` is awaited inside the fetch loop. Do not change it to a fire-and-forget write — the deliberate backpressure is what bounds memory.
     - MT5 `CountTicksAsync` uses an adaptive timeout: `Mt5TimeoutMs + min(spanDays, 90) × 3000 ms`. The base timeout is sized for fetch batches, not range queries — a 30-day query takes ~44 s.
+    - MT5 `SyncTicksRangeAsync` uses a **span-scaled** timeout: `Mt5TimeoutMs + clamp(spanDays × 500 ms, 20 min, 60 min)`. Never reuse the COUNT_TICKS formula for SYNC, and never send a fixed-timeout SYNC request.
+    - MT5 `HandleSyncTicksRange` must emit an immediate-ack PROGRESS frame on accept, throttle bypassed. The first `CopyTicksRange` call can block for minutes on a cold symbol; without the ack the C# side times out on a live request. Do not remove this ack.
+    - MT5 `Mt5TickServer.TryParseProgress` must accept BOTH PROGRESS shapes (`cumulative_ticks` for COUNT_TICKS; `synced_days`/`skipped_days` for SYNC). None of the three is mandatory — a missing field means "not applicable for this action".
     - MT5 grid cap: `Mt5TickViewModel.MaxGridRows = 100_000`. `PopulateGrid` auto-unchecks once the cap is hit; `TargetTicks > 500_000` auto-unchecks at entry. Never raise the cap without re-validating the DataGrid freeze behavior — the freeze was a `Reset`-per-batch storm, not a memory issue.
     - MT5 tick CSV parsing builds bars from `Bid`, `Volume` = tick count. Zero-bid ticks are dropped. Cache source is `MT5 Parsed`. The parse runs inside `Task.Run` — never inline on the UI thread.
     - MT5 timeframe bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Never re-introduce per-hour anchoring — it breaks 45m.
@@ -97,7 +102,7 @@
     - `config/`: user-authored settings (settings.json, presets/, data_automation.json).
     - `data/`: engine-managed (cache/, strategies/, accounts/, shots/, parsed/, ticks/).
     - `docs/`: documentation plus the MQL5 bridge source (`docs/Backs2TickBridge.mq5`) and the tick-range verifier (`docs/VerifyTickRangeExact.mq5`).
-- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), MT5 Ticks (Extraction / Parsing / Extract from .tkc subtabs), Providers, Chart, Logs, Config.
+- Tabs: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation (Extraction / Parsing / Analysis subtabs), MT5 Ticks (Extraction / Requester / .tkc Extract / Parsing subtabs), Providers, Chart, Logs, Config.
 - Providers:
     - IDataProvider: Name, FetchAsync(symbol), FetchAsync(symbol, timeframe).
     - Provider keys: "Twelve Data", "Tiingo", "Yahoo", "Massive", "Binance", "Finnhub", "FCS API".
@@ -106,4 +111,4 @@
     - DataManager walks AppSettings.ProviderOrder and returns the first non-empty result.
     - Binance is keyless. Finnhub historical candles are gated behind a paid plan on the free tier; the provider logs a Warn and returns empty when the API responds with a non-`ok` status.
     - Placeholder .env values (key, placeholder, todo, xxx) are normalized to empty by ConfigManager.NormalizeValue.
-    - `MT5 Parsed` is a cache-only source: written by the MT5 Ticks Parsing subtab (tick CSV) and by the MT5 Ticks Extract-from-.tkc subtab (terminal .tkc cache), never fetched over the network. It appears in the Providers tab like any other source.
+    - `MT5 Parsed` is a cache-only source: written by the MT5 Ticks Parsing subtab (tick CSV) and by the MT5 Ticks .tkc Extract subtab (terminal .tkc cache), never fetched over the network. It appears in the Providers tab like any other source.

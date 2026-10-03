@@ -19,16 +19,10 @@ public class Mt5TickServer : IDisposable
     private Task? _acceptLoop;
     private Task? _readLoop;
 
-    // v1.14: responses are handed to waiters as raw UTF-8 bytes, not strings.
-    // The service parses them with Utf8JsonReader on the hot path — no
-    // intermediate string, no JsonDocument, no per-field substring.
     private readonly ConcurrentDictionary<int, TaskCompletionSource<byte[]>> _pending = new();
     private int _nextRequestId;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
-    // v1.15: EA heartbeat. Updated from the read-loop thread; read from the
-    // UI thread on demand. DateTime is 64-bit and torn reads are harmless
-    // here — worst case the UI shows a slightly stale age for one frame.
     private DateTime _lastHeartbeatUtc = DateTime.MinValue;
 
     public bool IsClientConnected => _client?.Connected == true;
@@ -37,13 +31,6 @@ public class Mt5TickServer : IDisposable
     public TimeSpan LastHeartbeatAge =>
         HasHeartbeat ? DateTime.UtcNow - _lastHeartbeatUtc : TimeSpan.MaxValue;
 
-    /// <summary>
-    /// v1.16: fires on every unsolicited PROGRESS message from the EA during
-    /// a chunked COUNT_TICKS. Payload carries cumulative tick count and
-    /// chunk index. Subscribers filter by their own request if needed —
-    /// currently the EA serializes chunked requests, so any listener can
-    /// assume the progress belongs to its in-flight request.
-    /// </summary>
     public event Action<Mt5CountProgress>? CountProgress;
 
     public Mt5TickServer(ConfigManager config)
@@ -97,9 +84,6 @@ public class Mt5TickServer : IDisposable
         var stream = _stream;
         if (stream == null) return;
 
-        // Byte-oriented accumulator. 64 KB read buffer, doubling accumulator.
-        // One message per read is the normal case; large GET_TICKS responses
-        // (200 KB – 3 MB) span several reads and are stitched here.
         var readBuf = new byte[65536];
         var accBuf  = new byte[65536];
         int accCount = 0;
@@ -163,7 +147,6 @@ public class Mt5TickServer : IDisposable
 
     private void DispatchResponseBytes(byte[] jsonBytes)
     {
-        // v1.15: heartbeat. Match on the literal action value.
         if (jsonBytes.AsSpan().IndexOf("\"action\":\"HEARTBEAT\""u8) >= 0)
         {
             _lastHeartbeatUtc = DateTime.UtcNow;
@@ -171,16 +154,14 @@ public class Mt5TickServer : IDisposable
             return;
         }
 
-        // v1.16: PROGRESS from a chunked COUNT_TICKS. Parse the four
-        // numeric fields and fire the event. No id routing — this is an
-        // unsolicited push, id is always 0.
         if (jsonBytes.AsSpan().IndexOf("\"action\":\"PROGRESS\""u8) >= 0)
         {
             if (TryParseProgress(jsonBytes, out var progress))
             {
                 LogManager.Debug(LogTag.Provider,
                     $"MT5: progress chunk {progress.ChunksDone}/{progress.ChunksTotal} " +
-                    $"({progress.CumulativeTicks:N0} ticks)");
+                    $"(cumulative {progress.CumulativeTicks:N0}, synced {progress.SyncedDays}, " +
+                    $"skipped {progress.SkippedDays})");
                 CountProgress?.Invoke(progress);
             }
             else
@@ -231,14 +212,20 @@ public class Mt5TickServer : IDisposable
     {
         progress = default!;
 
-        // Scan for the three integer fields. The wire format is fixed and
-        // short (~120 bytes), so a targeted Utf8Parser walk is faster and
-        // allocation-free compared to a full Utf8JsonReader.
+        if (!TryReadInt(jsonBytes, "request_id"u8, out int requestId)) requestId = 0;
         if (!TryReadInt(jsonBytes, "chunks_done"u8, out int done)) return false;
         if (!TryReadInt(jsonBytes, "chunks_total"u8, out int total)) return false;
-        if (!TryReadLong(jsonBytes, "cumulative_ticks"u8, out long cumulative)) return false;
 
-        progress = new Mt5CountProgress(done, total, cumulative);
+        // cumulative_ticks ships with COUNT_TICKS progress; synced_days and
+        // skipped_days ship with SYNC_TICKS_RANGE progress. Neither is
+        // mandatory — a missing field means "not applicable for this
+        // action", not "malformed message". Defaulting to 0 keeps both
+        // shapes flowing through the same event.
+        if (!TryReadLong(jsonBytes, "cumulative_ticks"u8, out long cumulative)) cumulative = 0;
+        if (!TryReadInt(jsonBytes, "synced_days"u8, out int synced)) synced = 0;
+        if (!TryReadInt(jsonBytes, "skipped_days"u8, out int skipped)) skipped = 0;
+
+        progress = new Mt5CountProgress(requestId, done, total, cumulative, synced, skipped);
         return true;
     }
 

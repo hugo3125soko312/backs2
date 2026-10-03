@@ -1,17 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace backs2.Core.MT5;
 
+
+
 public class Mt5TickService
 {
-    // v1.16: default chunk size for chunked COUNT_TICKS. 6 hours bounds
-    // per-chunk memory at ~300 MB worst-case on a hot forex symbol, and
-    // gives the C# side a PROGRESS message roughly every 0.5–2 s.
+    public event Action<Mt5CountProgress>? CountProgress
+    {
+        add => _server.CountProgress += value;
+        remove => _server.CountProgress -= value;
+    }
+    
+
     private const long DefaultCountChunkMs = 6L * 60 * 60 * 1000;
 
     private readonly ConfigManager _config;
@@ -59,6 +66,22 @@ public class Mt5TickService
         }
     }
 
+    public async Task<string?> GetTerminalInfoAsync(CancellationToken ct)
+    {
+        if (!_server.IsClientConnected) return null;
+
+        try
+        {
+            var rawBytes = await _server.SendRequestAsync("GET_TERMINAL_INFO", "", _config.Settings.Mt5TimeoutMs, ct);
+            return rawBytes != null ? System.Text.Encoding.UTF8.GetString(rawBytes) : null;
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5: GET_TERMINAL_INFO failed", ex);
+            return null;
+        }
+    }
+
     public async Task PrewarmAsync(string symbol, long fromMsc, CancellationToken ct)
     {
         string key = symbol?.Trim() ?? "";
@@ -100,19 +123,78 @@ public class Mt5TickService
         }
     }
 
-    /// <summary>
-    /// Ground-truth tick count for [fromMsc, toMsc) via the EA's COUNT_TICKS
-    /// action, which calls CopyTicksRange directly.
-    ///
-    /// v1.16: chunked. The EA splits the range into 6-hour pieces, processes
-    /// one piece per OnTimer tick, and streams PROGRESS messages between
-    /// them. This lets the caller show liveness during multi-minute counts
-    /// and prevents the terminal from allocating one huge MqlTick array.
-    ///
-    /// Error 4401 (ERR_HISTORY_NOT_FOUND) is logged at Info, not Warn — it
-    /// means the range is beyond the broker's available tick history, which
-    /// is a legitimate user error, not a bridge fault.
-    /// </summary>
+    public async Task<Mt5SyncResult?> SyncTicksRangeAsync(
+        string symbol,
+        long fromMsc,
+        long toMsc,
+        IProgress<Mt5CountProgress>? progress,
+        CancellationToken ct)
+    {
+        string key = symbol?.Trim() ?? "";
+        if (key.Length == 0) return null;
+        if (toMsc <= fromMsc) return null;
+        if (!_server.IsClientConnected) return null;
+
+        long spanDays = (toMsc - fromMsc + 86_399_999L) / 86_400_000L;
+        long extraMs = Math.Min(spanDays, 60L) * 2000L;
+        int requestTimeoutMs = _config.Settings.Mt5TimeoutMs + (int)extraMs;
+
+        string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}";
+
+        Action<Mt5CountProgress> handler = p => progress?.Report(p);
+        _server.CountProgress += handler;
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var response = await _server.SendRequestAsync(
+                "SYNC_TICKS_RANGE", extra, requestTimeoutMs, ct);
+            sw.Stop();
+
+            if (response == null)
+            {
+                string hb = _server.HasHeartbeat
+                    ? $"{_server.LastHeartbeatAge.TotalSeconds:F1}s ago"
+                    : "never";
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: SYNC_TICKS_RANGE '{key}' — no response after {sw.ElapsedMilliseconds}ms " +
+                    $"(timeout was {requestTimeoutMs}ms, last heartbeat: {hb})");
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(response);
+            var root = doc.RootElement;
+
+            var status = root.TryGetProperty("status", out var st) ? st.GetString() : null;
+            if (status != "OK")
+            {
+                var msg = root.TryGetProperty("message", out var m) ? m.GetString() : status;
+                LogManager.Warn(LogTag.Provider,
+                    $"MT5: SYNC_TICKS_RANGE '{key}' — EA returned status='{status}' message='{msg}'");
+                return null;
+            }
+
+            int synced  = root.TryGetProperty("synced_days",  out var sd) ? sd.GetInt32() : 0;
+            int skipped = root.TryGetProperty("skipped_days", out var kd) ? kd.GetInt32() : 0;
+            int total   = root.TryGetProperty("total_days",   out var td) ? td.GetInt32() : 0;
+
+            LogManager.Info(LogTag.Provider,
+                $"MT5: SYNC_TICKS_RANGE '{key}' [{fromMsc}..{toMsc}) — {synced} synced, " +
+                $"{skipped} skipped, {total} total day(s) in {sw.ElapsedMilliseconds}ms");
+
+            return new Mt5SyncResult(synced, skipped, total);
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Provider, "MT5: SYNC_TICKS_RANGE parse failed", ex);
+            return null;
+        }
+        finally
+        {
+            _server.CountProgress -= handler;
+        }
+    }
+
     public async Task<Mt5CountResult?> CountTicksAsync(
         string symbol,
         long fromMsc,
@@ -133,9 +215,6 @@ public class Mt5TickService
         string extra = $"\"symbol\":\"{key}\",\"from_msc\":{fromMsc},\"to_msc\":{toMsc}," +
                        $"\"chunk_ms\":{DefaultCountChunkMs}";
 
-        // Wire up progress forwarding for the duration of this call. The
-        // EA serializes chunked requests, so any PROGRESS arriving between
-        // now and the response belongs to us.
         Action<Mt5CountProgress> handler = p => progress?.Report(p);
         _server.CountProgress += handler;
 
@@ -180,9 +259,6 @@ public class Mt5TickService
                 return null;
             }
 
-            // v1.16: count is Int64 on the wire because a wide range can
-            // exceed Int32. Cast to Int32 for Mt5CountResult — ranges above
-            // 2.1B ticks are outside the current UI's display budget anyway.
             long count64 = root.GetProperty("count").GetInt64();
             int count32 = count64 > int.MaxValue ? int.MaxValue : (int)count64;
 
@@ -269,8 +345,7 @@ public class Mt5TickService
             iteration++;
             int batchSize = Math.Min(remaining, chunkSize);
 
-            string extra =
-                $"\"symbol\":\"{symbol}\",\"from_msc\":{cursor},\"count\":{batchSize}";
+            string extra = $"\"symbol\":\"{symbol}\",\"from_msc\":{cursor},\"count\":{batchSize}";
 
             var rttSw = Stopwatch.StartNew();
             var response = await _server.SendRequestAsync(
@@ -286,7 +361,7 @@ public class Mt5TickService
             }
 
             var parseSw = Stopwatch.StartNew();
-            if (!TryParseTicks(
+            if (!Mt5TickParser.TryParseTicks(
                     response,
                     batchSize,
                     out var batchTicks,
@@ -417,151 +492,5 @@ public class Mt5TickService
             TotalChunks: totalChunks));
 
         return result;
-    }
-
-    private static bool TryParseTicks(
-        ReadOnlySpan<byte> json,
-        int expectedCount,
-        out List<Mt5Tick> ticks,
-        out long perfCopyUs,
-        out long perfSerUs,
-        out long nextFromMsc,
-        out string? error)
-    {
-        ticks = new List<Mt5Tick>(expectedCount);
-        perfCopyUs = 0;
-        perfSerUs = 0;
-        nextFromMsc = 0;
-        error = null;
-
-        string? status = null;
-        string? message = null;
-
-        var reader = new Utf8JsonReader(json);
-
-        if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
-        {
-            error = "expected JSON object at top level";
-            return false;
-        }
-
-        while (reader.Read())
-        {
-            if (reader.TokenType == JsonTokenType.EndObject) break;
-            if (reader.TokenType != JsonTokenType.PropertyName)
-            {
-                error = $"unexpected token {reader.TokenType}";
-                return false;
-            }
-
-            if (reader.ValueTextEquals("status"u8))
-            {
-                if (!reader.Read()) { error = "truncated after status"; return false; }
-                if (reader.TokenType == JsonTokenType.String) status = reader.GetString();
-            }
-            else if (reader.ValueTextEquals("perf_copy_us"u8))
-            {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                { error = "perf_copy_us not a number"; return false; }
-                perfCopyUs = reader.GetInt64();
-            }
-            else if (reader.ValueTextEquals("perf_ser_us"u8))
-            {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                { error = "perf_ser_us not a number"; return false; }
-                perfSerUs = reader.GetInt64();
-            }
-            else if (reader.ValueTextEquals("next_from_msc"u8))
-            {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                { error = "next_from_msc not a number"; return false; }
-                nextFromMsc = reader.GetInt64();
-            }
-            else if (reader.ValueTextEquals("message"u8))
-            {
-                if (!reader.Read()) { error = "truncated after message"; return false; }
-                if (reader.TokenType == JsonTokenType.String) message = reader.GetString();
-            }
-            else if (reader.ValueTextEquals("ticks"u8))
-            {
-                if (!reader.Read() || reader.TokenType != JsonTokenType.StartArray)
-                { error = "ticks not an array"; return false; }
-
-                while (reader.Read())
-                {
-                    if (reader.TokenType == JsonTokenType.EndArray) break;
-                    if (reader.TokenType != JsonTokenType.Number)
-                    { error = $"tick field not number (got {reader.TokenType})"; return false; }
-
-                    long timeMsc = reader.GetInt64();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at bid"; return false; }
-                    double bid = reader.GetDouble();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at ask"; return false; }
-                    double ask = reader.GetDouble();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at last"; return false; }
-                    double last = reader.GetDouble();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at volume"; return false; }
-                    ulong volume = reader.GetUInt64();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at volume_real"; return false; }
-                    double volumeReal = reader.GetDouble();
-
-                    if (!reader.Read() || reader.TokenType != JsonTokenType.Number)
-                    { error = "truncated at flags"; return false; }
-                    uint flags = reader.GetUInt32();
-
-                    ticks.Add(new Mt5Tick(timeMsc, bid, ask, last, volume, volumeReal, flags));
-                }
-            }
-            else
-            {
-                reader.Skip();
-            }
-        }
-
-        if (status != "OK")
-        {
-            error = message ?? $"EA status={status ?? "(missing)"}";
-            return false;
-        }
-
-        return true;
-    }
-
-    public async Task<Mt5TerminalInfo?> GetTerminalInfoAsync(CancellationToken ct)
-    {
-        var response = await _server.SendRequestAsync(
-            "GET_TERMINAL_INFO", "", _config.Settings.Mt5TimeoutMs, ct);
-        if (response == null) return null;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(response);
-            var root = doc.RootElement;
-            if (root.GetProperty("status").GetString() != "OK") return null;
-
-            return new Mt5TerminalInfo(
-                root.GetProperty("company").GetString() ?? "",
-                root.GetProperty("account").GetInt64(),
-                root.GetProperty("server").GetString() ?? "",
-                root.GetProperty("currency").GetString() ?? "",
-                root.GetProperty("leverage").GetInt64(),
-                DateTimeOffset.FromUnixTimeSeconds(
-                    root.GetProperty("server_time").GetInt64()).UtcDateTime);
-        }
-        catch (Exception ex)
-        {
-            LogManager.Error(LogTag.Provider, "MT5: terminal info parse failed", ex);
-            return null;
-        }
     }
 }

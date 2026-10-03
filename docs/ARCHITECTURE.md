@@ -133,7 +133,7 @@
 - Accounts — prop-firm rule browser and active selection.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
-- MT5 Ticks — raw tick streaming from MetaTrader 5, range verification against the terminal, tick-CSV parsing into kline cache, and direct `.tkc` cache extraction into kline cache. Three subtabs: Extraction, Parsing, Extract from .tkc. See §19 and §20.
+- MT5 Ticks — raw tick streaming from MetaTrader 5, broker-side history sync into the local `.tkc` cache, direct `.tkc` decoding into kline cache, and tick-CSV parsing into kline cache. Four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (SYNC_TICKS_RANGE), **.tkc Extract** (local .tkc files → kline cache), **Parsing** (tick CSV → kline cache). See §19 and §20.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
 - Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
 - Logs — event-driven live log view.
@@ -365,3 +365,160 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 public sealed record AutomationParameters(
     string Symbol, string Timeframe, int StepCount, int DelayMs,
     Dictionary<string, Rectangle> ValueRegions, int ClickX, int ClickY);
+```
+
+## 19. MT5 Tick Bridge
+
+- Purpose: stream raw `MqlTick` records out of a running MetaTrader 5 terminal, cross-verify fetched ranges against the terminal's own tick counts, force the terminal to download broker-side tick history into its local `.tkc` cache, and parse tick CSVs into kline cache. Exposed as the **MT5 Ticks** tab with four subtabs: **Extraction**, **Requester**, **.tkc Extract**, **Parsing**.
+- Location:
+  - EA: `docs/Backs2TickBridge.mq5` (v1.18). Native MQL5, no inputs.
+  - Core: `src/core/MT5/` — `Mt5Tick.cs`, `Mt5TickServer.cs`, `Mt5TickService.cs`, `Mt5TickParser.cs`, `Mt5Models.cs`.
+  - ViewModel: `src/gui/MT5/Mt5TickViewModel.cs` plus partials `.Extraction.cs`, `.Requester.cs`, `.Parsing.cs`, `.Tkc.cs`, and `RangeObservableCollection.cs`.
+  - Writer: `src/core/Writers/Mt5TickWriter.cs` (both `Mt5TickWriter` and `Mt5TickStreamWriter`).
+  - **Note:** `Mt5TickViewModel.Requester.cs` currently sits under `src/core/MT5/` on disk even though its namespace is `backs2.ViewModels`. It belongs with the other `Mt5TickViewModel` partials under `src/gui/MT5/`; the physical location is a known inconsistency.
+
+### Transport
+
+- Raw TCP over BCL `System.Net.Sockets`. No ZeroMQ, no DLL imports, no IPC library.
+- MQL5 sockets are **client-only**. The EA connects out to a C# `TcpListener` owned by `Mt5TickServer`. MQL5 does not implement `SocketBind`/`SocketListen`/`SocketAccept`.
+- Default: `127.0.0.1:5555`. Both sides define this via `#define BRIDGE_HOST` / `#define BRIDGE_PORT` on the EA and `AppSettings.Mt5Host` / `AppSettings.Mt5Port` on the C# side. Change both.
+- MT5 must whitelist `127.0.0.1` under **Tools → Options → Expert Advisors → Allow WebRequest for listed URL** — the WebRequest list governs `SocketCreate`/`SocketConnect`. Without it, the EA fails with `SocketConnect FAILED, error 5273`.
+
+### Wire format
+
+Newline-delimited JSON. One request message in, one response per request, matched by a monotonically increasing `id`. The EA echoes `id` on the response. Two unsolicited message types exist and use `id:0`:
+
+- `HEARTBEAT` — idle keepalive every 5 s when no long-running task is active.
+- `PROGRESS` — emitted between chunks/days of a long-running operation, carrying the originating request's id under `request_id`.
+
+Requests:
+
+    {"id":1,"action":"PING"}
+    {"id":2,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":1700000000000,"count":20000}
+    {"id":3,"action":"GET_TERMINAL_INFO"}
+    {"id":4,"action":"COUNT_TICKS","symbol":"GOLD.pro","from_msc":X,"to_msc":Y,"chunk_ms":21600000}
+    {"id":5,"action":"SYNC_TICKS_RANGE","symbol":"GOLD.pro","from_msc":X,"to_msc":Y}
+    {"id":6,"action":"PREWARM","symbol":"GOLD.pro","from_msc":X,"count":500}
+
+`COUNT_TICKS` without `chunk_ms` runs monolith mode (one `CopyTicksRange` call, one response). With `chunk_ms > 0` it runs chunked mode (one chunk per `OnTimer` tick, `PROGRESS` frames between chunks, adaptive shrink on failure down to `MIN_CHUNK_MS = 60000`).
+
+Responses:
+
+    {"id":1,"status":"OK"}
+    {"id":2,"status":"OK","next_from_msc":...,"perf_copy_us":...,"perf_ser_us":...,"ticks":[...]}
+    {"id":4,"status":"OK","count":N,"first_msc":...,"last_msc":...,"perf_us":...,"chunks":M}
+    {"id":5,"status":"OK","synced_days":S,"skipped_days":K,"total_days":T}
+
+PROGRESS frames (two shapes, same reader):
+
+    {"id":0,"action":"PROGRESS","request_id":4,"chunks_done":D,"chunks_total":T,"cumulative_ticks":C}
+    {"id":0,"action":"PROGRESS","request_id":5,"chunks_done":D,"chunks_total":T,"synced_days":S,"skipped_days":K}
+
+### C# side
+
+- `Mt5TickServer` owns the `TcpListener`, accepts one client at a time, splits the incoming byte stream on `\n`, and dispatches by `id`. It exposes:
+  - `SendRequestAsync(action, extraJson, timeoutMs, ct)` — write and await by `id`, `TaskCompletionSource<byte[]>` per pending request.
+  - `IsClientConnected`, `HasHeartbeat`, `LastHeartbeatAge` — liveness signals.
+  - `CountProgress` event — fired for every PROGRESS frame after parsing.
+  - `TryParseProgress` — relaxed reader. `chunks_done` and `chunks_total` are required; `cumulative_ticks`, `synced_days`, `skipped_days` are all optional and default to 0. A missing field means "not applicable for this action", not "malformed".
+- `Mt5TickService` wraps the server and exposes typed operations:
+  - `PingAsync(ct)` → `Mt5PingResult`.
+  - `GetTerminalInfoAsync(ct)` → raw JSON string.
+  - `PrewarmAsync(symbol, fromMsc, ct)` — idempotent per symbol via `HashSet<string> _warmedSymbols`. Fired automatically before the first `GET_TICKS` per symbol per process.
+  - `FetchTicksAsync(symbol, fromMsc, targetTicks, chunkSize, progress, ct, onBatch)` — the tick pull loop. `onBatch` is **awaited inside the loop** as deliberate backpressure so a slow disk writer bounds memory. Never change to fire-and-forget.
+  - `CountTicksAsync(symbol, fromMsc, toMsc, progress, ct)` — chunked range count. Timeout = `Mt5TimeoutMs + min(spanDays, 90) × 3000 ms`. Attaches a handler to `_server.CountProgress` for the duration of the request.
+  - `SyncTicksRangeAsync(symbol, fromMsc, toMsc, progress, ct)` — broker-side history download. Timeout = `Mt5TimeoutMs + clamp(spanDays × 500 ms, 20 min, 60 min)`. Same `CountProgress` attach/detach pattern.
+- `Mt5TickService` exposes the raw `CountProgress` event (add/remove delegates onto `_server.CountProgress`) for callers that need the raw stream, but the preferred path for new code is the `IProgress<Mt5CountProgress>?` parameter on `CountTicksAsync` / `SyncTicksRangeAsync`.
+- `Mt5CountProgress` (record) — `RequestId`, `ChunksDone`, `ChunksTotal`, `CumulativeTicks = 0`, `SyncedDays = 0`, `SkippedDays = 0`. One record for both actions; action-specific fields default to 0.
+
+### Inclusive-boundary rule (critical)
+
+`CopyTicks`'s `from_msc` is **inclusive**: it returns ticks with `time_msc >= from_msc`. After a slice that ends with K ticks at time T, the next `CopyTicks(from=T)` re-emits all K ticks at T. Both sides track the trailing same-ms count and skip exactly that many leading ticks on the next slice:
+
+- EA (`HandleGetTicks`): `lastTimeMsc` / `lastTimeTrailing`.
+- C# (`Mt5TickService.FetchTicksAsync`): `_lastEmittedTimeMsc` / `_lastEmittedTrailing`.
+
+Never send `next_from_msc = lastMsc + 1`. It silently drops same-ms ticks at every seam. A change on one side must be mirrored on the other.
+
+### Prewarm
+
+Per-symbol per-process. First `CopyTicks` per symbol costs ~2× warm (tick-DB page-in). Dropping prewarm costs ~30% of first-fetch throughput. Idempotent via `HashSet<string> _warmedSymbols` guarded by `_warmedLock`. Do not bypass.
+
+### Serialization
+
+The EA serializes `GET_TICKS` responses into a pre-sized `uchar[]` byte buffer via `AppendStr` + `SocketSend`. Never use MQL5 `string` concat (`+=` or `StringAdd`) on the hot path — both reallocate on every append and are measured O(N²). 20,000 ticks took 39.9 s with string concat in v1.08; the byte-buffer path does the same in ~14 ms. `MAX_REQUEST_TICKS = 50000` is the EA-side batching ceiling per request. `COPYTICKS_CAP = 2000` is the hard per-`CopyTicks`-call cap. Do not raise either without measuring.
+
+### SYNC_TICKS_RANGE (v1.17+)
+
+- Forces the terminal to download a tick range from the broker into its local `.tkc` cache. No raw ticks cross the wire — the data lands on disk in MT5's own monthly cache format.
+- EA-side loop: iterates one day (`ONE_DAY_MS = 86400000`) per `OnTimer` tick using `CopyTicksRange(COPY_TICKS_ALL)`. On `ERR_HISTORY_TIMEOUT (4403)` with zero ticks, retries the same day on the next 10 ms tick, up to `SYNC_PER_DAY_TIMEOUT_MS = 30000`. Any non-timeout return — including a successful zero-tick response — advances the cursor.
+- **Immediate ack is mandatory.** `HandleSyncTicksRange` emits an initial PROGRESS frame the moment the request is accepted, throttle bypassed (`g_sync_last_prog_ms = 0`). The first `CopyTicksRange` on a cold symbol can block for minutes while the terminal downloads history; without an immediate ack, the C# side has no confirmation the request landed and will time out on a live request. Do not remove this ack.
+- **C# timeout must be span-scaled.** `SyncTicksRangeAsync` computes `Mt5TimeoutMs + clamp(spanDays × 500 ms, 20 min, 60 min)`. A 10-year sync gets ~30 minutes. Do not reuse the COUNT_TICKS formula and do not send `Mt5TimeoutMs` alone.
+- Latest-wins: a new SYNC or COUNT_TICKS request pre-empts any in-flight one on the EA. No multiplexing.
+
+### Extraction subtab
+
+- `FetchTicksCommand` streams ticks to `data/ticks/{symbol}_{stamp}.csv` via `Mt5TickStreamWriter` on a bounded `Channel<IReadOnlyList<Mt5Tick>>` (64-batch depth), flushed by a background task. The `onBatch` callback writes into the channel; a slow disk blocks the socket read rather than buffering in RAM.
+- Grid preview is capped at `Mt5TickViewModel.MaxGridRows = 100_000`. `PopulateGrid` auto-unchecks once the cap is hit; `OnTargetTicksChanged` auto-unchecks when `TargetTicks > 500_000`. Never raise the cap without re-validating the DataGrid freeze behavior — the freeze was a `Reset`-per-batch storm, not a memory issue.
+- `RangeObservableCollection<T>.AddRange` batches N per-item `CollectionChanged` events into one `Reset` notification.
+
+### Verify Range panel
+
+- `VerifyRangeCommand` calls `CountTicksAsync` over a UTC-offset-anchored range and compares the MT5 count against the last fetch's `_lastFetchCount`. Renders `✓ MATCH` or `✗ MISMATCH` with a signed delta.
+- `ApplyToFetchCommand` copies the verified range back into the fetch parameters: lookback derived from the range start, target sized to the verified count + 1% headroom (capped at 50M). `PopulateGrid` is switched off above 500k.
+
+### Requester subtab
+
+- `RequestSyncCommand` in `Mt5TickViewModel.Requester.cs` drives `Mt5TickService.SyncTicksRangeAsync`.
+- Progress arrives via `IProgress<Mt5CountProgress>` built on the UI thread, so `Progress<T>` marshals every `Report` back to the UI dispatcher — the `ReqProgress` and `ReqStatusText` `[ObservableProperty]` setters stay on the right thread.
+- Status line: `Syncing {symbol} — day D/T (P%) | synced S, skipped K`.
+
+### CSV → kline cache parsing
+
+- The Parsing subtab runs the CSV → bars aggregation **inside `Task.Run`**. Never inline on the UI thread.
+- Bars are built from `Bid`, `Volume` = tick count. Never use `Ask` or `Last` — forex/metals `Last` and `Volume` are empty.
+- Zero-bid ticks (`bid <= 0`) are dropped and counted.
+- Bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Never re-introduce per-hour anchoring — it breaks 45m.
+- Symbol comes from the CSV filename before the first `_`. Never parse it from a column.
+- Cache source is **`MT5 Parsed`**, written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`. `MT5 Parsed` is cache-only — never fetched over the network.
+
+## 20. MT5 .tkc Cache Extraction
+
+- Purpose: read MetaTrader's own monthly tick-cache files directly from disk, decode them without a bridge, aggregate to kline bars, and write them into the standard kline cache with source `MT5 Parsed`. No EA, no TCP — pure file I/O.
+- Location: `src/core/MT5/tck/`:
+  - `TckModels.cs` — `TkcTick(long TimestampMs, double Bid, double Ask)` (readonly record struct), `TkcInfo(uint Magic, string Symbol, long FileSize, int TickCount, long? StartMs, long? EndMs)`, `TkcException`.
+  - `TkcDecoder.cs` — static. `Decode(string path)` → `(TkcInfo, IReadOnlyList<TkcTick>)`.
+  - `TkcFile.cs` — lazy wrapper (`Info`, `Ticks`, `Symbol`, `Count`) that decodes once on first access. Not thread-safe.
+  - `TkcFile.cs` also hosts `TkcRepository.ListSymbolFiles(terminalDataRoot, broker, symbol)` — enumerates `{root}\bases\{broker}\ticks\{symbol}\YYYYMM.tkc`, sorted ordinal-ignore-case.
+- GUI: `.tkc Extract` subtab in `src/gui/MT5/Mt5TickViewModel.Tkc.cs`. Drives `ExtractToCacheCommand`.
+
+### File format
+
+- Magic `0x000001FD` at offset 0.
+- Symbol as UTF-16LE in `[0xA0, 0xD0)`, terminated by NUL.
+- Index starts at `0x00E4`, 48 bytes per entry, terminated by `size == 0`, non-monotonic `offset`, or `offset + size` running past EOF. Max 4096 entries.
+- Day payload is a sequence of interleaved zlib streams, each beginning with `0x78` and one of `0x01 | 0x5E | 0x9C | 0xDA`.
+- Per-record layout is 16 bytes: timestamps are delta-encoded (first record absolute Unix-ms, subsequent `u64` deltas); bid/ask are `f64` in the first **or** second half of the record, detected per block by `DetectPriceOffset`. Never hard-code the offset.
+- A day's blocks are grouped `[Timestamps, Prices, Prices, ...]`. `DecodeFromBlocks` walks forward and decodes each group independently — never pick the single largest `Timestamps` block globally.
+- `InflateZlib` is given the full remaining `[offset..offset+size)`; `ZLibStream` self-terminates at the zlib footer. Never cap the input slice.
+- `ClassifyBlock` checks for a `Timestamps` block **first** (first 8 bytes decode as Unix-ms in `[1.42e12, 2.0e12]`). Do not check zero-fraction first — delta-encoded timestamps can be 0 for many consecutive ticks, which previously caused valid timestamp blocks to be tagged `Empty`.
+
+### Decode strategy
+
+- **Serial across files**, never parallel. The full-history GOLD.pro set holds ~3.6 GB of ticks in RAM if decoded in parallel. Peak memory is bounded by the largest single file's tick list plus the bucket dict.
+- Iterate files **newest-first** and ticks within a file **in reverse**. This lets `TkcLookbackDays` and `TkcMaxTicks` stop the decode mid-file without materialising every tick.
+- Bucket semantics under reverse iteration: **first** bid seen in a bucket is **Close**, **last** bid seen is **Open**. High/Low are symmetric.
+- `FileOverlapsLookback` cheap-parses `YYYYMM.tkc` filenames to skip whole months before the cutoff. Non-standard filenames are conservatively included.
+- Bars are built from `Bid`, `Volume` = tick count. Zero-bid ticks (`Bid <= 0`) are dropped and counted.
+- Timeframe bucketing is epoch-relative: `(timeMsc / tfMs) * tfMs`. Same rule as the CSV parser. `1D` = UTC midnight, `1W` = ISO Monday UTC.
+- Cache source is **`MT5 Parsed`**, written through `CacheManager.SaveCacheAsync("{symbol}@{timeframe}", klines, "MT5 Parsed")`.
+
+### Logging
+
+- Exactly **one** `Info` line per file: `TKC '{fileName}': {tickCount:N0} ticks, {indexCount} day(s), {elapsed:N0} ms`.
+- At most **one** `Warn` per run: the zero-bid drop count.
+- Never add per-day, per-block, or per-stream logging to the decoder. The last time this rule was violated, 60 lines/file of diagnostics buried a silent-tick-loss bug for hours.
+
+### Constraint
+
+- Never run `.tkc` ticks directly through a strategy or metric. `RunnerScriptGlobals.Data` is `List<Kline>`, `IMetric.Calculate` takes `List<Kline>`, `TimeSliceBuilder` produces one slice per Kline, and `CacheManager` stores `KlineCompact[]`. Always aggregate to bars first — running on raw ticks would need a parallel execution engine and would silently break bar-based indicators.

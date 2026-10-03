@@ -1,10 +1,13 @@
+<!-- docs\MT5_TICK_GUIDE.md -->
 # MT5 Raw Tick Data Guide
 
 ## Overview
 
-The **MT5 Ticks** tab has two subtabs:
+The **MT5 Ticks** tab exposes four subtabs:
 
 - **Extraction** — fetch raw `MqlTick` records from a running MetaTrader 5 terminal over a local TCP bridge, stream them to CSV, and cross-check a fetched range against the terminal's own tick count.
+- **Requester** — force the terminal to download a tick range from the broker into the local `.tkc` cache. Uses the same bridge; no raw ticks cross the wire.
+- **.tkc Extract** — read the terminal's local monthly `.tkc` tick-cache files directly from disk and aggregate them into kline cache.
 - **Parsing** — convert a saved MT5 tick CSV into OHLCV bars and cache them so every Kline-consuming tab (Data, Chart, Runner, Monte Carlo) can use them.
 
 No MetaTrader5 Python package, no DLL imports, no ZeroMQ dependency. The bridge is a native MQL5 Expert Advisor using MQL5's built-in socket API, and it connects **out to backs2** — MQL5 sockets are client-only, so the C# side owns the listener.
@@ -12,8 +15,8 @@ No MetaTrader5 Python package, no DLL imports, no ZeroMQ dependency. The bridge 
 ```
 +-------------------------+   TCP (client)   +--------------------------+
 |     MT5 Terminal        |  127.0.0.1:5555  |       backs2 Engine      |
-|  Backs2TickBridge.mq5   | ---------------&gt; |  Mt5TickServer (C#)      |
-|  (Expert Advisor)       | &lt;--------------- |  (TcpListener)           |
+|  Backs2TickBridge.mq5   | ---------------> |  Mt5TickServer (C#)      |
+|  (Expert Advisor)       | <--------------- |  (TcpListener)           |
 +-------------------------+                  +--------------------------+
                                                          |
                                                          v
@@ -27,7 +30,7 @@ No MetaTrader5 Python package, no DLL imports, no ZeroMQ dependency. The bridge 
 
 ### 1. MT5 terminal settings
 
-**Tools -&gt; Options -&gt; Expert Advisors:**
+**Tools -> Options -> Expert Advisors:**
 
 - [x] `Allow algorithmic trading`
 - [x] `Allow DLL imports` — the native socket API does not require this, but some MT5 builds gate `SocketCreate` behind it.
@@ -39,19 +42,19 @@ Click OK. Then click the **Algo Trading** button in the top toolbar — it must 
 
 ### 2. Install the bridge EA
 
-1. In MT5: **File -&gt; Open Data Folder**.
+1. In MT5: **File -> Open Data Folder**.
 2. Navigate to `MQL5\Experts\`.
 3. Copy `docs\Backs2TickBridge.mq5` from the backs2 project into this folder.
 4. In MT5, press **F4** to open MetaEditor.
 5. In MetaEditor, open `Backs2TickBridge.mq5` and press **F7** to compile. The Errors tab should read `0 errors, 0 warnings`.
-6. Back in MT5: right-click **Navigator -&gt; Refresh**.
+6. Back in MT5: right-click **Navigator -> Refresh**.
 7. Drag `Backs2TickBridge` from the Navigator onto **any live chart** in the main MT5 window (not the Strategy Tester).
 8. **No properties dialog will appear** — the EA has no inputs. This is expected.
 9. Check the **Experts** tab at the bottom. You should see:
 
 ```
-&gt;&gt;&gt; Backs2TickBridge: OnInit ENTRY
-&gt;&gt;&gt; Backs2TickBridge: CONNECTED to 127.0.0.1:5555
+>>> Backs2TickBridge: OnInit ENTRY
+>>> Backs2TickBridge: CONNECTED to 127.0.0.1:5555
 ```
 
 ### 3. Start backs2
@@ -99,9 +102,46 @@ Confirms that a fetched CSV covers exactly the tick range you think it does, by 
 
 Use it when a fetch was interrupted, when stitching multiple CSVs, or when a downstream parse shows gaps at the seams.
 
+## Requester subtab
+
+Forces the terminal to download a specific tick range from the broker and write it into the local `.tkc` cache. No raw ticks cross the wire — the data lands on disk in MT5's own monthly cache format, ready for the **.tkc Extract** subtab to decode.
+
+### Parameters
+
+| Field | Meaning |
+|---|---|
+| **Symbol** | The broker-exposed symbol name. Same rules as Extraction. |
+| **Lookback (Days)** | Window start = `now - ReqLookbackDays`. Default 3652 (10 years). |
+
+### Flow
+
+1. Enter the symbol and lookback.
+2. Click **Request Sync in MT5**.
+3. The progress bar advances once per day processed. The status line shows `day D/T (P%) | synced S, skipped K` — synced = terminal answered with tick data, skipped = terminal returned a hard error or timed out retrying.
+4. On completion, the status line reports `Sync Complete! Synced: … | Skipped: … | Total: … day(s).`
+
+### Behavior notes
+
+- The EA emits an immediate-ack PROGRESS frame the moment it accepts the request, before the first `CopyTicksRange` call blocks on a broker-side history download.
+- Each day-chunk is one `CopyTicksRange` call. On `ERR_HISTORY_TIMEOUT (4403)` with zero ticks, the EA retries the same day on the next 10 ms timer tick, up to 30 seconds, then skips it.
+- The C# request timeout is span-scaled: `Mt5TimeoutMs + clamp(spanDays × 500 ms, 20 min, 60 min)`. A 10-year sync gets ~30 minutes of headroom.
+- A new SYNC or COUNT_TICKS request pre-empts an in-flight one. Latest-wins.
+- Typical wall time on a cold symbol: the first day's `CopyTicksRange` is the slow one — the terminal may spend 30 s to a few minutes downloading history from the broker. Subsequent days run at terminal disk speed.
+
+## .tkc Extract subtab
+
+Reads MetaTrader's local monthly tick-cache files (`{TerminalDataRoot}\bases\{Broker}\ticks\{Symbol}\YYYYMM.tkc`) directly from disk and aggregates them into kline cache.
+
+1. Enter **Terminal Data Root** (the `Open Data Folder` path), **Broker Folder**, **Symbol**.
+2. Pick the **Timeframe**.
+3. Optional: **Lookback (Days)** and **Max Ticks** (0 = all).
+4. Click **Extract to Cache**.
+
+The decode iterates files newest-first and ticks within each file in reverse, so lookback and tick limits stop the decode mid-file. Bars are built from `Bid`, `Volume` = tick count. Zero-bid ticks are dropped. The result is written to `data/cache/{symbol}_{timeframe}.json` with source `MT5 Parsed`.
+
 ## Parsing subtab
 
-Converts a tick CSV produced by this tab into OHLCV bars and writes them into the standard Kline cache, so the dataset behaves like any other: it appears in the Data tab with source `MT5 Parsed`, and it can be charted, queued, backtested, and fed to Monte Carlo.
+Converts a tick CSV produced by the Extraction subtab into OHLCV bars and writes them into the standard Kline cache, so the dataset behaves like any other: it appears in the Data tab with source `MT5 Parsed`, and it can be charted, queued, backtested, and fed to Monte Carlo.
 
 1. Click **Select MT5 CSV...** — the picker starts in `data/ticks` and filters `*.csv`. The symbol is taken from the filename (the part before the first `_`).
 2. Pick the **Target Timeframe** (any canonical timeframe from `TimeframeMap.All`).
@@ -118,7 +158,7 @@ Note that tick-count volume is not comparable to provider volume (contract lots)
 
 ## Protocol
 
-Newline-delimited JSON over TCP. One request per connection message, one response per request. Every request carries a monotonically increasing `id`; the EA echoes it back.
+Newline-delimited JSON over TCP. One request per connection message, one response per request. Every request carries a monotonically increasing `id`; the EA echoes it back. Progress frames use `id:0` and carry the originating request's id under `request_id`.
 
 ### Request
 
@@ -126,10 +166,13 @@ Newline-delimited JSON over TCP. One request per connection message, one respons
 {"id":1,"action":"PING"}
 {"id":2,"action":"GET_TICKS","symbol":"GOLD.pro","from_msc":1700000000000,"count":20000}
 {"id":3,"action":"GET_TERMINAL_INFO"}
-{"id":4,"action":"COUNT_TICKS","symbol":"GOLD.pro","from_msc":1700000000000,"to_msc":1700003600000}
+{"id":4,"action":"COUNT_TICKS","symbol":"GOLD.pro","from_msc":1700000000000,"to_msc":1700003600000,"chunk_ms":21600000}
+{"id":5,"action":"SYNC_TICKS_RANGE","symbol":"GOLD.pro","from_msc":1700000000000,"to_msc":2000000000000}
 ```
 
-`COUNT_TICKS`'s `to_msc` is exclusive and must be greater than `from_msc`.
+`COUNT_TICKS`'s `to_msc` is exclusive and must be greater than `from_msc`. The optional `chunk_ms` switches COUNT_TICKS into chunked mode (one chunk per `OnTimer` tick, PROGRESS between chunks).
+
+`SYNC_TICKS_RANGE`'s `to_msc` is exclusive. The EA iterates one day at a time from `from_msc` to `to_msc`, forcing the terminal to fetch each day's tick history from the broker.
 
 ### Response
 
@@ -137,8 +180,20 @@ Newline-delimited JSON over TCP. One request per connection message, one respons
 {"id":1,"status":"OK"}
 {"id":2,"status":"OK","count":20000,"next_from_msc":1700000001234,"ticks":[...]}
 {"id":3,"status":"ERROR","message":"CopyTicks returned -1, error 4401"}
-{"id":4,"status":"OK","count":18342,"first_msc":1700000000089,"last_msc":1700003599987,"perf_us":4211}
+{"id":4,"status":"OK","count":18342,"first_msc":1700000000089,"last_msc":1700003599987,"perf_us":4211,"chunks":1}
+{"id":5,"status":"OK","synced_days":362,"skipped_days":3,"total_days":365}
 ```
+
+### Progress frames
+
+Emitted as unsolicited messages between chunks/days. `id` is always 0; the originating request's id is in `request_id`.
+
+```
+{"id":0,"action":"PROGRESS","request_id":4,"chunks_done":3,"chunks_total":6,"cumulative_ticks":9821}
+{"id":0,"action":"PROGRESS","request_id":5,"chunks_done":42,"chunks_total":365,"synced_days":41,"skipped_days":1}
+```
+
+The C# side parses both shapes with the same reader (`Mt5TickServer.TryParseProgress`). `cumulative_ticks`, `synced_days`, and `skipped_days` are all optional — a missing field means "not applicable for this action". They all surface through the same `CountProgress` event as `Mt5CountProgress`.
 
 ### Tick fields
 
@@ -158,12 +213,13 @@ Newline-delimited JSON over TCP. One request per connection message, one respons
 |---|---|---|
 | `Mt5Host` | `127.0.0.1` | Bridge host. Changing this also requires editing `#define BRIDGE_HOST` in `docs/Backs2TickBridge.mq5` and recompiling. |
 | `Mt5Port` | `5555` | Bridge port. Same caveat — edit `#define BRIDGE_PORT` to match. |
-| `Mt5TimeoutMs` | `15000` | Per-request timeout. Must exceed the EA's worst-case wall time for a batched response (~1000 ms for 20,000 ticks). Raise to `60000` for the first fetch of a cold symbol (broker sync). |
+| `Mt5TimeoutMs` | `15000` | Per-request timeout for `GET_TICKS` / `PING` / `PREWARM`. Must exceed the EA's worst-case wall time for a batched response (~1000 ms for 20,000 ticks). `SYNC_TICKS_RANGE` and chunked `COUNT_TICKS` compute their own timeouts on top of this base. |
 
 ## Known constraints
 
 - **2000-tick cap per `CopyTicks` call.** The EA paginates internally; one TCP round trip carries up to 50,000 ticks.
 - **First-call broker sync.** A cold symbol's first `CopyTicks` can block up to 45 seconds while the terminal downloads tick history from the trade server. Raise `Mt5TimeoutMs` to 60000 for a cold symbol, or use **Prewarm** behavior (fired automatically before the first fetch per symbol per process).
+- **SYNC first-day stall.** The first `CopyTicksRange` in a `SYNC_TICKS_RANGE` request is the one that triggers the broker-side download. Expect 30 s to a few minutes on the first day of a cold symbol. Subsequent days run at terminal disk speed.
 - **Inclusive `from_msc`.** Batches overlap at boundary milliseconds; both sides dedupe the trailing same-ms count. Never fetch adjacent ranges and concatenate without overlap handling — use **Verify Range** to confirm seams.
 - **Forex/metals ticks have empty `last`/`volume`/`volume_real`.** Bid/ask movement is the signal. Zero values in those columns are expected, not a bug.
 - **No DOM.** `SYMBOL_TICKS_BOOKDEPTH` is 0 for OTC CFD instruments like retail forex and metals. Order book data is not implemented and is not viable for these instrument types.

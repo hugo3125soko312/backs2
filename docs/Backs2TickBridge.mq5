@@ -6,38 +6,64 @@
 //|  AppSettings.Mt5Port in backs2's config/settings.json. Edit both  |
 //|  sides if you change the port.                                    |
 //|                                                                  |
+//|  v1.18 — debug logging + immediate ack.                           |
+//|    HandleSyncTicksRange now emits an initial PROGRESS frame the   |
+//|    moment the request is accepted (throttle bypassed), so the C#  |
+//|    side has positive confirmation the request landed even while   |
+//|    the first CopyTicksRange call is blocking on a broker-side     |
+//|    history download. Per-day attempts and every outbound frame    |
+//|    are now logged.                                                |
+//|                                                                  |
+//|  v1.17 — SYNC_TICKS_RANGE.                                        |
+//|    New action forces the terminal to download a specific range    |
+//|    of tick history from the broker and write it into the local    |
+//|    .tkc cache. Iterates day-by-day using CopyTicksRange; on       |
+//|    ERR_HISTORY_TIMEOUT (4403) retries the same day up to a        |
+//|    per-day timeout. Emits PROGRESS messages between days.         |
+//|                                                                  |
+//|    Request:                                                       |
+//|      {"id":N,"action":"SYNC_TICKS_RANGE",                         |
+//|       "symbol":"GOLD.pro","from_msc":X,"to_msc":Y}                |
+//|                                                                  |
+//|    PROGRESS message shape:                                        |
+//|      {"id":0,"action":"PROGRESS","request_id":N,                  |
+//|       "chunks_done":D,"chunks_total":T,                           |
+//|       "synced_days":S,"skipped_days":K}                           |
+//|                                                                  |
+//|    Final response:                                                |
+//|      {"id":N,"status":"OK","synced_days":S,                       |
+//|       "skipped_days":K,"total_days":T}                            |
+//|                                                                  |
+//|    Aborts if TERMINAL_CONNECTED goes false. A new chunked request |
+//|    pre-empts an in-flight one (latest-wins).                      |
+//|                                                                  |
 //|  v1.16 — resumable COUNT_TICKS.                                    |
 //|    COUNT_TICKS accepts an optional "chunk_ms" field. When present,|
 //|    the EA splits [from_msc, to_msc) into time chunks, processes   |
 //|    one chunk per OnTimer tick, sends unsolicited PROGRESS messages|
 //|    between chunks, and emits the final response only after the    |
-//|    last chunk. This lets C# observe liveness during long ranges.  |
-//|    Absent / zero chunk_ms → monolith mode (v1.13 behaviour).      |
-//|                                                                  |
-//|    PROGRESS message shape:                                        |
-//|      {"id":0,"action":"PROGRESS","request_id":N,                  |
-//|       "chunks_done":i,"chunks_total":K,"cumulative_ticks":C}      |
+//|    last chunk.                                                    |
 //|                                                                  |
 //|    On chunk failure the EA halves chunk_ms and retries the same   |
 //|    range (down to MIN_CHUNK_MS). Below that it errors out.        |
-//|                                                                  |
-//|    A new chunked request pre-empts an in-flight one (latest-wins).|
 //+------------------------------------------------------------------+
 #property copyright "backs2"
-#property version   "1.16"
+#property version   "1.18"
 #property description "Connects to the backs2 C# server and serves raw MqlTick data"
 #property strict
 
 // ---- Bootstrap (hardcoded, no inputs) ----
-#define BRIDGE_HOST           "127.0.0.1"
-#define BRIDGE_PORT           5555
-#define BRIDGE_TIMEOUT_MS     5000
-#define COPYTICKS_CAP         2000      // hard MQL5 cap per CopyTicks call
-#define MAX_REQUEST_TICKS     50000     // EA-side batching ceiling per request
-#define RECONNECT_DELAY       3
-#define HEARTBEAT_INTERVAL_MS 5000      // idle heartbeat cadence
-#define MIN_CHUNK_MS          60000     // 1 minute — floor on adaptive shrink
-#define PROGRESS_MIN_GAP_MS   200       // throttle progress messages to ~5 Hz
+#define BRIDGE_HOST              "127.0.0.1"
+#define BRIDGE_PORT              5555
+#define BRIDGE_TIMEOUT_MS        5000
+#define COPYTICKS_CAP            2000      // hard MQL5 cap per CopyTicks call
+#define MAX_REQUEST_TICKS        50000     // EA-side batching ceiling per request
+#define RECONNECT_DELAY          3
+#define HEARTBEAT_INTERVAL_MS    5000      // idle heartbeat cadence
+#define MIN_CHUNK_MS             60000     // 1 minute — floor on adaptive shrink
+#define PROGRESS_MIN_GAP_MS      200       // throttle progress messages to ~5 Hz
+#define ONE_DAY_MS               86400000  // tick-sync chunk size
+#define SYNC_PER_DAY_TIMEOUT_MS  30000     // max retry window per day on 4403
 
 int    g_socket    = INVALID_HANDLE;
 string g_readBuffer = "";
@@ -61,10 +87,24 @@ long   g_pending_last_msc      = 0;
 ulong  g_pending_perf_us       = 0;
 uint   g_pending_last_progress = 0;
 
+// ---- Pending SYNC_TICKS_RANGE state ----
+bool   g_sync_active        = false;
+string g_sync_id            = "";
+string g_sync_symbol        = "";
+long   g_sync_from_msc      = 0;
+long   g_sync_to_msc        = 0;
+long   g_sync_current_msc   = 0;
+int    g_sync_total_days    = 0;
+int    g_sync_days_synced   = 0;
+int    g_sync_days_skipped  = 0;
+uint   g_sync_day_start_ms  = 0;
+uint   g_sync_last_prog_ms  = 0;
+uint   g_sync_day_attempts  = 0;
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print(">>> Backs2TickBridge v1.16: OnInit ENTRY");
+   Print(">>> Backs2TickBridge v1.18: OnInit ENTRY");
    if(!ConnectToServer())
       Print(">>> Backs2TickBridge: initial connection failed, will retry in OnTimer");
    else
@@ -127,14 +167,16 @@ void OnTimer()
    // Process at most ONE pending chunk per tick. The chunk itself blocks
    // (CopyTicksRange is synchronous), so between chunks we return control
    // to the terminal — the PROGRESS messages emitted here are the only
-   // liveness signal during a long running count.
+   // liveness signal during a long running operation.
    if(g_pending_active)
       ProcessPendingChunk();
 
-   // Idle heartbeat. Suppressed while a chunked task is active because
-   // PROGRESS already provides the liveness signal, and we do not want
-   // to interleave two unsolicited message streams on the wire.
-   if(!g_pending_active)
+   if(g_sync_active)
+      ProcessPendingSyncChunk();
+
+   // Idle heartbeat. Suppressed while any long-running task is active
+   // because PROGRESS already provides the liveness signal.
+   if(!g_pending_active && !g_sync_active)
    {
       uint nowTick = GetTickCount();
       if(nowTick - g_lastHeartbeatTickMs >= HEARTBEAT_INTERVAL_MS)
@@ -174,14 +216,17 @@ void CloseSocket()
       g_socket = INVALID_HANDLE;
    }
    g_readBuffer = "";
-   // A dropped connection invalidates any in-flight chunked work — the
-   // C# side will treat the missing final response as a timeout and its
-   // own request waiter is gone anyway.
    if(g_pending_active)
    {
       Print(">>> Backs2TickBridge: aborting pending chunked request (id=",
             g_pending_id, ") due to disconnect");
       g_pending_active = false;
+   }
+   if(g_sync_active)
+   {
+      Print(">>> Backs2TickBridge: aborting pending sync request (id=",
+            g_sync_id, ") due to disconnect");
+      g_sync_active = false;
    }
 }
 
@@ -203,12 +248,17 @@ void ProcessRequest(string json)
    string action = JsonGetString(json, "action");
    string id     = ExtractId(json);
 
+   Print(">>> Backs2TickBridge: REQ id=", id, " action=", action,
+         " (", StringLen(json), " chars)");
+
    if(action == "PING")
       SendResponse(id, "\"status\":\"OK\"");
    else if(action == "GET_TICKS")
       HandleGetTicks(id, json);
    else if(action == "COUNT_TICKS")
       HandleCountTicks(id, json);
+   else if(action == "SYNC_TICKS_RANGE")
+      HandleSyncTicksRange(id, json);
    else if(action == "PREWARM")
       HandlePrewarm(id, json);
    else if(action == "GET_TERMINAL_INFO")
@@ -218,16 +268,10 @@ void ProcessRequest(string json)
 }
 
 //+------------------------------------------------------------------+
-// Serialization uses a uchar[] byte buffer (v1.09). MQL5's string
-// concat primitives (both `+=` and StringAdd) reallocate on every
-// append — measured O(N²): 20k ticks took 40 s. Writing into a
-// pre-sized byte buffer and SocketSend'ing it directly is O(N):
-// the same 20k ticks serialize in ~14 ms.
-//
-// v1.14 removes the per-tick key strings. The "ticks" array is now a
-// flat sequence of 7 numbers per tick, in fixed order:
-//   time_msc, bid, ask, last, volume, volume_real, flags
-// which cuts ~7 short AppendStr calls per tick to zero.
+// Serialization uses a uchar[] byte buffer. MQL5's string concat
+// primitives (both `+=` and StringAdd) reallocate on every append —
+// measured O(N²): 20k ticks took 40 s. Writing into a pre-sized byte
+// buffer and SocketSend'ing it directly is O(N): same 20k ticks in ~14 ms.
 //+------------------------------------------------------------------+
 void AppendStr(uchar &dest[], int &pos, string s)
 {
@@ -278,25 +322,14 @@ void HandlePrewarm(string id, string json)
 
 //+------------------------------------------------------------------+
 // COUNT_TICKS (v1.16):
-//   Two modes, selected by the optional "chunk_ms" field.
+//   Monolith mode (chunk_ms absent or 0): one CopyTicksRange call,
+//   one response. Blocks OnTimer for the duration of the call.
 //
-//   Monolith (chunk_ms absent or 0):
-//     One CopyTicksRange call, one response. Blocks OnTimer for the
-//     duration of the call. Unchanged from v1.13.
+//   Chunked mode (chunk_ms > 0): splits [from_msc, to_msc) into
+//   ceil(span/chunk_ms) pieces. Each OnTimer tick processes exactly
+//   one piece, emitting PROGRESS between them.
 //
-//   Chunked (chunk_ms > 0):
-//     Splits [from_msc, to_msc) into ceil(span/chunk_ms) pieces. Each
-//     OnTimer tick processes exactly one piece. Between pieces the EA
-//     emits an unsolicited PROGRESS message. On the final piece the EA
-//     emits the same response shape as monolith mode, plus a "chunks"
-//     field reporting how many chunks were used.
-//
-//     On chunk failure the EA halves chunk_ms and retries the same
-//     range. Below MIN_CHUNK_MS it gives up and reports the error.
-//
-//   The EA rejects a chunked request if a chunked request is already
-//   in flight — but pre-empts it (latest-wins) to keep the bridge from
-//   locking up on a stale range.
+//   Latest-wins: a new request pre-empts an in-flight one.
 //+------------------------------------------------------------------+
 void HandleCountTicks(string id, string json)
 {
@@ -352,12 +385,18 @@ void HandleCountTicks(string id, string json)
       return;
    }
 
-   // Chunked mode. Latest-wins: pre-empt any in-flight chunked task.
+   // Chunked mode. Latest-wins: pre-empt any in-flight long task.
    if(g_pending_active)
    {
-      Print(">>> Backs2TickBridge: pre-empting in-flight chunked request id=",
+      Print(">>> Backs2TickBridge: pre-empting in-flight COUNT_TICKS id=",
             g_pending_id, " with new id=", id);
       g_pending_active = false;
+   }
+   if(g_sync_active)
+   {
+      Print(">>> Backs2TickBridge: pre-empting in-flight SYNC_TICKS_RANGE id=",
+            g_sync_id, " with new COUNT_TICKS id=", id);
+      g_sync_active = false;
    }
 
    g_pending_active        = true;
@@ -378,14 +417,8 @@ void HandleCountTicks(string id, string json)
    Print(">>> Backs2TickBridge: COUNT_TICKS id=", id, " starting chunked mode — ",
          IntegerToString(g_pending_total_chunks), " chunks × ",
          IntegerToString(chunkMs), "ms");
-   // No immediate response — the first PROGRESS message is the ack.
-   // The final OK/ERROR response carries this same id.
 }
 
-//+------------------------------------------------------------------+
-// Process exactly one chunk of the pending chunked COUNT_TICKS. Returns
-// after a single CopyTicksRange call so OnTimer can service the socket
-// and fire PROGRESS messages between chunks.
 //+------------------------------------------------------------------+
 void ProcessPendingChunk()
 {
@@ -405,9 +438,6 @@ void ProcessPendingChunk()
 
    if(count < 0)
    {
-      // Chunk failed. Try a smaller chunk before giving up. This handles
-      // the "broker range too dense to allocate in one MqlTick[]" case
-      // as well as transient terminal errors.
       if(g_pending_chunk_ms > MIN_CHUNK_MS)
       {
          long newChunk = g_pending_chunk_ms / 2;
@@ -418,11 +448,10 @@ void ProcessPendingChunk()
                IntegerToString(newChunk));
          g_pending_chunk_ms = newChunk;
 
-         // Recompute remaining chunks with the new size.
          long remainingMs = g_pending_to_msc - g_pending_current_msc;
          int remainingChunks = (int)((remainingMs + g_pending_chunk_ms - 1) / g_pending_chunk_ms);
          g_pending_total_chunks = g_pending_chunks_done + remainingChunks;
-         return; // retry on next OnTimer tick
+         return;
       }
 
       string body = "\"status\":\"ERROR\",\"message\":\"CopyTicksRange returned ";
@@ -478,8 +507,6 @@ void ProcessPendingChunk()
       return;
    }
 
-   // Throttle PROGRESS to ~5 Hz so a fast chunk stream does not flood
-   // the C# UI thread.
    uint nowTick = GetTickCount();
    if(nowTick - g_pending_last_progress < PROGRESS_MIN_GAP_MS) return;
    g_pending_last_progress = nowTick;
@@ -493,6 +520,197 @@ void ProcessPendingChunk()
    msg += ",\"cumulative_ticks\":";
    msg += IntegerToString(g_pending_cumulative);
    msg += "}\n";
+
+   Print(">>> Backs2TickBridge: PROGRESS(COUNT) id=", g_pending_id,
+         " chunk ", g_pending_chunks_done, "/", g_pending_total_chunks,
+         " cumulative=", g_pending_cumulative);
+
+   uchar buf[];
+   int len = StringToCharArray(msg, buf) - 1;
+   if(len <= 0) return;
+   if(g_socket == INVALID_HANDLE || !SocketIsConnected(g_socket)) return;
+   SocketSend(g_socket, buf, (uint)len);
+}
+
+//+------------------------------------------------------------------+
+// SYNC_TICKS_RANGE (v1.17, ack added in v1.18):
+//   Forces the terminal to download a specific tick range from the
+//   broker and write it into the local .tkc cache. Iterates 1-day
+//   chunks using CopyTicksRange(COPY_TICKS_ALL). On
+//   ERR_HISTORY_TIMEOUT (4403) with zero ticks, retries the same day
+//   on the next OnTimer tick (10 ms) up to SYNC_PER_DAY_TIMEOUT_MS.
+//   Any non-timeout return — including a successful zero-tick
+//   response — advances to the next day. Emits PROGRESS between days.
+//
+//   Latest-wins: a new chunked request pre-empts an in-flight one.
+//+------------------------------------------------------------------+
+void HandleSyncTicksRange(string id, string json)
+{
+   string symbol  = JsonGetString(json, "symbol");
+   long   fromMsc = JsonGetLong(json, "from_msc");
+   long   toMsc   = JsonGetLong(json, "to_msc");
+
+   Print(">>> Backs2TickBridge: SYNC_TICKS_RANGE REQ id=", id,
+         " symbol='", symbol, "' from=", IntegerToString(fromMsc),
+         " to=", IntegerToString(toMsc));
+
+   if(symbol == "")
+   {
+      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"Missing symbol\"");
+      return;
+   }
+   if(toMsc <= fromMsc)
+   {
+      SendResponse(id, "\"status\":\"ERROR\",\"message\":\"to_msc must be > from_msc\"");
+      return;
+   }
+
+   if(g_pending_active)
+   {
+      Print(">>> Backs2TickBridge: pre-empting in-flight COUNT_TICKS id=",
+            g_pending_id, " with SYNC_TICKS_RANGE id=", id);
+      g_pending_active = false;
+   }
+   if(g_sync_active)
+   {
+      Print(">>> Backs2TickBridge: pre-empting in-flight SYNC_TICKS_RANGE id=",
+            g_sync_id, " with new id=", id);
+      g_sync_active = false;
+   }
+
+   g_sync_active        = true;
+   g_sync_id            = id;
+   g_sync_symbol        = symbol;
+   g_sync_from_msc      = fromMsc;
+   g_sync_to_msc        = toMsc;
+   g_sync_current_msc   = fromMsc;
+   g_sync_total_days    = (int)((toMsc - fromMsc + ONE_DAY_MS - 1) / ONE_DAY_MS);
+   g_sync_days_synced   = 0;
+   g_sync_days_skipped  = 0;
+   g_sync_day_start_ms  = GetTickCount();
+   g_sync_last_prog_ms  = 0;   // bypass throttle for the initial ack
+   g_sync_day_attempts  = 0;
+
+   // Immediate ack: the first CopyTicksRange call may block for minutes
+   // while the terminal downloads history from the broker. This PROGRESS
+   // frame tells the C# side the request landed before that block starts.
+   EmitSyncProgress();
+
+   Print(">>> Backs2TickBridge: SYNC_TICKS_RANGE id=", id, " starting — ",
+         IntegerToString(g_sync_total_days), " day(s) from ",
+         IntegerToString(fromMsc), " to ", IntegerToString(toMsc));
+}
+
+//+------------------------------------------------------------------+
+void ProcessPendingSyncChunk()
+{
+   if(!g_sync_active) return;
+
+   if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+   {
+      SendResponse(g_sync_id,
+         "\"status\":\"ERROR\",\"message\":\"Terminal disconnected\"");
+      Print(">>> Backs2TickBridge: SYNC_TICKS_RANGE id=", g_sync_id,
+            " aborted — terminal disconnected");
+      g_sync_active = false;
+      return;
+   }
+
+   long dayFrom = g_sync_current_msc;
+   long dayTo   = dayFrom + ONE_DAY_MS;
+   if(dayTo > g_sync_to_msc) dayTo = g_sync_to_msc;
+
+   g_sync_day_attempts++;
+
+   MqlTick ticks[];
+   int count = CopyTicksRange(g_sync_symbol, ticks, COPY_TICKS_ALL,
+                              (ulong)dayFrom, (ulong)dayTo);
+   int err = GetLastError();
+   uint nowMs = GetTickCount();
+
+   Print(">>> Backs2TickBridge: SYNC day [", IntegerToString(dayFrom),
+         "..", IntegerToString(dayTo), ") attempt=", g_sync_day_attempts,
+         " → count=", count, " err=", err);
+
+   if(count == 0 && err == 4403)
+   {
+      // Terminal is still downloading this day's range from the broker.
+      // Retry on the next OnTimer tick, up to the per-day timeout.
+      if(nowMs - g_sync_day_start_ms > SYNC_PER_DAY_TIMEOUT_MS)
+      {
+         g_sync_days_skipped++;
+         g_sync_current_msc = dayTo;
+         g_sync_day_start_ms = nowMs;
+         g_sync_day_attempts = 0;
+         Print(">>> Backs2TickBridge: sync day [", IntegerToString(dayFrom),
+               "..", IntegerToString(dayTo), ") timed out — skipping");
+         // Fall through to the final-check below.
+      }
+      else
+      {
+         EmitSyncProgress();
+         return;
+      }
+   }
+   else
+   {
+      // Any non-timeout return means the terminal has answered for this
+      // day: either a successful download (count >= 0) or a hard error
+      // (count < 0). Both advance the cursor.
+      if(count < 0)
+         g_sync_days_skipped++;
+      else
+         g_sync_days_synced++;
+
+      g_sync_current_msc = dayTo;
+      g_sync_day_start_ms = nowMs;
+      g_sync_day_attempts = 0;
+   }
+
+   if(g_sync_current_msc >= g_sync_to_msc)
+   {
+      string body = "\"status\":\"OK\",\"synced_days\":";
+      body += IntegerToString(g_sync_days_synced);
+      body += ",\"skipped_days\":";
+      body += IntegerToString(g_sync_days_skipped);
+      body += ",\"total_days\":";
+      body += IntegerToString(g_sync_total_days);
+      SendResponse(g_sync_id, body);
+
+      Print(">>> Backs2TickBridge: SYNC_TICKS_RANGE id=", g_sync_id,
+            " done — ", IntegerToString(g_sync_days_synced), " synced, ",
+            IntegerToString(g_sync_days_skipped), " skipped");
+      g_sync_active = false;
+      return;
+   }
+
+   EmitSyncProgress();
+}
+
+//+------------------------------------------------------------------+
+void EmitSyncProgress()
+{
+   uint nowMs = GetTickCount();
+   if(nowMs - g_sync_last_prog_ms < PROGRESS_MIN_GAP_MS) return;
+   g_sync_last_prog_ms = nowMs;
+
+   int processed = g_sync_days_synced + g_sync_days_skipped;
+
+   string msg = "{\"id\":0,\"action\":\"PROGRESS\",\"request_id\":";
+   msg += g_sync_id;
+   msg += ",\"chunks_done\":";
+   msg += IntegerToString(processed);
+   msg += ",\"chunks_total\":";
+   msg += IntegerToString(g_sync_total_days);
+   msg += ",\"synced_days\":";
+   msg += IntegerToString(g_sync_days_synced);
+   msg += ",\"skipped_days\":";
+   msg += IntegerToString(g_sync_days_skipped);
+   msg += "}\n";
+
+   Print(">>> Backs2TickBridge: PROGRESS(SYNC) id=", g_sync_id,
+         " processed=", processed, "/", g_sync_total_days,
+         " synced=", g_sync_days_synced, " skipped=", g_sync_days_skipped);
 
    uchar buf[];
    int len = StringToCharArray(msg, buf) - 1;
@@ -509,18 +727,11 @@ void ProcessPendingChunk()
 // time_msc >= from_msc. After a slice that ends with K ticks at time
 // T, the next CopyTicks(from=T) call re-emits ALL ticks at time T.
 //
-// v1.11 dropped only the FIRST re-emitted tick, leaving K-1 dupes per
-// boundary. Measured: +914 extra ticks across 48 boundaries in a 962k
-// fetch (~2 ticks per ms at boundary times).
-//
 // v1.12 tracks the trailing same-ms count on each slice and skips
 // exactly that many leading ticks on the next slice.
 //
 // v1.14: the "ticks" array body is a flat numeric sequence, 7 numbers
-// per tick, in order:
-//   time_msc, bid, ask, last, volume, volume_real, flags
-// The envelope fields (id, status, next_from_msc, perf_copy_us,
-// perf_ser_us) are unchanged.
+// per tick: time_msc, bid, ask, last, volume, volume_real, flags.
 //+------------------------------------------------------------------+
 void HandleGetTicks(string id, string json)
 {
@@ -618,9 +829,6 @@ void HandleGetTicks(string id, string json)
 
    long lastEmittedTimeMsc = (total > 0) ? (long)collected[total - 1].time_msc : 0;
 
-   // Compact form: ~90 bytes per tick worst case (13-digit time_msc,
-   // 6 numbers, 8-decimal doubles). AppendStr grows on demand; the
-   // estimate just avoids early resizes.
    int cap = total * 128 + 512;
    uchar buf[];
    ArrayResize(buf, cap);
@@ -685,6 +893,7 @@ void SendResponse(string id, string body)
    uchar buf[];
    int len = StringToCharArray(msg, buf) - 1;
    if(len <= 0) return;
+   Print(">>> Backs2TickBridge: RESP id=", id, " (", len, " bytes)");
    SocketSend(g_socket, buf, (uint)len);
 }
 

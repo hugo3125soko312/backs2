@@ -111,6 +111,17 @@ ONLY SPEAK IN ENGLISH
 - Performance telemetry (`perf_copy_us`, `perf_ser_us`) is returned by the EA in every `GET_TICKS` response. Do not remove — the C# log's `ea_copy` / `ea_ser` split is the only way to tell terminal-side vs EA-side cost without re-instrumenting.
 - **The MT5-side wall is `CopyTicks`.** ~35–60 µs/tick warm, ~50 µs/tick cold, ~0.03 µs/tick in the 4,096-tick fast access cache. No bridge change can beat the terminal's disk-read floor for historical backfill.
 
+### MT5 SYNC_TICKS_RANGE (v1.17+)
+- `SYNC_TICKS_RANGE` forces the terminal to download a tick range from the broker into the local `.tkc` cache. It is a broker-side write, not an in-C# fetch. The C# side never sees ticks from this path.
+- The EA iterates day-by-day via `CopyTicksRange`. On `ERR_HISTORY_TIMEOUT (4403)` with zero ticks it retries the same day on the next `OnTimer` tick, up to `SYNC_PER_DAY_TIMEOUT_MS` (30 s). Any non-timeout return — including a successful zero-tick response — advances the cursor.
+- **Immediate ack is mandatory.** `HandleSyncTicksRange` must emit an initial `PROGRESS` frame the moment the request is accepted, throttle bypassed (`g_sync_last_prog_ms = 0`). The first `CopyTicksRange` on a cold symbol can block for minutes while the terminal downloads history; without an immediate ack, the C# side has no confirmation the request landed and will time out on a live request.
+- **Timeout must be span-scaled, not the default fetch timeout.** `Mt5TickService.SyncTicksRangeAsync` computes `Mt5TimeoutMs + clamp(spanDays × 500 ms, 20 min, 60 min)`. A 10-year sync gets ~30 min of headroom. Do not use `Mt5TimeoutMs` alone, and do not copy the COUNT_TICKS adaptive-timeout formula — the two actions have different wall-time profiles.
+- **PROGRESS frame shapes differ by action.** `Mt5TickServer.TryParseProgress` must accept BOTH `cumulative_ticks` (COUNT_TICKS) and `synced_days` / `skipped_days` (SYNC_TICKS_RANGE). None of them is mandatory — a missing field means "not applicable for this action", not "malformed message". Defaulting to 0 is the correct behavior. Do not re-introduce a hard requirement on `cumulative_ticks`.
+- `Mt5CountProgress` carries `RequestId, ChunksDone, ChunksTotal, CumulativeTicks = 0, SyncedDays = 0, SkippedDays = 0`. Do not fork it into per-action records — one record with action-dependent defaults keeps the single `CountProgress` event on `Mt5TickServer`.
+- `SyncTicksRangeAsync` and `CountTicksAsync` both take an `IProgress<Mt5CountProgress>?`. Attach the handler as a plain `Action<Mt5CountProgress>` on `_server.CountProgress` (add/remove around the request); never subscribe a `Progress<T>` to a service event — `Progress<T>` is a consumer of reports, not a raiser.
+- The final SYNC response carries `synced_days`, `skipped_days`, `total_days`. The final COUNT response carries `count`, `first_msc`, `last_msc`, `perf_us`, `chunks`. Do not mix the two shapes.
+- A new chunked request (SYNC or COUNT) pre-empts any in-flight one (latest-wins). Do not attempt to multiplex.
+
 ### MT5 Grid Cap & Populate Grid
 - `Mt5TickViewModel.MaxGridRows = 100_000`. `PopulateGrid` auto-unchecks once the collection hits the cap; the fetch itself is unaffected — CSV streaming continues through the channel.
 - `OnTargetTicksChanged` auto-unchecks `PopulateGrid` when `TargetTicks > 500_000` and shows a banner. Guards against the freeze class: the user typing a huge number and forgetting to uncheck.
@@ -127,7 +138,7 @@ ONLY SPEAK IN ENGLISH
 - `MT5 Parsed` is cache-only — never fetched over the network. It appears in the Providers tab and the Data tab like any other source.
 
 ### MT5 .tkc Cache Extraction (Phase 16)
-- Decoder lives in `src/core/MT5/tck/` — `TkcModels.cs`, `TkcDecoder.cs`, `TkcFile.cs`. `TkcRepository.ListSymbolFiles(root, broker, symbol)` enumerates `{root}\bases\{broker}\ticks\{symbol}\YYYYMM.tkc`.
+- Decoder lives in `src/core/MT5/tck/` — `TckModels.cs`, `TkcDecoder.cs`, `TkcFile.cs`. `TkcRepository.ListSymbolFiles(root, broker, symbol)` enumerates `{root}\bases\{broker}\ticks\{symbol}\YYYYMM.tkc`.
 - `.tkc` format: magic `0x000001FD` at offset 0; symbol as UTF-16LE in `[0xA0, 0xD0)`; index starts at `0x00E4`, 48 bytes per entry, terminated by `size == 0` or non-monotonic `offset`; day payload is a sequence of interleaved zlib streams beginning with `0x78` + one of `0x01 | 0x5E | 0x9C | 0xDA`.
 - `InflateZlib` must be given the full remaining `[offset..offset+size)` — `ZLibStream` self-terminates at the zlib footer. Never cap the input slice; larger streams silently truncate.
 - `ClassifyBlock` must check for a `Timestamps` block **first** (first 8 bytes decode as Unix-ms in `[1.42e12, 2.0e12]`). Do not check zero-fraction first — delta-encoded timestamps can be 0 for many consecutive ticks, which previously caused valid timestamp blocks to be tagged `Empty` and whole days to be dropped.
