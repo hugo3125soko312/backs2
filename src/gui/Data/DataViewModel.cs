@@ -49,7 +49,7 @@ public partial class DataViewModel : ObservableObject
     public string TierSortGlyph      => GlyphFor("Tier");
     public string ProviderSortGlyph  => GlyphFor("Provider");
     public string SizeSortGlyph      => GlyphFor("SizeBytes");
-    public string ModifiedSortGlyph  => GlyphFor("LastModifiedUtc");
+    public string ModifiedSortGlyph  => GlyphFor("LastModifiedLocal");
     public string PathSortGlyph      => GlyphFor("Path");
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
 
@@ -259,20 +259,20 @@ public partial class DataViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(FilterSize))
             query = query.Where(e => Contains(e.SizeBytes.ToString(), FilterSize));
         if (!string.IsNullOrWhiteSpace(FilterModified))
-            query = query.Where(e => Contains(e.LastModifiedUtc.ToString("yyyy-MM-dd HH:mm"), FilterModified));
+            query = query.Where(e => Contains(e.LastModifiedLocal.ToString("yyyy-MM-dd HH:mm"), FilterModified));
         if (!string.IsNullOrWhiteSpace(FilterPath))
             query = query.Where(e => Contains(e.Path, FilterPath));
 
         query = SortColumn switch
         {
-            "Timeframe"       => SortAscending ? query.OrderBy(e => e.Timeframe)       : query.OrderByDescending(e => e.Timeframe),
-            "Tier"            => SortAscending ? query.OrderBy(e => e.Tier)            : query.OrderByDescending(e => e.Tier),
-            "Provider"        => SortAscending ? query.OrderBy(e => e.Provider)        : query.OrderByDescending(e => e.Provider),
-            "SizeBytes"       => SortAscending ? query.OrderBy(e => e.SizeBytes)       : query.OrderByDescending(e => e.SizeBytes),
-            "LastModifiedUtc" => SortAscending ? query.OrderBy(e => e.LastModifiedUtc) : query.OrderByDescending(e => e.LastModifiedUtc),
-            "Path"            => SortAscending ? query.OrderBy(e => e.Path)            : query.OrderByDescending(e => e.Path),
-            "HasVolume"       => SortAscending ? query.OrderBy(e => e.HasVolume)       : query.OrderByDescending(e => e.HasVolume),
-            _                 => SortAscending ? query.OrderBy(e => e.Symbol)          : query.OrderByDescending(e => e.Symbol),
+            "Timeframe"         => SortAscending ? query.OrderBy(e => e.Timeframe)         : query.OrderByDescending(e => e.Timeframe),
+            "Tier"              => SortAscending ? query.OrderBy(e => e.Tier)              : query.OrderByDescending(e => e.Tier),
+            "Provider"          => SortAscending ? query.OrderBy(e => e.Provider)          : query.OrderByDescending(e => e.Provider),
+            "SizeBytes"         => SortAscending ? query.OrderBy(e => e.SizeBytes)         : query.OrderByDescending(e => e.SizeBytes),
+            "LastModifiedLocal" => SortAscending ? query.OrderBy(e => e.LastModifiedLocal) : query.OrderByDescending(e => e.LastModifiedLocal),
+            "Path"              => SortAscending ? query.OrderBy(e => e.Path)              : query.OrderByDescending(e => e.Path),
+            "HasVolume"         => SortAscending ? query.OrderBy(e => e.HasVolume)         : query.OrderByDescending(e => e.HasVolume),
+            _                   => SortAscending ? query.OrderBy(e => e.Symbol)            : query.OrderByDescending(e => e.Symbol),
         };
 
         Rows.Clear();

@@ -193,14 +193,14 @@
                         <DataTemplate>
                             <Button Background="Transparent" BorderThickness="0" Padding="0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                    CommandParameter="LastModifiedUtc">
+                                    CommandParameter="LastModifiedLocal">
                                 <TextBlock Text="{Binding DataContext.ModifiedSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Modified {0}'}" />
                             </Button>
                         </DataTemplate>
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding LastModifiedLocal, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" VerticalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

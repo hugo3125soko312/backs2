@@ -80,14 +80,6 @@ Replace the manual "Calibrate Click" step with a visual pass that finds the late
 
 ## Phase 12: Hardening & Housekeeping [PLANNED]
 
-### Phase 12A -- Data tab Modified column [PENDING]
-The Data tab's `Modified` column does not reflect the cache file's actual last-write time on disk — the value shown to the user is wrong.
-
-- [ ] Confirm the source of the value: is `DataEntry.Modified` populated from the file's `LastWriteTimeUtc`, from the cache envelope's `fetchedUtc` field, or from a stale in-memory row that predates the write?
-- [ ] Reproduce against disk: run `Get-Item data\cache\*.json | Select-Object Name, LastWriteTime | Sort-Object LastWriteTime -Descending | Select-Object -First 5` and compare each timestamp against the corresponding row in the Data tab.
-- [ ] Fix the mapping so the column reflects the filesystem timestamp after every `CacheManager.SaveCacheAsync`.
-- [ ] Add a regression check: after any successful fetch-and-save cycle, the Data tab row's `Modified` value equals the file's `LastWriteTimeUtc` to the second.
-
 ---
 
 ## Appendix A: Shipped Accounts

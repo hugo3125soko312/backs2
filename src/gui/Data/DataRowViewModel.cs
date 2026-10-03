@@ -14,7 +14,7 @@ public partial class DataRowViewModel : ObservableObject
     public string Provider { get; }
     public string SizeDisplay { get; }
     public long SizeBytes { get; }
-    public System.DateTime LastModifiedUtc { get; }
+    public System.DateTime LastModifiedLocal { get; }
     public string Path { get; }
     public bool HasVolume { get; }
 
@@ -31,7 +31,7 @@ public partial class DataRowViewModel : ObservableObject
         Provider = entry.Provider;
         SizeDisplay = entry.SizeDisplay;
         SizeBytes = entry.SizeBytes;
-        LastModifiedUtc = entry.LastModifiedUtc;
+        LastModifiedLocal = entry.LastModifiedLocal;
         Path = entry.Path;
         HasVolume = entry.HasVolume;
 

@@ -671,3 +671,18 @@ Reads MetaTrader's local monthly `.tkc` tick-cache files directly from disk and 
 - **Double-decode is the right tradeoff.** `ScanTkc` (in the earlier iteration) decoded each file once for Info; `ExtractTkcCore` decodes again for ticks. There is no random-access index in the `.tkc` format, so tick count requires a full decode. Caching decoded ticks across both operations would retain GBs; caching only `Info` would still require decoding. Not worth optimising until decode time becomes a bottleneck.
 - **Never run raw ticks through a strategy or metric.** `RunnerScriptGlobals.Data` is `List<Kline>`; `IMetric.Calculate` takes `List<Kline>`; `TimeSliceBuilder` produces one slice per Kline; `CacheManager` stores `KlineCompact[]`. Feeding ticks would require a parallel execution engine (new globals type, tick-aware metrics, tick-aware TradeRecorder, tick-aware Monte Carlo) and would silently break bar-based indicators (RSI-14 over 14 ticks, ATR = 0, etc.). Always aggregate to bars first.
 - **Different timeframe = re-run with a different `TkcTimeframe`.** No intermediate tick cache tier. The decode is fast enough (~19 s full history) that a binary tick-cache tier would add complexity without a matching benefit.
+
+---
+
+## Phase 12: Hardening & Housekeeping
+
+### Phase 12A -- Data tab Modified column timezone [COMPLETED]
+
+Ship date: 2026-10-03.
+
+The Data tab's `Modified` column rendered the UTC instant of each cache file's mtime, not the local wall-clock time that Windows Explorer shows. On CEST (UTC+2) every row was exactly 2 hours behind disk. Not corruption — a `DateTime.Kind`-blind rendering bug.
+
+- Root cause: `DataManager.GetAvailableData` populated `DataEntry.LastModifiedUtc` from `FileInfo.LastWriteTimeUtc`. That value flowed unmodified into `DataRowViewModel.LastModifiedUtc`, and the XAML binding `{Binding LastModifiedUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}` prints the raw clock components of a `DateTime` without honouring its `Kind`. The grid rendered the UTC clock; Explorer rendered the local clock. Same file, two different numbers.
+- Fix: `DataEntry.LastModifiedUtc` → `DataEntry.LastModifiedLocal`, sourced from `FileInfo.LastWriteTime` (Kind = Local). Rename propagated through `DataRowViewModel`, the DataGrid column binding, the `ModifiedSortGlyph` key, the `ApplyView` filter predicate, and the `SortColumn` switch.
+- The rename is deliberate: it forces every consumer to be recompiled against the new name, so no stale binding silently keeps rendering UTC. Sort and filter semantics unchanged — `DateTime` comparison is Kind-agnostic.
+- Verified against `Get-ChildItem data\cache\*.json | Sort-Object LastWriteTime -Descending` — every row now matches to the minute.
