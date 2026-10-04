@@ -18,13 +18,15 @@
     - Microsoft.ML.OnnxRuntime.Gpu 1.30.0
     - SkiaSharp
 - Architecture:
-    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation, MT5, Writers.
+    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation, MT5, Writers, Compute, Analysis.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
-    - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder.
+    - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder. See ARCHITECTURE §17 (engine) and §14 (tab).
+    - src/core/Analysis/: KMeansClusterer (static; 4D standardized k-means++ over side/PnL%/duration/entry-hour). Used by the Monte Carlo trade-cluster plot. See ARCHITECTURE §14.
+    - src/core/Compute/: JobConfig, JobProgress, WorkerEnvelope, WorkerIpc, JobObjectHandle, WorkerHost, ComputeWorkerManager. Process-isolated compute infrastructure: ephemeral child process (`backs2.exe --worker`), anonymous-pipe IPC, Windows Job Object memory cap. Phase 1 placeholder job; Phase 2 migrates StrategyManager, Phase 3 migrates MonteCarloEngine. See ARCHITECTURE §21.
     - src/core/MT5/: Mt5Tick, Mt5TickServer, Mt5TickService, Mt5TickParser. Raw tick data bridge to a running MetaTrader 5 terminal over local TCP, with a range verifier (COUNT_TICKS), a broker-side history downloader (SYNC_TICKS_RANGE), and CSV-to-cache parsing. See ARCHITECTURE §19.
     - src/core/MT5/tck/: TckModels (TkcTick, TkcInfo, TkcException), TkcDecoder (static; `.tkc` → `(TkcInfo, IReadOnlyList<TkcTick>)`), TkcFile (lazy wrapper + TkcRepository.ListSymbolFiles). Decoder for MetaTrader's local monthly tick-cache files. See ARCHITECTURE §20.
-    - src/core/MT5/Mt5TickViewModel.Requester.cs: partial-class file holding `RequestSyncCommand`, `ReqSymbol`, `ReqLookbackDays`, `ReqProgress`, `ReqStatusText`. The Requester subtab drives `Mt5TickService.SyncTicksRangeAsync`.
+    - src/core/MT5/Mt5TickViewModel.Requester.cs: partial-class file holding `RequestSyncCommand`, `ReqSymbol`, `ReqLookbackDays`, `ReqProgress`, `ReqStatusText`. The Requester subtab drives `Mt5TickService.SyncTicksRangeAsync`. Known inconsistency: file lives under `src/core/MT5/` even though its namespace is `backs2.ViewModels`; it belongs with the other `Mt5TickViewModel` partials under `src/gui/MT5/`.
     - src/core/Writers/: Mt5TickWriter.cs (contains Mt5TickWriter + Mt5TickStreamWriter). The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
     - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
     - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
@@ -33,8 +35,10 @@
     - src/core/DataAutomation/AnalysisService.cs: parsed-JSON diagnostics. Timezone-aware gap classification (expected Session/Weekend/Holiday vs. TimeUnexpected), PriceGap, VolumeSpike. Supersedes the removed `docs/analyze-parsed.ps1`.
     - src/core/SelectionQueue.cs: enabled-dataset singleton, persisted to settings.json.
     - src/gui/: ViewModels, Views (organized by feature module).
+    - src/gui/Messages/: NavigateToTradeMessage. Cross-tab navigation payload broadcast via `WeakReferenceMessenger.Default`. Publishers and receivers register through CommunityToolkit's `IRecipient<T>` pattern. See ARCHITECTURE §21.
+    - src/gui/MonteCarlo/: MonteCarloView.axaml + .axaml.cs + MonteCarloViewModel.cs plus partials `.Plots.cs`, `.Stats.cs`, `.Cluster.cs`. Four partial-class files owning disjoint private fields; cross-partial invalidation flows through `InvalidateAll` on the core partial. See ARCHITECTURE §14.
     - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
-    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs + RangeObservableCollection.cs. `TabControl` with four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (broker-side history download into local `.tkc`), **.tkc Extract** (terminal .tkc cache → kline cache), and **Parsing** (tick CSV → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
+    - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs plus partials `.Extraction.cs`, `.Requester.cs`, `.Parsing.cs`, `.Tkc.cs`, and RangeObservableCollection.cs. `TabControl` with four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (broker-side history download into local `.tkc`), **.tkc Extract** (terminal .tkc cache → kline cache), and **Parsing** (tick CSV → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
     - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
@@ -42,7 +46,8 @@
     - Presets: JSON at config/presets/{Strategy}_{Preset}.preset.json.
     - Accounts: ONE JSON per firm at data/accounts/{Firm}.account.json. Active selection is a triple in settings.json.
     - Caching: CacheEnvelope wrapper around KlineCompact[] at data/cache/{symbol}_{timeframe}.json. Envelope carries source, fetchedUtc, symbol, timeframe. Parsed MT5 tick CSVs and decoded .tkc files write here with source `MT5 Parsed`.
-    - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17.
+    - Monte Carlo: time-domain block bootstrap. See ARCHITECTURE §17 (engine) and §14 (tab). Iteration cap 100,000; curve retention ceiling 100,000,000 cells; real cancellation via CancellationToken.
+    - Compute Worker: Phase 1 infrastructure. See ARCHITECTURE §21.
     - Data Automation: three subtabs. Extraction captures TradingView screenshots into data/shots/. Parsing OCRs them into data/parsed/. Analysis reads a parsed file and reports problems. See ARCHITECTURE §18.
     - MT5 Tick Bridge: MQL5 Expert Advisor at docs/Backs2TickBridge.mq5 (v1.18) connects out to a C# TcpListener on 127.0.0.1:5555. Tick data lands in a DataGrid and streams to CSV at data/ticks/. See ARCHITECTURE §19.
     - MT5 History Requester: MQL5 action `SYNC_TICKS_RANGE` (v1.17+). Forces the terminal to download a specific tick range from the broker and write it into the local `.tkc` cache, iterating day-by-day. Emits PROGRESS frames and an immediate ack; the C# side scales its request timeout by the range span. Latest-wins: a new chunked request pre-empts an in-flight one.
@@ -68,7 +73,16 @@
     - The SelectionQueue is the source of truth for enabled datasets. No parallel enabled-state anywhere else.
     - Queue persistence is `"symbol@timeframe"` strings in `settings.json`.
     - Monte Carlo operates in the time domain. Never scramble trades. Use `TimeSlice[]` from `TimeSliceBuilder`. Compound as flat-bet absolute PnL, not percentages.
+    - Monte Carlo iteration cap: `MonteCarloEngine.MaxIterations = 100_000`. Enforced by the UI NumericUpDown `Maximum`, a ViewModel guard that refuses to start, and the engine's own clamp. Never raise it without re-validating CPU saturation and the curve retention ceiling.
+    - Monte Carlo curve retention ceiling: `MonteCarloEngine.MaxCurveCells = 100_000_000`. Above it, `retainCurves = false`, `SimulateOnce` receives a `null` curve, and `MonteCarloResult.CurvesRetained` is false. The stats panel surfaces a `MEMORY` section and the equity-curve plot shows the retention-limit message. All scalar stats still populate.
+    - Monte Carlo cancellation: `MonteCarloEngine.Run` takes a `CancellationToken` (default `default`); the token flows into `ParallelOptions.CancellationToken`. `MonteCarloViewModel.RunAsync` owns the CTS; `CancelCommand` fires it. Partial results from datasets that completed before cancel are kept. Never remove the cancellation param.
     - Position size defaults to 1.0 in `Trades.Enter`. Strategies that need a different size pass it explicitly.
+    - ScottPlot's `UserInputProcessor` is disabled on every `AvaPlot` in the app. Mouse drag cannot pan or zoom. Pan/zoom is keyboard-only: arrow keys pan 10% of the visible span, `+`/`-` zoom the X-axis by 10%. Plots are `Focusable="True"`. Never re-enable `UserInputProcessor` — the drag state could get stuck on some driver configurations.
+    - The Monte Carlo trade-cluster plot dispatches `NavigateToTradeMessage` via `WeakReferenceMessenger.Default`. Receivers are `MainViewModel` (switches the Chart tab) and `ChartViewModel` (selects dataset, scrolls to timestamp). Never wire cross-tab navigation through direct ViewModel references; use the messenger. Navigation does not mutate the SelectionQueue — an unqueued target produces a status-line warning.
+    - `KMeansClusterer.Cluster` is deterministic (fixed RNG seed). Do not change the seed — the same trades must produce the same clusters on every render.
+    - Compute worker: process-isolated infrastructure in `src/core/Compute/`. The worker is `backs2.exe --worker`, dispatched in `Program.Main` before Avalonia or LogManager initialize. It writes nothing to `logs/`; diagnostics go to `Console.Error` and are captured by the parent as `[worker <pid> stderr]` Debug lines. Do not add DI registration for the worker side, and do not introduce Avalonia dependencies in the worker path.
+    - Compute worker IPC uses length-prefixed JSON frames over anonymous pipes (`WorkerIpc`). Anonymous-pipe directions are load-bearing: `serverOut` is parent-writes/worker-reads and maps to the worker's `--in`; `serverIn` is parent-reads/worker-writes and maps to the worker's `--out`. Swapping them causes immediate EOF on the worker side.
+    - Compute worker memory cap uses Win32 Job Objects (`JobObjectHandle`) with `JOB_OBJECT_LIMIT_PROCESS_MEMORY`. Non-Windows platforms degrade gracefully (attach returns false with a Warn log). Never raise the cap silently; the caller passes `JobConfig.MemoryLimitMb` explicitly.
     - Data Automation captures via PrintWindow with PW_RENDERFULLCONTENT; do not switch to DXGI Desktop Duplication (returns black on Chromium windows).
     - Automation input uses SendInput via P/Invoke. Never hook input. Never use H.InputSimulator or InputSimulatorStandard.
     - Calibration persists to config/data_automation.json. Per-field regions (DATE, TIME, O, H, L, C, V) plus a click point. Only O/H/L/C/V are required to enable Start Automation.

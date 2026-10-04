@@ -4,7 +4,7 @@
 ## 1. Core Services & Dependency Injection
 - DI Container: Microsoft.Extensions.DependencyInjection, managed in App.axaml.cs.
 - Service Lifecycle:
-    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager, Mt5TickServer, Mt5TickService.
+    - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager, Mt5TickServer, Mt5TickService, ComputeWorkerManager.
     - Transients/Keyed: IDataProvider implementations (resolved via GetRequiredKeyedService).
 - Enforcement: No static global variables. All dependencies resolved via constructor injection.
 
@@ -124,18 +124,19 @@
 - ColorPicker use: Avalonia.Controls.ColorPicker 11.0.11 with `ColorSpectrumShape="Ring"`.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 - RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
+- ViewModel partial-class convention: where a tab's ViewModel grows past ~600 lines it is split into partial-class files alongside the core file. Precedent: `Mt5TickViewModel` (core + `.Extraction.cs` + `.Requester.cs` + `.Parsing.cs` + `.Tkc.cs`) and `MonteCarloViewModel` (core + `.Plots.cs` + `.Stats.cs` + `.Cluster.cs`). Each partial owns a disjoint set of private fields; cross-partial invalidation happens through a coordinator method on the core partial (e.g. `InvalidateAll`).
 
 ## 9. Tabs
 - Overview — last-run summary with per-dataset table and aggregate footer.
 - Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.
-- Monte Carlo — per-dataset outcome probabilities and terminal-balance histogram.
+- Monte Carlo — per-dataset outcome probabilities, terminal-balance/max-DD histograms, equity curves, trade clusters. See §14.
 - Metrics — metric catalog browser.
 - Accounts — prop-firm rule browser and active selection.
 - Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
 - MT5 Ticks — raw tick streaming from MetaTrader 5, broker-side history sync into the local `.tkc` cache, direct `.tkc` decoding into kline cache, and tick-CSV parsing into kline cache. Four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (SYNC_TICKS_RANGE), **.tkc Extract** (local .tkc files → kline cache), **Parsing** (tick CSV → kline cache). See §19 and §20.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
-- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis.
+- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis. Keyboard-only navigation: ScottPlot's `UserInputProcessor` is disabled on the plot; arrow keys pan 10% of the visible span per press, `+`/`-` zoom the X-axis by 10% per press. PointerMoved drives the crosshair readout; the plot's context menu retains Auto/Percent/Indexed-to-100. The Chart tab is also the target of cross-tab navigation from the Monte Carlo cluster plot (see §14) and reacts to `NavigateToTradeMessage` by selecting the queued dataset and setting a 200-bar X-axis window centered on the requested timestamp.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
 
@@ -225,28 +226,67 @@
 
 ## 14. Monte Carlo Tab
 
-- Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §17). Produces per-dataset outcome probabilities and terminal-balance distributions.
+- Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §17). Produces per-dataset outcome probabilities, terminal-balance and max-drawdown distributions, equity curves, and a trade-cluster view.
 - GUI (`src/gui/MonteCarlo/`):
-  - `MonteCarloView.axaml` — Grid with toolbar (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,4,*"`: stats panel left, splitter, ScottPlot `AvaPlot` right.
-  - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, calls `vm.SetPlotControl(PlotControl)` with the `x:Name`-ed AvaPlot instance.
-  - `MonteCarloViewModel`:
-    - Reads `LastRunStore.Batch` for the dataset list.
-    - Reads `AccountService.Active` for starting capital and funded-phase rules (`MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `DrawdownType`, `TradingPeriodDays`).
-    - Subscribes to `LastRunStore.Changed` and `AccountService.ActiveChanged`. Stale results are cleared on a new run.
-    - `RunAsync` iterates every non-errored batch entry, builds `TimeSlice[]` via `TimeSliceBuilder.Build`, runs `MonteCarloEngine.Run` independently per dataset, stores each result in `_resultsByIndex`. No aggregation.
-    - `McStatRow` — `Metric`, `Mean`, `Median`, `StdDev`, `P05`, `P95`. Display-only record for the selected dataset's stats.
-    - `McBatchRow` — `Symbol`, `Timeframe`, `PRuin`, `PFunded`, `PTimeout`. Display-only record for the per-dataset outcome list.
-- Toolbar controls: Iterations (`NumericUpDown`, default 1000, max 100000), Mean Block Size (default 5, max 100), Ruin Threshold % (display only — not consumed by the time-domain engine), Run button, ProgressBar (visible only while running), active account name label.
-- Stats panel layout:
-  - **Per-Dataset Outcomes** block (visible only when `HasResults`): combo box selecting the active dataset (visible only when `HasBatch`), then an `ItemsControl` of `McBatchRow` rows with `Symbol @ Timeframe` and the outcome triplet.
-  - **Selected Dataset** block: `StatusText` summary, then an `ItemsControl` of `McStatRow` rows — P(ruin)/P(funded)/P(timeout), Expected Slices, Terminal Balance, Max Drawdown %.
-- Plot panel: terminal-balance histogram (40 bins) for the currently selected dataset, via `ScottPlot.Statistics.Histogram.WithBinCount`. Vertical lines at p05 (red), median (white), p95 (green). `plt.Axes.AutoScale()` is called after adding bars and lines.
-- Tab position: `MainWindow.axaml` places Monte Carlo between Runner and Metrics.
+  - `MonteCarloView.axaml` — Grid with four rows: collapsible settings expander (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,6,*"`: stats rail left, splitter, plot pane right. The plot pane hosts three `AvaPlot` controls (`HistogramPlot`, `CurvesPlot`, `ClusterPlot`) stacked in a single Grid cell and toggled by `IsVisible` bindings (`IsHistogramVisible` / `IsCurvesVisible` / `IsClusterVisible`). The toggle avoids ScottPlot rebuilding the render tree on every mode change.
+  - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, wires the three plots through `SetHistogramPlotControl` / `SetCurvesPlotControl` / `SetClusterPlotControl`. Disables `AvaPlot.UserInputProcessor` on all three (see Keyboard navigation) and installs a `KeyDown` handler for arrow pan and `+`/`-` zoom. Attaches the cluster plot's `PointerPressed` to `HandleClusterPlotClick`.
+  - `MonteCarloViewModel` — split into four partial-class files under `src/gui/MonteCarlo/`:
+    - `MonteCarloViewModel.cs` — core: DI wiring, observable properties, lifecycle subscriptions (`LastRunStore.Changed`, `AccountService.ActiveChanged`), batch orchestration (`RunAsync`, `Cancel`, `TestWorkerAsync`), field invalidation (`InvalidateAll`), view-model records (`McPlotMode`, `PlotModeOption`, `McKpiCard`, `McStatSection`, `McStatLine`, `McBatchRow`).
+    - `MonteCarloViewModel.Plots.cs` — histogram and equity-curve rendering, plot theming (`ApplyPlotTheme`), downsampling helpers, `EnsureVisiblePlotRendered`, render-cache markers for the histogram and curves plots.
+    - `MonteCarloViewModel.Stats.cs` — `PopulateStats`, KPI card construction, tone palette (neutral/dim/warn/good/amber/accent), `CurveMemoryLabel`.
+    - `MonteCarloViewModel.Cluster.cs` — k-means dispatch, cluster plot draw, hit-testing, `NavigateTo`, cluster palette, cluster render-cache marker.
+  - Partial convention: each partial owns a disjoint set of private fields. Cross-partial invalidation flows through `InvalidateAll` in the core partial, which nulls the fields owned by the other three.
 
-### Deferred to a follow-up sub-phase (10.11C2)
-- Spaghetti equity curve rendering. Requires `MonteCarloEngine` to store per-simulation equity curves (`double[][]`). Memory cost ~4 MB per 1000×500 run.
-- Out-of-sample / in-sample split (moved to 10.11D).
-- CSV / JSON export of results.
+- Data flow:
+  - Reads `LastRunStore.Batch` for the dataset list.
+  - Reads `AccountService.Active` for starting capital and funded-phase rules (`MaxLossPercent`, `MaxDailyLossPercent`, `ProfitTargetPercent`, `BestDayRulePercent`, `DrawdownType`, `TradingPeriodDays`).
+  - Subscribes to `LastRunStore.Changed` and `AccountService.ActiveChanged`. Stale results are cleared on a new run.
+  - `RunAsync` iterates every non-errored batch entry, builds `TimeSlice[]` via `TimeSliceBuilder.Build`, runs `MonteCarloEngine.Run` independently per dataset, stores each result in `_resultsByIndex`. No aggregation.
+
+- Iteration cap and cancellation:
+  - `MonteCarloEngine.MaxIterations = 100_000` (100× the default of 1000). Enforced in three layers: the `NumericUpDown.Maximum` caps the UI, the ViewModel refuses to start a run whose `Iterations` exceeds the cap, and the engine clamps any programmatic value.
+  - `RunAsync` creates a `CancellationTokenSource`; `Cancel` (bound to the toolbar button) fires it. The token flows into `MonteCarloEngine.Run` via `ParallelOptions.CancellationToken`. Cancellation latency is bounded by one simulation's duration (~50–500 ms depending on dataset).
+  - Partial results from datasets that completed before cancel are kept.
+  - Both success and cancellation paths log under `LogTag.MonteCarlo`.
+
+- Curve retention ceiling:
+  - `MonteCarloEngine.MaxCurveCells = 100_000_000` (~800 MB of `double[][]` curve data at 8 bytes/cell).
+  - Above the ceiling, `retainCurves` is false and no per-simulation `double[]` is allocated. All scalar stats (P(ruin), terminal-balance distribution, streaks, etc.) still populate.
+  - `MonteCarloResult.CurvesRetained` carries the flag. When false, the equity-curve plot shows a retention-limit message instead of curves, and `PopulateStats` adds a `MEMORY` section explaining the drop.
+  - The status line during a run flags the drop in advance: `(equity curves will be dropped — memory ceiling)`.
+
+- Toolbar controls (settings expander): Iterations (`NumericUpDown`, default 1000, max 100,000), Mean Block Size (default 5, max 100), Ruin Threshold % (display only), Run Monte Carlo, Cancel, Test Worker, ProgressBar (visible only while running), `CurveMemoryLabel`, active account name. A hint line below describes the caps.
+
+- Stats rail layout:
+  - **Per-Dataset Outcomes** block (visible when `HasResults`): dataset selector combo (visible when `HasBatch`), column-header row (Dataset / Ruin / Funded / Timeout), then an `ItemsControl` of `McBatchRow`.
+  - **KPI cards**: `UniformGrid Columns="2"` of `McKpiCard` — P(ruin), P(funded), median max DD, best-day-rule violation probability. Each card carries label, 22px value, subtitle, and a direction-brushed value.
+  - **Detail sections**: `ItemsControl` of `McStatSection`. Each section renders a header bar plus label/value rows (`McStatLine`). Sections: Terminal Balance, Time to Outcome, Streaks, Ruin Breakdown (conditional), Memory (conditional).
+
+- Plot modes (ComboBox in the plot-pane header):
+  - **Terminal Balance** — 40-bin histogram of `TerminalBalances`. Vertical lines at p05 (red), median (gray), p95 (green). Bars: fill `#4FC3F7`, 1px white border.
+  - **Max Drawdown** — 30-bin histogram of `MaxDrawdowns`, x-axis clipped to `max(p99 × 1.10, limit × 1.15)`. Dashed amber line at the account's max-loss limit; gray median line. Title reads `Max Drawdown Distribution — {breachPct} breach the {limit}% limit`, computed by counting simulations whose max DD ≥ the limit.
+  - **Trade Clusters** — see below.
+  - **Equity Curves** toggle — swaps to `CurvesPlot`. Downsampled: at most 200 curves × 1000 points each. Blown and funded outcomes are always included; timeouts are sampled evenly to fill the cap. When `CurvesRetained` is false, the plot shows the retention-limit message.
+
+- Trade cluster plot:
+  - Source: the selected `OverviewData`'s `Trades` list, independent of the MC results.
+  - Clustering: `KMeansClusterer.Cluster(trades, k)` with `k = max(3, min(8, √(N/10)))`. Feature vector is 4D, Z-score standardized: side (0=Short, 1=Long), `PnLPercent × 100`, duration minutes, entry hour-of-day.
+  - Rendering: one `Scatter` series per cluster (palette-cycled, `FilledCircle`, marker size 6) plus a large `OpenDiamond` at each cluster's geometric centroid. X-axis is entry time (DateTime ticks); Y-axis is `PnLPercent × 100`.
+  - Click handling (`HandleClusterPlotClick`): pixel coordinates translate to plot coordinates via `Plot.GetCoordinates`; the handler then finds the nearest centroid within a 40-pixel threshold, falling back to the nearest individual trade. Dispatches `WeakReferenceMessenger.Default.Send(new NavigateToTradeMessage(symbol, timeframe, trade.EntryTime))`.
+  - Clustering runs on `Task.Run`; the render callback is marshalled back to the UI thread via `Dispatcher.UIThread.Post`.
+  - `KMeansClusterer` is deterministic (fixed RNG seed 42) so the same trades produce the same clusters on every run.
+
+- Cross-tab navigation (see §21 for the messaging contract):
+  - `MainViewModel.Receive(NavigateToTradeMessage)` sets `ActiveTabIndex = 9` (Chart is the 10th tab in `MainWindow.axaml`).
+  - `ChartViewModel.Receive(NavigateToTradeMessage)` selects the matching queued dataset (loading if needed) and sets `_pendingNavigationTime`, consumed by `ApplyPendingNavigation` after the series loads. The chart's X-axis is set to a 200-bar window centered on the target timestamp.
+  - If the target `Symbol @ Timeframe` is not in the `SelectionQueue`, the Chart view shows a warning — navigation does not mutate the queue.
+
+- Keyboard navigation (all plots in the tab and the Chart tab):
+  - `AvaPlot.UserInputProcessor.Disable()` on every plot so pointer drag cannot get stuck mid-pan.
+  - Arrow keys pan 10% of the visible span per press. `+` (main `=` or numpad `+`) trims 10% off each end of the X-axis; `-` (main `-` or numpad `-`) grows the window by 10% on each side.
+  - Plots are `Focusable="True"`; keys register after a single click to focus.
+
+- Tab position: `MainWindow.axaml` places Monte Carlo between Runner and Metrics.
 
 ## 15. Selection Queue
 
@@ -323,9 +363,11 @@ The `MonteCarloEngine` consumes the `TimeSlice[]` and implements:
 - Flat-bet absolute PnL compounding (`CurrentBalance += RealizedPnl`), not percentage. Prop firm capital is nominal and fixed-lot.
 - State machine per slice: MTM low check against daily floor and max-DD floor, then realize PnL, then update HWM, then EOD reset.
 - `DrawdownType` from the active account: `static`, `trailing-eod`, `trailing-intraday`. The HWM update semantics differ per type.
-- Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin.
+- Outputs: `P(ruin)`, `P(funded)`, `P(timeout)`, expected time to fund, expected time to ruin, best-day-rule violation probability, streak distributions (losing trade and flat stretch), ruin cause breakdown (daily-floor vs max-DD-floor).
 - Target duration from `AccountPhase.TradingPeriodDays` (fallback 90 days).
 - Independent Monte Carlo runs per queued dataset. Aggregation sums expectations, does not pool trades.
+- Hard limits: `MaxIterations = 100_000`, `MaxCurveCells = 100_000_000` (see §14). Cancellation flows through `ParallelOptions.CancellationToken`.
+- When the curve retention ceiling is exceeded, curves are dropped and `MonteCarloResult.CurvesRetained` is `false`; all scalar stats still populate.
 
 ## 18. Data Automation
 
@@ -522,3 +564,34 @@ The EA serializes `GET_TICKS` responses into a pre-sized `uchar[]` byte buffer v
 ### Constraint
 
 - Never run `.tkc` ticks directly through a strategy or metric. `RunnerScriptGlobals.Data` is `List<Kline>`, `IMetric.Calculate` takes `List<Kline>`, `TimeSliceBuilder` produces one slice per Kline, and `CacheManager` stores `KlineCompact[]`. Always aggregate to bars first — running on raw ticks would need a parallel execution engine and would silently break bar-based indicators.
+
+## 21. Compute Worker (Phase 1)
+
+- Purpose: run heavy compute (future: strategy execution, Monte Carlo) in a separate OS process so the UI survives a compute crash, and so a memory cap can be enforced independently of the UI process. Phase 1 delivers the infrastructure only — the worker runs a placeholder job. Phase 2 migrates `StrategyManager`, Phase 3 migrates `MonteCarloEngine`.
+- Location: `src/core/Compute/`:
+  - `JobConfig.cs` — `record JobConfig(string ScriptPath, string CachePath, IReadOnlyDictionary<string,string> Params, int MemoryLimitMb)`.
+  - `JobProgress.cs` — `record JobProgress(string Phase, int SlicesElapsed, int TotalSlices, double PercentComplete)`.
+  - `WorkerEnvelope.cs` — single message envelope with kind-tagged nullable payload slots. Kinds: `Start`, `Progress`, `Result`, `Error`, `Cancel`, `Ping`, `Pong` (constants in `WorkerMessageKind`). Also carries `WorkerResult(int TradeCount, string Summary)` — Phase 1 placeholder.
+  - `WorkerIpc.cs` — length-prefixed JSON frames over any `Stream`. 4-byte little-endian length prefix, `JsonSerializer` payload with camel-case and `IgnoreCondition = WhenWritingNull`. Hard ceiling `MaxFrameBytes = 64 MB`.
+  - `JobObjectHandle.cs` — Win32 Job Object wrapper. `TryAttach(processHandle, memoryLimitMb, out error)` creates the job on first call, sets `JOB_OBJECT_LIMIT_PROCESS_MEMORY` via `SetInformationJobObject(JobObjectExtendedLimitInformation)`, then `AssignProcessToJobObject`. No-op on non-Windows (returns false with `"Job Objects are Windows-only"`). Disposal closes the handle, which terminates any surviving child process.
+  - `WorkerHost.cs` — worker-side main loop. Parses `--in=... --out=...` args, opens `AnonymousPipeClientStream` streams, then reads envelopes: responds to `Ping` with `Pong`, returns on `Cancel`, runs the placeholder job on `Start` (5 progress frames over ~1s + a result). All diagnostics go to `Console.Error` (captured by the parent as `[worker <pid> stderr]` Debug lines).
+  - `ComputeWorkerManager.cs` — UI-side singleton. `RunJobAsync(config, progress, ct)` spawns the worker process, wires two anonymous pipes, assigns the child to a Job Object, sends `Start`, pumps envelopes until `Result` (returned) or `Error` (thrown). Best-effort `Cancel` message on cancellation, then unconditionally `Kill(entireProcessTree: true)`. Captures worker stderr/stdout into the parent log at Debug level.
+- Process model: the worker is the same `backs2.exe` binary invoked with `--worker`. `Program.Main` dispatches `--worker` and `--ocr-worker` before touching Avalonia or `LogManager` — the worker does not initialize Avalonia, does not open the log file, and does not touch the DI container. `ComputeWorkerManager.ResolveHost` handles both `dotnet <entry>.dll` and self-contained deployments.
+- Wire format: one `WorkerEnvelope` per frame, JSON, newline-delimited at the frame boundary (length-prefix, not newline). Pipe directions from the parent: `serverOut` (parent writes / worker reads) and `serverIn` (parent reads / worker writes). The client handles passed to the worker must match the worker's own direction — `--in` receives the client handle of `serverOut`, `--out` receives the client handle of `serverIn`.
+- Dispatch from `Program.Main`:
+  ```
+  --ocr-worker       → OcrWorkerHost.RunAsync()
+  --worker           → WorkerHost.RunAsync(args)
+  --compute-selftest → RunComputeSelfTest(args)   ; CLI smoke test
+  (none)             → Avalonia app
+  ```
+- UI-side smoke test: the Monte Carlo settings expander has a **Test Worker** button bound to `TestWorkerCommand`. It constructs a `JobConfig` with `MemoryLimitMb = 512` and awaits `ComputeWorkerManager.RunJobAsync`, streaming progress into the status line. Expected log lines on success: `Compute worker started (pid N, mem cap 512 MB)`, `Compute worker pid N: job complete — trades=0, "placeholder job complete"`. Intended to be removed when Phase 3 lands and `MonteCarloViewModel.RunAsync` routes through the worker.
+
+### Cross-tab navigation message
+
+- `NavigateToTradeMessage` (`src/gui/Messages/NavigateToTradeMessage.cs`) — `record(string Symbol, string Timeframe, DateTime TargetTime)`. Broadcast via `WeakReferenceMessenger.Default` (CommunityToolkit.Mvvm). No static, no DI registration — the messenger singleton is the transport.
+- Publisher: `MonteCarloViewModel.Cluster.cs` (see §14). Receiver wiring:
+  - `MainViewModel` implements `IRecipient<NavigateToTradeMessage>` and sets `ActiveTabIndex = 9` in `Receive`.
+  - `ChartViewModel` implements `IRecipient<NavigateToTradeMessage>` and handles dataset select + load + scroll in `Receive`. `_pendingNavigationTime` is consumed by `ApplyPendingNavigation` after the series loads.
+- Both receivers call `WeakReferenceMessenger.Default.Register(this)` in their constructors. The parameterless overload requires `IRecipient<T>` on the type.
+- The queue is not mutated from navigation. A request for an unqueued `Symbol @ Timeframe` surfaces as a status-line warning in the Chart tab.
