@@ -72,5 +72,5 @@ public sealed record MonteCarloResult(
     int RuinByDailyFloorCount,
     int RuinByMaxFloorCount,
 
-    long CurveMemoryBytes
-);
+    long CurveMemoryBytes,
+    bool CurvesRetained);

@@ -7,11 +7,19 @@ namespace backs2.Core.Overview;
 
 public sealed class MonteCarloEngine
 {
+    // Hard cap on iterations. 100 × the default (1000). Above this, the
+    // compute time and CPU saturation make the app effectively unusable
+    // regardless of memory.
+    public const int MaxIterations = 100_000;
+
+    // Ceiling on retained equity-curve cells (iterations × slices). Above
+    // ~800 MB of curve doubles, curves are dropped from the result and
+    // only the scalar stats arrays are kept.
+    public const long MaxCurveCells = 100_000_000;
+
     private const int OutcomeBlown = MonteCarloOutcome.Blown;
     private const int OutcomeFunded = MonteCarloOutcome.Funded;
     private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
-
-    private const int MaxIterations = 1_000_000;
 
     public MonteCarloResult Run(
         TimeSlice[] slices,
@@ -25,7 +33,8 @@ public sealed class MonteCarloEngine
         int expectedBlockSize = 5,
         double bestDayRulePercent = 50.0,
         int? seed = null,
-        IProgress<int>? progress = null)
+        IProgress<int>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (slices == null || slices.Length == 0 || startingCapital <= 0 || targetDurationSlices <= 0)
         {
@@ -41,11 +50,17 @@ public sealed class MonteCarloEngine
 
         int n = slices.Length;
 
+        // Decide up-front whether to retain per-simulation equity curves.
+        // Above the memory ceiling they are dropped; the run still produces
+        // every scalar stat, and the equity-curve plot will show a hint.
+        long curveCells = (long)iterations * targetDurationSlices;
+        bool retainCurves = curveCells <= MaxCurveCells;
+
         var terminalBalances = new double[iterations];
         var outcomes = new byte[iterations];
         var slicesElapsed = new int[iterations];
         var maxDrawdowns = new double[iterations];
-        var equityCurves = new double[iterations][];
+        var equityCurves = retainCurves ? new double[iterations][] : Array.Empty<double[]>();
         var bestDayRatios = new double[iterations];
         var longestLosingStreaks = new int[iterations];
         var longestFlatStretches = new int[iterations];
@@ -63,56 +78,69 @@ public sealed class MonteCarloEngine
 
         var parallelOptions = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Environment.ProcessorCount
+            MaxDegreeOfParallelism = Environment.ProcessorCount,
+            CancellationToken = cancellationToken
         };
 
-        Parallel.For(0, iterations, parallelOptions, i =>
+        try
         {
-            var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
-
-            var curve = new double[targetDurationSlices];
-
-            SimulateOnce(
-                slices,
-                n,
-                targetDurationSlices,
-                startingCapital,
-                dailyFloorLoss,
-                maxFloorLoss,
-                profitTarget,
-                trailingEod,
-                trailingIntraday,
-                expectedBlockSize,
-                rng,
-                curve,
-                out var terminal,
-                out var outcome,
-                out var elapsed,
-                out var maxDd,
-                out var bestDayRatio,
-                out var longestLosing,
-                out var longestFlat,
-                out var ruinCause);
-
-            terminalBalances[i] = terminal;
-            outcomes[i] = outcome;
-            slicesElapsed[i] = elapsed;
-            maxDrawdowns[i] = maxDd;
-            equityCurves[i] = curve;
-            bestDayRatios[i] = bestDayRatio;
-            longestLosingStreaks[i] = longestLosing;
-            longestFlatStretches[i] = longestFlat;
-            ruinCauses[i] = ruinCause;
-
-            if (progress != null)
+            Parallel.For(0, iterations, parallelOptions, i =>
             {
-                int current = Interlocked.Increment(ref completed);
-                if (current % progressStep == 0 || current == iterations)
-                    progress.Report(current);
-            }
-        });
+                var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
 
-        long curveBytes = (long)iterations * targetDurationSlices * sizeof(double);
+                double[]? curve = retainCurves ? new double[targetDurationSlices] : null;
+
+                SimulateOnce(
+                    slices,
+                    n,
+                    targetDurationSlices,
+                    startingCapital,
+                    dailyFloorLoss,
+                    maxFloorLoss,
+                    profitTarget,
+                    trailingEod,
+                    trailingIntraday,
+                    expectedBlockSize,
+                    rng,
+                    curve,
+                    out var terminal,
+                    out var outcome,
+                    out var elapsed,
+                    out var maxDd,
+                    out var bestDayRatio,
+                    out var longestLosing,
+                    out var longestFlat,
+                    out var ruinCause);
+
+                terminalBalances[i] = terminal;
+                outcomes[i] = outcome;
+                slicesElapsed[i] = elapsed;
+                maxDrawdowns[i] = maxDd;
+                if (retainCurves) equityCurves[i] = curve!;
+                bestDayRatios[i] = bestDayRatio;
+                longestLosingStreaks[i] = longestLosing;
+                longestFlatStretches[i] = longestFlat;
+                ruinCauses[i] = ruinCause;
+
+                if (progress != null)
+                {
+                    int current = Interlocked.Increment(ref completed);
+                    if (current % progressStep == 0 || current == iterations)
+                        progress.Report(current);
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Caller requested cancellation. Return whatever completed.
+            // BuildResult tolerates partially-filled arrays: unfilled slots
+            // remain 0 / default, which the aggregates handle gracefully.
+            throw;
+        }
+
+        long curveBytes = retainCurves
+            ? (long)iterations * targetDurationSlices * sizeof(double)
+            : 0L;
 
         return BuildResult(
             terminalBalances,
@@ -130,7 +158,8 @@ public sealed class MonteCarloEngine
             targetDurationSlices,
             drawdownType ?? "static",
             bestDayRulePercent,
-            curveBytes);
+            curveBytes,
+            retainCurves);
     }
 
     private static void SimulateOnce(
@@ -145,7 +174,7 @@ public sealed class MonteCarloEngine
         bool trailingIntraday,
         int expectedBlockSize,
         Random rng,
-        double[] curve,
+        double[]? curve,
         out double terminalBalance,
         out byte outcome,
         out int slicesElapsed,
@@ -219,7 +248,7 @@ public sealed class MonteCarloEngine
                 {
                     double worst = Math.Min(dailyFloor, maxFloor);
                     balance = worst;
-                    curve[produced] = balance;
+                    if (curve != null) curve[produced] = balance;
                     result = OutcomeBlown;
                     elapsed = produced + 1;
 
@@ -261,7 +290,7 @@ public sealed class MonteCarloEngine
                 double dd = peak > 0 ? (peak - balance) / peak : 0;
                 if (dd > maxDd) maxDd = dd;
 
-                curve[produced] = balance;
+                if (curve != null) curve[produced] = balance;
 
                 if (profitTarget > 0 && balance - startingCapital >= profitTarget)
                 {
@@ -306,7 +335,8 @@ public sealed class MonteCarloEngine
         int targetDurationSlices,
         string drawdownType,
         double bestDayRulePercent,
-        long curveMemoryBytes)
+        long curveMemoryBytes,
+        bool curvesRetained)
     {
         int blown = 0, funded = 0, timeout = 0;
         double sumElapsedFund = 0;
@@ -413,7 +443,8 @@ public sealed class MonteCarloEngine
             RuinByDailyFloorCount: ruinDaily,
             RuinByMaxFloorCount: ruinMax,
 
-            CurveMemoryBytes: curveMemoryBytes);
+            CurveMemoryBytes: curveMemoryBytes,
+            CurvesRetained: curvesRetained);
     }
 
     private static MonteCarloResult EmptyResult(
@@ -455,7 +486,8 @@ public sealed class MonteCarloEngine
 
             RuinByDailyFloorCount: 0, RuinByMaxFloorCount: 0,
 
-            CurveMemoryBytes: 0);
+            CurveMemoryBytes: 0,
+            CurvesRetained: false);
     }
 
     private static double Mean(double[] values)

@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
 using backs2.Core.Accounts;
 using backs2.Core.Analysis;
 using backs2.Core.Compute;
@@ -85,7 +86,6 @@ public partial class MonteCarloViewModel : ObservableObject
     private MonteCarloResult? _statsRenderedFrom;
     private OverviewData? _clusterRenderedFrom;
 
-    // Cluster plot state for hit-testing. Rebuilt on each render.
     private OverviewData? _clusterData;
     private List<ClusterPoint>? _clusterPoints;
     private List<ClusterCentroid>? _clusterCentroids;
@@ -96,7 +96,15 @@ public partial class MonteCarloViewModel : ObservableObject
     private readonly Dictionary<int, MonteCarloResult> _resultsByIndex = new();
     private IReadOnlyList<OverviewData> _batch = Array.Empty<OverviewData>();
 
+    private CancellationTokenSource? _cts;
+
     private double _lastMaxLossPercent = 10.0;
+
+    /// <summary>Hard cap enforced by the engine and mirrored in the UI slider.</summary>
+    public static int MaxIterations => MonteCarloEngine.MaxIterations;
+
+    /// <summary>Iterations above which equity curves are dropped by the engine.</summary>
+    public static int CurveSafeIterationsHint => 5_000;
 
     public ObservableCollection<McKpiCard> Kpis { get; } = new();
     public ObservableCollection<McStatSection> Stats { get; } = new();
@@ -124,12 +132,6 @@ public partial class MonteCarloViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsCurvesVisible))]
     [NotifyPropertyChangedFor(nameof(IsClusterVisible))]
     private PlotModeOption _selectedPlotModeOption;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsHistogramVisible))]
-    [NotifyPropertyChangedFor(nameof(IsCurvesVisible))]
-    [NotifyPropertyChangedFor(nameof(IsClusterVisible))]
-    private bool _showCurvesDummyFlag; // reserved; the real flag is ShowEquityCurves
 
     public McPlotMode SelectedPlotMode => SelectedPlotModeOption.Mode;
 
@@ -321,6 +323,13 @@ public partial class MonteCarloViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void Cancel()
+    {
+        _cts?.Cancel();
+        StatusText = "Cancel requested — waiting for current iteration batch to finish...";
+    }
+
+    [RelayCommand]
     private async Task TestWorkerAsync()
     {
         if (IsBusy) return;
@@ -383,11 +392,24 @@ public partial class MonteCarloViewModel : ObservableObject
             return;
         }
 
+        // Hard cap. The NumericUpDown slider already enforces this, but
+        // defence in depth — a programmatic path or a stale settings value
+        // must not be able to bypass the limit.
+        if (Iterations > MaxIterations)
+        {
+            StatusText = $"Iterations capped at {MaxIterations:N0} (100× default). " +
+                         $"Requested {Iterations:N0} — refused.";
+            return;
+        }
+
         try
         {
             IsBusy = true;
             Progress = 0;
             ClearResults();
+
+            _cts = new CancellationTokenSource();
+            var ct = _cts.Token;
 
             var funded = planSize.Phases[planSize.Phases.Count - 1];
 
@@ -415,6 +437,8 @@ public partial class MonteCarloViewModel : ObservableObject
 
             for (int i = 0; i < _batch.Count; i++)
             {
+                ct.ThrowIfCancellationRequested();
+
                 var data = _batch[i];
                 runIndex = i;
 
@@ -433,7 +457,13 @@ public partial class MonteCarloViewModel : ObservableObject
 
                 int targetDurationSlices = ComputeTargetSlices(data, tradingPeriodDays);
 
-                StatusText = $"Running {data.Symbol}@{data.Timeframe} ({i + 1}/{_batch.Count}) — {iterations} simulations...";
+                bool curvesExpected = (long)iterations * targetDurationSlices <= MonteCarloEngine.MaxCurveCells;
+                string curveNote = curvesExpected
+                    ? ""
+                    : " (equity curves will be dropped — memory ceiling)";
+
+                StatusText = $"Running {data.Symbol}@{data.Timeframe} ({i + 1}/{_batch.Count}) — " +
+                             $"{iterations:N0} simulations{curveNote}...";
 
                 var result = await Task.Run(() => _engine.Run(
                     slices,
@@ -447,7 +477,8 @@ public partial class MonteCarloViewModel : ObservableObject
                     expectedBlockSize: blockSize,
                     bestDayRulePercent: bestDayRulePct,
                     seed: null,
-                    progress: progress));
+                    progress: progress,
+                    cancellationToken: ct), ct);
 
                 _resultsByIndex[i] = result;
 
@@ -457,6 +488,10 @@ public partial class MonteCarloViewModel : ObservableObject
                     result.PRuin,
                     result.PFunded,
                     result.PTimeout));
+
+                LogManager.Info(LogTag.MonteCarlo,
+                    $"MC completed for {data.Symbol}@{data.Timeframe}: " +
+                    $"{iterations:N0} iter, curvesRetained={result.CurvesRetained}");
             }
 
             HasResults = _resultsByIndex.Count > 0;
@@ -468,12 +503,25 @@ public partial class MonteCarloViewModel : ObservableObject
                 ? $"Done — Monte Carlo ran on {_resultsByIndex.Count} dataset(s)."
                 : "No datasets produced a result.";
         }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Monte Carlo cancelled.";
+
+            HasResults = _resultsByIndex.Count > 0;
+            InvalidateAll();
+            RefreshForSelectedResult();
+
+            LogManager.Info(LogTag.MonteCarlo, "Monte Carlo cancelled by user");
+        }
         catch (Exception ex)
         {
             StatusText = $"Monte Carlo failed: {ex.Message}";
+            LogManager.Error(LogTag.MonteCarlo, "Monte Carlo failed", ex);
         }
         finally
         {
+            _cts?.Dispose();
+            _cts = null;
             IsBusy = false;
             Progress = 100;
         }
@@ -651,7 +699,18 @@ public partial class MonteCarloViewModel : ObservableObject
             }));
         }
 
-        CurveMemoryLabel = $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB";
+        if (!r.CurvesRetained && r.Iterations > 0)
+        {
+            Stats.Add(new McStatSection("MEMORY", new[]
+            {
+                new McStatLine("Equity curves", "dropped (memory ceiling)", ToneWarn),
+                new McStatLine("Retention limit", $"{MonteCarloEngine.MaxCurveCells / 1_000_000:N0}M cells", ToneDim),
+            }));
+        }
+
+        CurveMemoryLabel = r.CurvesRetained
+            ? $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB"
+            : $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · curves dropped";
     }
 
     private void RenderPlots(MonteCarloResult r)
@@ -736,15 +795,26 @@ public partial class MonteCarloViewModel : ObservableObject
     private void RenderEquityCurves(MonteCarloResult r)
     {
         if (_curvesPlot == null) return;
-        if (r.EquityCurves.Length == 0) return;
-        if (r.TargetDurationSlices < 2) return;
-
-        var data = CurrentData;
-        if (data?.SourceData == null || data.SourceData.Count < 2) return;
 
         var plt = _curvesPlot.Plot;
         plt.Clear();
         ApplyPlotTheme(_curvesPlot);
+
+        if (!r.CurvesRetained || r.EquityCurves.Length == 0)
+        {
+            plt.Title("Equity curves not retained for this run");
+            plt.Axes.Bottom.Label.Text =
+                $"Curves dropped above {MonteCarloEngine.MaxCurveCells / 1_000_000:N0}M cells " +
+                $"({r.Iterations:N0} iter × {r.TargetDurationSlices:N0} slices). " +
+                "Lower iterations to re-enable.";
+            _curvesPlot.Refresh();
+            return;
+        }
+
+        if (r.TargetDurationSlices < 2) return;
+
+        var data = CurrentData;
+        if (data?.SourceData == null || data.SourceData.Count < 2) return;
 
         double t0 = data.SourceData[0].Timestamp.ToOADate();
         double t1 = data.SourceData[data.SourceData.Count - 1].Timestamp.ToOADate();
@@ -795,21 +865,11 @@ public partial class MonteCarloViewModel : ObservableObject
         _curvesPlot.Refresh();
     }
 
-    // ── Cluster plot ────────────────────────────────────────────────
-
-    /// <summary>
-    /// Fires off the clustering on a background thread. The cluster assignment
-    /// is O(N × K × D × I) which is fast, but we keep it off the UI thread
-    /// anyway so a slow strategy with tens of thousands of trades does not
-    /// block the toggle. Rendering happens on the UI thread in the callback.
-    /// </summary>
     private void RenderClusterPlot(OverviewData data)
     {
         if (_clusterPlot == null) return;
         if (data.Trades.Count < 2) return;
 
-        // Mark the render as pending so subsequent toggles during the async
-        // window do not fire duplicate work.
         _clusterRenderedFrom = data;
 
         var trades = data.Trades;
@@ -834,7 +894,6 @@ public partial class MonteCarloViewModel : ObservableObject
         int n = trades.Count;
         var points = new List<ClusterPoint>(n);
 
-        // Per-cluster accumulators for the geometric centroid.
         var sumX = new double[k];
         var sumY = new double[k];
         var cnt = new int[k];
@@ -852,7 +911,6 @@ public partial class MonteCarloViewModel : ObservableObject
             cnt[c]++;
         }
 
-        // Draw each cluster as its own scatter series so the legend colors match.
         for (int c = 0; c < k; c++)
         {
             int size = cnt[c];
@@ -877,7 +935,6 @@ public partial class MonteCarloViewModel : ObservableObject
             sc.LegendText = $"Cluster {c + 1}  (n={size})";
         }
 
-        // Centroids: large hollow diamonds on top of the scatter cloud.
         var centroids = new List<ClusterCentroid>(k);
         for (int c = 0; c < k; c++)
         {
@@ -910,22 +967,11 @@ public partial class MonteCarloViewModel : ObservableObject
         _clusterCentroids = centroids;
     }
 
-    /// <summary>
-    /// Called by the view's PointerPressed handler. Finds the closest centroid
-    /// (within a generous pixel threshold) or, failing that, the closest trade
-    /// point, and issues a NavigateToTradeMessage so the Chart tab can jump.
-    /// </summary>
     public void HandleClusterPlotClick(double pixelX, double pixelY)
     {
         if (_clusterPlot == null) return;
         if (_clusterData == null || _clusterPoints == null || _clusterPoints.Count == 0) return;
 
-        var click = new ScottPlot.Pixel((float)pixelX, (float)pixelY);
-        var clickCoords = _clusterPlot.Plot.GetCoordinates(click);
-
-        // Centroid hit: prefer a group click. Threshold is generous (40 px)
-        // because the markers are large and the user's mental model is
-        // "click the cluster", not "click the exact centroid pixel".
         const double centroidThresholdPx = 40.0;
 
         int bestCentroid = -1;
@@ -952,7 +998,6 @@ public partial class MonteCarloViewModel : ObservableObject
         if (bestCentroid >= 0)
         {
             var c = _clusterCentroids![bestCentroid];
-            // Pick the earliest trade in the cluster as the representative.
             Trade? first = null;
             foreach (var p in _clusterPoints)
             {
@@ -967,9 +1012,6 @@ public partial class MonteCarloViewModel : ObservableObject
             }
         }
 
-        // Fallback: nearest trade point. Always accept — being able to click
-        // anywhere and land on the nearest trade is more useful than forcing
-        // the user to click exactly on a 6px marker.
         ClusterPoint? nearest = null;
         double nearestD2 = double.MaxValue;
         foreach (var p in _clusterPoints)
@@ -998,8 +1040,6 @@ public partial class MonteCarloViewModel : ObservableObject
     {
         if (_clusterData == null) return;
 
-        // Fire and forget. If no receiver is registered yet (Chart tab not
-        // wired), this is a no-op — nothing to guard against.
         WeakReferenceMessenger.Default.Send(new NavigateToTradeMessage(
             _clusterData.Symbol,
             _clusterData.Timeframe,
