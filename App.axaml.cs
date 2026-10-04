@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using backs2.Core;
 using backs2.Core.Accounts;
+using backs2.Core.Compute;
 using backs2.Core.DataAutomation;
 using backs2.Core.MT5;
 using backs2.Core.Overview;
@@ -85,6 +86,9 @@ public partial class App : Application
         services.AddSingleton<LastRunStore>();
         services.AddSingleton<MonteCarloEngine>();
         services.AddSingleton<SelectionQueue>();
+
+        // Compute worker: process-isolated strategy / Monte Carlo execution.
+        services.AddSingleton<ComputeWorkerManager>();
 
         // Data Automation
         services.AddSingleton<DataAutomationService>();

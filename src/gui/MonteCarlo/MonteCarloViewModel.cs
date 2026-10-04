@@ -1,23 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core.Accounts;
+using backs2.Core.Compute;
 using backs2.Core.Overview;
 using ScottPlot.Avalonia;
 
 namespace backs2.ViewModels;
 
-public sealed record McStatRow(
-    string Metric,
-    string Mean,
-    string Median,
-    string StdDev,
-    string P05,
-    string P95);
+public enum McPlotMode
+{
+    TerminalBalance,
+    MaxDrawdown
+}
+
+public sealed record PlotModeOption(McPlotMode Mode, string Label);
+
+public sealed record McKpiCard(string Label, string Value, string Subtitle, IBrush ValueBrush);
+
+public sealed record McStatLine(string Label, string Value, IBrush? ValueBrush = null);
+
+public sealed record McStatSection(string Header, IReadOnlyList<McStatLine> Lines);
 
 public sealed record McBatchRow(
     string Symbol,
@@ -34,17 +43,35 @@ public sealed record McBatchRow(
 
 public partial class MonteCarloViewModel : ObservableObject
 {
+    private static readonly IBrush ToneNeutral = new SolidColorBrush(Color.Parse("#E0E0E0"));
+    private static readonly IBrush ToneDim     = new SolidColorBrush(Color.Parse("#7A7A7A"));
+    private static readonly IBrush ToneWarn    = new SolidColorBrush(Color.Parse("#EF5350"));
+    private static readonly IBrush ToneGood    = new SolidColorBrush(Color.Parse("#26A69A"));
+    private static readonly IBrush ToneAmber   = new SolidColorBrush(Color.Parse("#FFB74D"));
+    private static readonly IBrush ToneAccent  = new SolidColorBrush(Color.Parse("#4FC3F7"));
+
     private readonly LastRunStore _lastRun;
     private readonly AccountService _accounts;
     private readonly MonteCarloEngine _engine;
+    private readonly ComputeWorkerManager _worker;
 
     private AvaPlot? _plot;
     private readonly Dictionary<int, MonteCarloResult> _resultsByIndex = new();
     private IReadOnlyList<OverviewData> _batch = Array.Empty<OverviewData>();
 
-    public ObservableCollection<McStatRow> Stats { get; } = new();
+    /// <summary>Drawdown limit of the currently active account, in percent. Set on each RunAsync.</summary>
+    private double _lastMaxLossPercent = 10.0;
+
+    public ObservableCollection<McKpiCard> Kpis { get; } = new();
+    public ObservableCollection<McStatSection> Stats { get; } = new();
     public ObservableCollection<OverviewData> BatchItems { get; } = new();
     public ObservableCollection<McBatchRow> BatchResults { get; } = new();
+
+    public IReadOnlyList<PlotModeOption> PlotModes { get; } = new[]
+    {
+        new PlotModeOption(McPlotMode.TerminalBalance, "Terminal Balance"),
+        new PlotModeOption(McPlotMode.MaxDrawdown, "Max Drawdown")
+    };
 
     [ObservableProperty] private OverviewData? _selectedBatchItem;
 
@@ -52,6 +79,14 @@ public partial class MonteCarloViewModel : ObservableObject
     [ObservableProperty] private int _meanBlockSize = 5;
     [ObservableProperty] private double _ruinThresholdPercent = 50;
     [ObservableProperty] private bool _showEquityCurves;
+    [ObservableProperty] private bool _isSettingsExpanded = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedPlotMode))]
+    private PlotModeOption _selectedPlotModeOption;
+
+    public McPlotMode SelectedPlotMode => SelectedPlotModeOption.Mode;
+
     [ObservableProperty] private string _curveMemoryLabel = "";
 
     [ObservableProperty] private bool _isBusy;
@@ -66,11 +101,15 @@ public partial class MonteCarloViewModel : ObservableObject
     public MonteCarloViewModel(
         LastRunStore lastRun,
         AccountService accounts,
-        MonteCarloEngine engine)
+        MonteCarloEngine engine,
+        ComputeWorkerManager worker)
     {
         _lastRun = lastRun;
         _accounts = accounts;
         _engine = engine;
+        _worker = worker;
+
+        _selectedPlotModeOption = PlotModes[0];
 
         _lastRun.Changed += OnLastRunChanged;
         _accounts.ActiveChanged += OnActiveChanged;
@@ -113,10 +152,8 @@ public partial class MonteCarloViewModel : ObservableObject
         RenderForSelection();
     }
 
-    partial void OnShowEquityCurvesChanged(bool value)
-    {
-        RenderForSelection();
-    }
+    partial void OnShowEquityCurvesChanged(bool value) => RenderForSelection();
+    partial void OnSelectedPlotModeOptionChanged(PlotModeOption value) => RenderForSelection();
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
@@ -135,7 +172,10 @@ public partial class MonteCarloViewModel : ObservableObject
             {
                 var funded = planSize.Phases[planSize.Phases.Count - 1];
                 if (funded.MaxLossPercent.HasValue)
+                {
                     RuinThresholdPercent = funded.MaxLossPercent.Value;
+                    _lastMaxLossPercent = funded.MaxLossPercent.Value;
+                }
             }
         }
     }
@@ -146,6 +186,7 @@ public partial class MonteCarloViewModel : ObservableObject
     {
         _resultsByIndex.Clear();
         BatchResults.Clear();
+        Kpis.Clear();
         Stats.Clear();
         HasResults = false;
         CurveMemoryLabel = "";
@@ -178,6 +219,49 @@ public partial class MonteCarloViewModel : ObservableObject
 
         SourceInfo = $"{prefix}{data.StrategyName} · {data.Symbol} @ {data.Timeframe} · {data.Trades.Count} trades";
         HasRunData = data.Trades.Count >= 2;
+    }
+
+    /// <summary>
+    /// Exercises the process-isolated compute worker end-to-end from the UI.
+    /// Phase 1 placeholder: the worker emits 5 progress frames and returns.
+    /// Phase 2 replaces the placeholder with real strategy execution.
+    /// </summary>
+    [RelayCommand]
+    private async Task TestWorkerAsync()
+    {
+        if (IsBusy) return;
+
+        IsBusy = true;
+        Progress = 0;
+        StatusText = "Worker selftest — spawning process...";
+
+        try
+        {
+            var config = new JobConfig(
+                ScriptPath: "",
+                CachePath: "",
+                Params: new Dictionary<string, string>(),
+                MemoryLimitMb: 512);
+
+            var progress = new Progress<JobProgress>(p =>
+            {
+                Progress = p.PercentComplete;
+                StatusText = $"Worker selftest — {p.Phase} {p.SlicesElapsed}/{p.TotalSlices} ({p.PercentComplete:F0}%)";
+            });
+
+            var result = await _worker.RunJobAsync(config, progress, CancellationToken.None);
+
+            Progress = 100;
+            StatusText = $"Worker selftest OK — trades={result.TradeCount}, \"{result.Summary}\"";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Worker selftest FAILED — {ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -217,7 +301,10 @@ public partial class MonteCarloViewModel : ObservableObject
             double maxLossPct = funded.MaxLossPercent ?? 10.0;
             double maxDailyLossPct = funded.MaxDailyLossPercent ?? 5.0;
             double profitTargetPct = funded.ProfitTargetPercent ?? 0.0;
+            double bestDayRulePct = funded.BestDayRulePercent ?? 50.0;
             string drawdownType = string.IsNullOrWhiteSpace(funded.DrawdownType) ? "static" : funded.DrawdownType!;
+
+            _lastMaxLossPercent = maxLossPct;
 
             int tradingPeriodDays = funded.TradingPeriodDays ?? 90;
             int iterations = Iterations;
@@ -264,6 +351,7 @@ public partial class MonteCarloViewModel : ObservableObject
                     profitTargetPct,
                     iterations: iterations,
                     expectedBlockSize: blockSize,
+                    bestDayRulePercent: bestDayRulePct,
                     seed: null,
                     progress: progress));
 
@@ -326,6 +414,7 @@ public partial class MonteCarloViewModel : ObservableObject
         var r = SelectedResult;
         if (r == null)
         {
+            Kpis.Clear();
             Stats.Clear();
             CurveMemoryLabel = "";
             _plot?.Plot.Clear();
@@ -338,6 +427,8 @@ public partial class MonteCarloViewModel : ObservableObject
 
         if (ShowEquityCurves)
             RenderEquityCurves(r);
+        else if (SelectedPlotMode == McPlotMode.MaxDrawdown)
+            RenderMaxDdHistogram(r);
         else
             RenderPlots(r);
     }
@@ -346,53 +437,93 @@ public partial class MonteCarloViewModel : ObservableObject
     {
         if (_plot == null) return;
         var plot = _plot.Plot;
-        var labelColor = ScottPlot.Color.FromHex("#888888");
 
-        plot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
-        plot.DataBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
-        plot.Axes.Color(ScottPlot.Color.FromHex("#333333"));
+        var labelColor = ScottPlot.Color.FromHex("#C8C8C8");
+        var axisColor  = ScottPlot.Color.FromHex("#707070");
 
+        plot.FigureBackground.Color = ScottPlot.Color.FromHex("#0F0F0F");
+        plot.DataBackground.Color   = ScottPlot.Color.FromHex("#0F0F0F");
+
+        plot.Axes.Color(axisColor);
         plot.Axes.Bottom.TickLabelStyle.ForeColor = labelColor;
-        plot.Axes.Left.TickLabelStyle.ForeColor = labelColor;
-        plot.Axes.Right.TickLabelStyle.ForeColor = labelColor;
+        plot.Axes.Left.TickLabelStyle.ForeColor   = labelColor;
+        plot.Axes.Right.TickLabelStyle.ForeColor  = labelColor;
         plot.Axes.Bottom.Label.ForeColor = labelColor;
-        plot.Axes.Left.Label.ForeColor = labelColor;
-        plot.Axes.Right.Label.ForeColor = labelColor;
+        plot.Axes.Left.Label.ForeColor   = labelColor;
+        plot.Axes.Right.Label.ForeColor  = labelColor;
+
+        plot.Grid.MajorLineColor = ScottPlot.Color.FromHex("#262626");
+        plot.Grid.MinorLineColor = ScottPlot.Color.FromHex("#1A1A1A");
     }
 
     private void PopulateStats(MonteCarloResult r)
     {
+        Kpis.Clear();
         Stats.Clear();
 
-        Stats.Add(new McStatRow("P(ruin) / P(funded) / P(timeout)",
-            r.PRuin.ToString("P1"),
-            r.PFunded.ToString("P1"),
-            r.PTimeout.ToString("P1"),
-            "—",
-            "—"));
+        Kpis.Add(new McKpiCard(
+            "P(RUIN)",
+            r.PRuin.ToString("P2"),
+            $"of {r.Iterations:N0} simulations",
+            r.PRuin > 0 ? ToneWarn : ToneGood));
 
-        Stats.Add(new McStatRow("Expected Slices",
-            r.ExpectedSlicesToFund.ToString("N1"),
-            "—",
-            r.ExpectedSlicesToRuin.ToString("N1"),
-            "—",
-            "—"));
+        Kpis.Add(new McKpiCard(
+            "P(FUNDED)",
+            r.PFunded.ToString("P2"),
+            "target reached",
+            r.PFunded > 0 ? ToneGood : ToneDim));
 
-        Stats.Add(new McStatRow("Terminal Balance",
-            r.TerminalBalanceMean.ToString("N0"),
-            r.TerminalBalanceMedian.ToString("N0"),
-            r.TerminalBalanceStdDev.ToString("N0"),
-            r.TerminalBalanceP05.ToString("N0"),
-            r.TerminalBalanceP95.ToString("N0")));
+        Kpis.Add(new McKpiCard(
+            "MEDIAN MAX DD",
+            $"{r.MaxDrawdownMedian:0.00}%",
+            "peak-to-trough",
+            ToneAmber));
 
-        Stats.Add(new McStatRow("Max Drawdown %",
-            r.MaxDrawdownMean.ToString("0.00") + "%",
-            r.MaxDrawdownMedian.ToString("0.00") + "%",
-            "—",
-            r.MaxDrawdownP05.ToString("0.00") + "%",
-            r.MaxDrawdownP95.ToString("0.00") + "%"));
+        Kpis.Add(new McKpiCard(
+            "BEST-DAY VIOL",
+            r.ProbBestDayViolation.ToString("P2"),
+            $">{r.BestDayRulePercent:0.#}% rule",
+            r.ProbBestDayViolation > 0.05 ? ToneWarn : ToneNeutral));
 
-        CurveMemoryLabel = $"Curves: {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB ({r.Iterations} × {r.TargetDurationSlices} doubles)";
+        Stats.Add(new McStatSection("TERMINAL BALANCE", new[]
+        {
+            new McStatLine("Mean",            r.TerminalBalanceMean.ToString("N0"),   ToneNeutral),
+            new McStatLine("Median",          r.TerminalBalanceMedian.ToString("N0"), ToneNeutral),
+            new McStatLine("Std Dev",         r.TerminalBalanceStdDev.ToString("N0"), ToneDim),
+            new McStatLine("5th percentile",  r.TerminalBalanceP05.ToString("N0"),    ToneWarn),
+            new McStatLine("95th percentile", r.TerminalBalanceP95.ToString("N0"),    ToneGood),
+        }));
+
+        Stats.Add(new McStatSection("TIME TO OUTCOME", new[]
+        {
+            new McStatLine("Median → Fund", $"{r.MedianSlicesToFund:N0} slices",   ToneGood),
+            new McStatLine("Median → Ruin", $"{r.MedianSlicesToRuin:N0} slices",   ToneWarn),
+            new McStatLine("Mean → Fund",   $"{r.ExpectedSlicesToFund:N0} slices", ToneDim),
+            new McStatLine("Mean → Ruin",   $"{r.ExpectedSlicesToRuin:N0} slices", ToneDim),
+        }));
+
+        Stats.Add(new McStatSection("STREAKS", new[]
+        {
+            new McStatLine("Median losing streak",   $"{r.MedianLongestLosingStreak:N0} trades", ToneNeutral),
+            new McStatLine("95th pct losing streak", $"{r.P95LongestLosingStreak:N0} trades",    ToneWarn),
+            new McStatLine("Median flat stretch",    $"{r.MedianLongestFlatStretch:N0} slices",  ToneNeutral),
+            new McStatLine("95th pct flat stretch",  $"{r.P95LongestFlatStretch:N0} slices",     ToneDim),
+        }));
+
+        int ruinTotal = r.RuinByDailyFloorCount + r.RuinByMaxFloorCount;
+        if (ruinTotal > 0)
+        {
+            double dailyPct = (double)r.RuinByDailyFloorCount / ruinTotal;
+            double maxPct = (double)r.RuinByMaxFloorCount / ruinTotal;
+
+            Stats.Add(new McStatSection("RUIN BREAKDOWN", new[]
+            {
+                new McStatLine("By daily floor",  $"{r.RuinByDailyFloorCount:N0}  ({dailyPct:P1})", ToneWarn),
+                new McStatLine("By max-DD floor", $"{r.RuinByMaxFloorCount:N0}  ({maxPct:P1})",     ToneAccent),
+            }));
+        }
+
+        CurveMemoryLabel = $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB";
     }
 
     private void RenderPlots(MonteCarloResult r)
@@ -402,19 +533,21 @@ public partial class MonteCarloViewModel : ObservableObject
 
         var plt = _plot.Plot;
         plt.Clear();
-
         ApplyPlotTheme();
 
         var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.TerminalBalances);
-        var bars = plt.Add.Bars(hist.Bins, hist.Counts);
-        bars.Color = ScottPlot.Color.FromHex("#4FC3F7");
+        var barPlot = plt.Add.Bars(hist.Bins, hist.Counts);
 
-        double p05 = r.TerminalBalanceP05;
-        double p50 = r.TerminalBalanceMedian;
-        double p95 = r.TerminalBalanceP95;
-        plt.Add.VerticalLine(p05, 2, ScottPlot.Color.FromHex("#EF5350"), ScottPlot.LinePattern.Solid);
-        plt.Add.VerticalLine(p50, 1, ScottPlot.Colors.White, ScottPlot.LinePattern.Solid);
-        plt.Add.VerticalLine(p95, 2, ScottPlot.Color.FromHex("#26A69A"), ScottPlot.LinePattern.Solid);
+        foreach (var bar in barPlot.Bars)
+        {
+            bar.FillColor = ScottPlot.Color.FromHex("#4FC3F7");
+            bar.LineColor = ScottPlot.Colors.White;
+            bar.LineWidth = 1;
+        }
+
+        plt.Add.VerticalLine(r.TerminalBalanceP05, 1, ScottPlot.Color.FromHex("#EF5350"), ScottPlot.LinePattern.Solid);
+        plt.Add.VerticalLine(r.TerminalBalanceMedian, 1, ScottPlot.Color.FromHex("#808080"), ScottPlot.LinePattern.Solid);
+        plt.Add.VerticalLine(r.TerminalBalanceP95, 1, ScottPlot.Color.FromHex("#26A69A"), ScottPlot.LinePattern.Solid);
 
         plt.Axes.AutoScale();
 
@@ -423,7 +556,52 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Axes.Left.Label.Text = "Frequency";
 
         ApplyPlotTheme();
+        _plot.Refresh();
+    }
 
+    private void RenderMaxDdHistogram(MonteCarloResult r)
+    {
+        if (_plot == null) return;
+        if (r.MaxDrawdowns.Length == 0) return;
+
+        var plt = _plot.Plot;
+        plt.Clear();
+        ApplyPlotTheme();
+
+        double limit = _lastMaxLossPercent;
+        double p99 = ComputePercentile(r.MaxDrawdowns, 99.0);
+        double xMin = 0;
+        double xMax = Math.Max(p99 * 1.10, limit * 1.15);
+
+        var hist = ScottPlot.Statistics.Histogram.WithBinCount(30, r.MaxDrawdowns);
+        var barPlot = plt.Add.Bars(hist.Bins, hist.Counts);
+
+        foreach (var bar in barPlot.Bars)
+        {
+            bar.FillColor = ScottPlot.Color.FromHex("#EF5350");
+            bar.LineColor = ScottPlot.Colors.White;
+            bar.LineWidth = 1;
+        }
+
+        int breaches = 0;
+        for (int i = 0; i < r.MaxDrawdowns.Length; i++)
+            if (r.MaxDrawdowns[i] >= limit) breaches++;
+        double breachPct = (double)breaches / r.MaxDrawdowns.Length;
+
+        plt.Add.VerticalLine(limit, 2, ScottPlot.Color.FromHex("#FFB74D"), ScottPlot.LinePattern.Dashed);
+        plt.Add.VerticalLine(r.MaxDrawdownMedian, 1, ScottPlot.Color.FromHex("#808080"), ScottPlot.LinePattern.Solid);
+
+        plt.Axes.AutoScale();
+        plt.Axes.SetLimitsX(xMin, xMax);
+
+        string title = breaches > 0
+            ? $"Max Drawdown Distribution — {breachPct:P1} breach the {limit:0.##}% limit"
+            : $"Max Drawdown Distribution — 0% breach the {limit:0.##}% limit";
+        plt.Title(title);
+        plt.Axes.Bottom.Label.Text = "Max Drawdown (%)";
+        plt.Axes.Left.Label.Text = "Frequency";
+
+        ApplyPlotTheme();
         _plot.Refresh();
     }
 
@@ -438,7 +616,6 @@ public partial class MonteCarloViewModel : ObservableObject
 
         var plt = _plot.Plot;
         plt.Clear();
-
         ApplyPlotTheme();
 
         double t0 = data.SourceData[0].Timestamp.ToOADate();
@@ -478,7 +655,23 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Axes.Left.Label.Text = "Balance";
 
         ApplyPlotTheme();
-
         _plot.Refresh();
+    }
+
+    private static double ComputePercentile(double[] values, double p)
+    {
+        if (values.Length == 0) return 0;
+        if (values.Length == 1) return values[0];
+
+        var sorted = (double[])values.Clone();
+        Array.Sort(sorted);
+
+        double rank = (p / 100.0) * (sorted.Length - 1);
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper) return sorted[lower];
+
+        double w = rank - lower;
+        return sorted[lower] * (1 - w) + sorted[upper] * w;
     }
 }
