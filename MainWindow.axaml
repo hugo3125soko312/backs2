@@ -25,7 +25,8 @@
                        Margin="10,0"/>
         </Border>
 
-        <TabControl x:CompileBindings="False">
+        <TabControl x:CompileBindings="False"
+                    SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
             <TabItem Header="Overview"><views:OverviewView /></TabItem>
             <TabItem Header="Runner"><views:RunnerView /></TabItem>
             <TabItem Header="Monte Carlo"><views:MonteCarloView /></TabItem>

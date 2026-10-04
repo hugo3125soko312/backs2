@@ -7,19 +7,26 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using backs2.Core;
 using backs2.Core.Models;
+using backs2.ViewModels.Messages;
 using ScottPlot.Avalonia;
 
 namespace backs2.ViewModels;
 
-public partial class ChartViewModel : ObservableObject
+public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTradeMessage>
 {
     private readonly DataManager _data;
     private readonly SelectionQueue _queue;
     private readonly ChartPlotBuilder _builder = new();
     private AvaPlot? _avaPlot;
     private bool _suppressTimeframeReload;
+
+    // Set when a NavigateToTradeMessage arrives before the target series
+    // has finished loading. Consumed by ApplyPendingNavigation after
+    // OnSeriesChanged fires.
+    private DateTime? _pendingNavigationTime;
 
     public ObservableCollection<QueuedDataset> QueuedItems { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
@@ -61,12 +68,67 @@ public partial class ChartViewModel : ObservableObject
 
         _queue.Changed += OnQueueChanged;
         SyncQueue();
+
+        WeakReferenceMessenger.Default.Register(this);
     }
 
     public void SetPlotControl(AvaPlot plotView)
     {
         _avaPlot = plotView;
         RebuildPlotModel();
+    }
+
+    /// <summary>
+    /// Navigation entry point. Called from the Monte Carlo cluster plot.
+    /// If the requested dataset is queued, selects it (and its timeframe),
+    /// then sets a pending scroll target that fires once the series loads.
+    /// If it is not queued, warns — the queue is the source of truth and
+    /// this method does not mutate it.
+    /// </summary>
+    public void Receive(NavigateToTradeMessage message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            QueuedDataset? match = null;
+            foreach (var item in QueuedItems)
+            {
+                if (string.Equals(item.Symbol, message.Symbol, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.Timeframe, message.Timeframe, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = item;
+                    break;
+                }
+            }
+
+            if (match == null)
+            {
+                StatusText = $"Navigate requested for {message.Symbol} @ {message.Timeframe}, " +
+                             $"but it is not queued. Add it in the Data tab first.";
+                return;
+            }
+
+            _pendingNavigationTime = message.TargetTime;
+
+            bool sameDataset = SelectedDataset != null &&
+                string.Equals(SelectedDataset.Key, match.Key, StringComparison.OrdinalIgnoreCase);
+
+            if (!sameDataset)
+            {
+                // Dataset change triggers RefreshAvailableTimeframes + LoadAsync.
+                // The pending target survives until OnSeriesChanged fires.
+                SelectedDataset = match;
+            }
+            else if (!string.Equals(SelectedTimeframe, message.Timeframe, StringComparison.OrdinalIgnoreCase))
+            {
+                // Same dataset, different timeframe — force a reload.
+                SelectedTimeframe = message.Timeframe;
+            }
+            else if (Series.Count > 0)
+            {
+                // Series already loaded; apply immediately.
+                ApplyPendingNavigation();
+            }
+        });
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)
@@ -133,24 +195,20 @@ public partial class ChartViewModel : ObservableObject
 
             if (AvailableTimeframes.Count == 0)
             {
-                // No cached timeframes — fall back to the dataset's own timeframe.
                 AvailableTimeframes.Add(dataset.Timeframe);
                 SelectedTimeframe = dataset.Timeframe;
                 return;
             }
 
-            // Prefer the dataset's own timeframe when present.
             if (cached.Any(tf => string.Equals(tf, dataset.Timeframe, StringComparison.OrdinalIgnoreCase)))
             {
                 SelectedTimeframe = dataset.Timeframe;
                 return;
             }
 
-            // Keep the current selection if it is still valid for this symbol.
             if (cached.Any(tf => string.Equals(tf, SelectedTimeframe, StringComparison.OrdinalIgnoreCase)))
                 return;
 
-            // Otherwise pick the first cached timeframe.
             SelectedTimeframe = cached[0];
         }
         finally
@@ -209,7 +267,11 @@ public partial class ChartViewModel : ObservableObject
         }
     }
 
-    partial void OnSeriesChanged(List<Kline> value) => RebuildPlotModel();
+    partial void OnSeriesChanged(List<Kline> value)
+    {
+        RebuildPlotModel();
+        ApplyPendingNavigation();
+    }
 
     [RelayCommand]
     private void AutoScale()
@@ -242,6 +304,56 @@ public partial class ChartViewModel : ObservableObject
         if (_avaPlot == null) return;
         _builder.Rebuild(_avaPlot, Series, ScaleState);
         HasCrosshair = false;
+    }
+
+    /// <summary>
+    /// Scrolls the chart X-axis to a window centered on the pending target
+    /// timestamp. Consumed once per navigation request.
+    /// </summary>
+    private void ApplyPendingNavigation()
+    {
+        if (_pendingNavigationTime == null) return;
+        if (_avaPlot == null || Series.Count == 0) return;
+
+        var target = _pendingNavigationTime.Value;
+        _pendingNavigationTime = null;
+
+        int idx = FindNearestIndexByTime(target);
+        if (idx < 0) return;
+
+        const int windowBars = 200;
+        int lo = Math.Max(0, idx - windowBars / 2);
+        int hi = Math.Min(Series.Count - 1, lo + windowBars - 1);
+        if (hi - lo < 5) { lo = 0; hi = Series.Count - 1; }
+
+        double xMin = Series[lo].Timestamp.ToOADate();
+        double xMax = Series[hi].Timestamp.ToOADate();
+
+        _avaPlot.Plot.Axes.SetLimitsX(xMin, xMax);
+        _avaPlot.Refresh();
+
+        StatusText = $"Jumped to {Series[idx].Timestamp:yyyy-MM-dd HH:mm}";
+    }
+
+    private int FindNearestIndexByTime(DateTime target)
+    {
+        if (Series.Count == 0) return -1;
+
+        int lo = 0, hi = Series.Count - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (Series[mid].Timestamp < target) lo = mid + 1;
+            else hi = mid;
+        }
+
+        if (lo > 0)
+        {
+            long diffLo = Math.Abs((Series[lo].Timestamp - target).Ticks);
+            long diffPrev = Math.Abs((Series[lo - 1].Timestamp - target).Ticks);
+            if (diffPrev < diffLo) return lo - 1;
+        }
+        return lo;
     }
 
     public void UpdateCrosshair(double dataX, double dataY)
