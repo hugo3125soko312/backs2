@@ -1,11 +1,11 @@
 // src\gui\MonteCarlo\MonteCarloView.axaml.cs
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using backs2.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 using ScottPlot.Avalonia;
 
 namespace backs2.Views;
@@ -19,27 +19,29 @@ public partial class MonteCarloView : UserControl
     {
         InitializeComponent();
 
-        if (Application.Current is App app)
+        HistogramPlot.UserInputProcessor.Disable();
+        CurvesPlot.UserInputProcessor.Disable();
+        ClusterPlot.UserInputProcessor.Disable();
+
+        // Tunnel-phase handler. Fires on the way down from the root
+        // before any focused child (ComboBox, ToggleButton) can consume
+        // arrow keys. Without this, Up/Down while the plot-mode or
+        // dataset ComboBox has focus cycles the dropdown selection
+        // instead of panning the plot.
+        AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+
+        ClusterPlot.PointerPressed += OnClusterPlotPointerPressed;
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (DataContext is MonteCarloViewModel vm)
         {
-            var vm = app.Services.GetRequiredService<MonteCarloViewModel>();
-            DataContext = vm;
-
-            HistogramPlot.UserInputProcessor.Disable();
-            CurvesPlot.UserInputProcessor.Disable();
-            ClusterPlot.UserInputProcessor.Disable();
-
             vm.SetHistogramPlotControl(HistogramPlot);
             vm.SetCurvesPlotControl(CurvesPlot);
             vm.SetClusterPlotControl(ClusterPlot);
-
-            // Tunnel-phase handler. Fires on the way down from the root
-            // before any focused child (ComboBox, ToggleButton) can consume
-            // arrow keys. Without this, Up/Down while the plot-mode or
-            // dataset ComboBox has focus cycles the dropdown selection
-            // instead of panning the plot.
-            AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
-
-            ClusterPlot.PointerPressed += OnClusterPlotPointerPressed;
         }
     }
 

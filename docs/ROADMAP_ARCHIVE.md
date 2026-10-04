@@ -686,3 +686,52 @@ The Data tab's `Modified` column rendered the UTC instant of each cache file's m
 - Fix: `DataEntry.LastModifiedUtc` → `DataEntry.LastModifiedLocal`, sourced from `FileInfo.LastWriteTime` (Kind = Local). Rename propagated through `DataRowViewModel`, the DataGrid column binding, the `ModifiedSortGlyph` key, the `ApplyView` filter predicate, and the `SortColumn` switch.
 - The rename is deliberate: it forces every consumer to be recompiled against the new name, so no stale binding silently keeps rendering UTC. Sort and filter semantics unchanged — `DateTime` comparison is Kind-agnostic.
 - Verified against `Get-ChildItem data\cache\*.json | Sort-Object LastWriteTime -Descending` — every row now matches to the minute.
+
+$entry = @'
+
+## Phase 17: Startup Path Optimization [COMPLETED]
+
+Ship date: 2026-10-04.
+
+Cold start measured at 3324 ms (`[App] Process start` → `App.OnFrameworkInitializationCompleted` total). After this phase: ~530 ms, a -84% improvement. The dominant cost was eager tab construction: `MainWindow.axaml` instantiated all 12 tab Views as direct children of `TabItem`, and each View code-behind resolved its own ViewModel via `Application.Current is App app -> app.Services.GetRequiredService<TViewModel>()`. Every tab's ViewModel -- and its transitive singleton dependencies -- was therefore constructed before the window could paint. `AccountService` alone accounted for ~450 ms (directory scan of `data/accounts/` plus three firm JSON parses).
+
+### Instrumentation
+- `App.axaml.cs` gains `Stopwatch` markers around the startup stages and `[startup]` Info log lines: DI container built, ConfigManager resolved, MT5 server started, MainViewModel resolved, MainWindow constructed, OnFrameworkInitializationCompleted total. Kept permanently as cold-start telemetry.
+- Cold start is defined as `[App] Process start` -> `OnFrameworkInitializationCompleted total`. The acceptance metric is `[startup] MainWindow constructed in N ms`.
+
+### Refactor: lazy tab host
+- `MainViewModel` gains an `IServiceProvider` constructor parameter plus 12 lazily-resolved tab ViewModel properties (`OverviewVm`, `RunnerVm`, `MonteCarloVm`, `MetricsVm`, `AccountVm`, `DataVm`, `DataAutomationVm`, `Mt5TickVm`, `ProvidersVm`, `ChartVm`, `LogsVm`, `ConfigVm`), each `??= _sp.GetRequiredService<XxxViewModel>()`.
+- `MainViewModel.CurrentVm` is a switch on `ActiveTabIndex` returning the correct property; `OnActiveTabIndexChanged` raises `PropertyChanged(nameof(CurrentVm))`.
+- `MainWindow.axaml` becomes a headers-only `TabControl` (12 empty `<TabItem Header="..." />` elements) plus one sibling `ContentControl` bound to `CurrentVm`. Tab content is no longer declared inside `TabItem`.
+- `App.axaml` gains `<Application.DataTemplates>` with one `<DataTemplate DataType="vm:XxxViewModel"><views:XxxView /></DataTemplate>` per tab. Avalonia resolves the DataTemplate when `CurrentVm` is set.
+
+### View code-behind cleanup
+- Seven Views become trivial (`InitializeComponent()` only): `OverviewView`, `RunnerView`, `MetricsView`, `AccountView`, `Mt5TickView`, `ProvidersView`, `ConfigView`.
+- Three Views keep constructor-time wiring that does not depend on a specific ViewModel instance: `LogsView` (Enter-key tunnel handler on `CommandInputBox`), `MonteCarloView` (`UserInputProcessor.Disable()` on the three plots, `ClusterPlot.PointerPressed`, tunnel-phase `KeyDown`), `ChartView` (`UserInputProcessor.Disable()`, `PointerMoved`, `PointerExited`, tunnel-phase `KeyDown`).
+- Four Views move DataContext-dependent wiring to `OnDataContextChanged`: `ChartView` (`SetPlotControl`), `MonteCarloView` (three plot setters), `DataView` (`OpenQueueRequested` subscription), `DataAutomationView` (three calibration events).
+
+### Measured result
+| Stage | Before | After |
+|---|---|---|
+| `Process start` -> OnFrameworkInit complete | 3324 ms | 530 ms |
+| `[startup] MainWindow constructed` | 2937 ms | 157 ms |
+| `[startup] OnFrameworkInitializationCompleted total` | 3019 ms | 235 ms |
+
+Deferred to first-click (no longer on the startup path): Accounts tab (~450 ms -- directory scan + firm JSON parses), Data tab (queued-dataset restore + initial fetch, ~80 ms for the restored `GOLD.pro@1h`), Config tab (provider reflection discovery, ~15 ms).
+
+### Deliberately out of scope
+- **csproj compilation flags.** Proposed `<PublishReadyToRun>` and `<TieredCompilationQuickStartupJit>` are both no-ops for the `dotnet run` dev loop. `<TieredCompilationQuickStartupJit>` is not a real MSBuild property -- the runtimeconfig knob is `<TieredCompilationQuickJit>` and it already defaults to `true` on .NET 8. `<PublishReadyToRun>` only affects `dotnet publish` output.
+- **Deferring I/O in `StrategyCatalogService` / `AccountService` constructors.** Moot after the tab-host refactor -- both singletons now resolve only when their consuming tab is opened. The first-click hit (~450 ms for Accounts) is acceptable. Left as a future item if first-click latency becomes a UX problem.
+- **Deferring `Mt5TickServer.Start()`.** Forbidden by the `App.axaml.cs` comment requiring the listener to start before any view is constructed so the EA can connect immediately. Unchanged.
+
+### Files touched
+- `App.axaml.cs` (instrumentation only; DI registrations unchanged)
+- `MainWindow.axaml`
+- `App.axaml`
+- `src/gui/MainViewModel.cs`
+- 12 View code-behinds under `src/gui/`
+
+### Rule added
+`docs/RULES.md` -- Views must not resolve their own ViewModels from the DI container in the constructor. See the "Tab host & ViewModel resolution" rule.
+'@
+Add-Content -Path 'docs\ROADMAP_ARCHIVE.md' -Value $entry

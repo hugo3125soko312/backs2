@@ -9,16 +9,30 @@ namespace backs2.Views;
 
 public partial class DataView : UserControl
 {
+    private DataViewModel? _vm;
+    private EventHandler? _openQueueHandler;
+
     public DataView()
     {
         InitializeComponent();
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (_vm != null && _openQueueHandler != null)
+        {
+            _vm.OpenQueueRequested -= _openQueueHandler;
+            _openQueueHandler = null;
+        }
+
+        _vm = DataContext as DataViewModel;
+        if (_vm == null) return;
 
         if (Application.Current is App app)
         {
-            var vm = app.Services.GetRequiredService<DataViewModel>();
-            DataContext = vm;
-
-            vm.OpenQueueRequested += async (_, _) =>
+            _openQueueHandler = async (_, _) =>
             {
                 var queueVm = new QueueViewModel(app.Services.GetRequiredService<SelectionQueue>());
                 var window = new QueueWindow(queueVm);
@@ -31,8 +45,9 @@ public partial class DataView : UserControl
                 // QueueViewModel already committed changes on Done.
                 // Force the DataViewModel to refresh queued state in case
                 // the modal removed entries.
-                vm.RefreshDataCommand.Execute(null);
+                _vm.RefreshDataCommand.Execute(null);
             };
+            _vm.OpenQueueRequested += _openQueueHandler;
         }
     }
 }

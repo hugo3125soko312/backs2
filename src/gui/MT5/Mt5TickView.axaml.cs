@@ -1,11 +1,9 @@
 // src/gui/MT5/Mt5TickView.axaml.cs
 using System;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using backs2.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace backs2.Views;
 
@@ -14,9 +12,6 @@ public partial class Mt5TickView : UserControl
     public Mt5TickView()
     {
         InitializeComponent();
-
-        if (Application.Current is App app)
-            DataContext = app.Services.GetRequiredService<Mt5TickViewModel>();
     }
 
     private async void OnSelectCsvClicked(object? sender, RoutedEventArgs e)

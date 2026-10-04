@@ -1,6 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:views="clr-namespace:backs2.Views"
         xmlns:vm="using:backs2.ViewModels"
         x:Class="backs2.MainWindow"
         x:DataType="vm:MainViewModel"
@@ -25,20 +24,30 @@
                        Margin="10,0"/>
         </Border>
 
-        <TabControl x:CompileBindings="False"
+        <!-- Tab strip only. TabItems carry no content, so nothing is
+             materialized for unselected tabs. -->
+        <TabControl DockPanel.Dock="Top"
+                    x:CompileBindings="False"
                     SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
-            <TabItem Header="Overview"><views:OverviewView /></TabItem>
-            <TabItem Header="Runner"><views:RunnerView /></TabItem>
-            <TabItem Header="Monte Carlo"><views:MonteCarloView /></TabItem>
-            <TabItem Header="Metrics"><views:MetricsView /></TabItem>
-            <TabItem Header="Accounts"><views:AccountView /></TabItem>
-            <TabItem Header="Data"><views:DataView /></TabItem>
-            <TabItem Header="Data Automation"><views:DataAutomationView /></TabItem>
-            <TabItem Header="MT5 Ticks"><views:Mt5TickView /></TabItem>
-            <TabItem Header="Providers"><views:ProvidersView /></TabItem>
-            <TabItem Header="Chart"><views:ChartView /></TabItem>
-            <TabItem Header="Logs"><views:LogsView /></TabItem>
-            <TabItem Header="Config"><views:ConfigView /></TabItem>
+            <TabItem Header="Overview" />
+            <TabItem Header="Runner" />
+            <TabItem Header="Monte Carlo" />
+            <TabItem Header="Metrics" />
+            <TabItem Header="Accounts" />
+            <TabItem Header="Data" />
+            <TabItem Header="Data Automation" />
+            <TabItem Header="MT5 Ticks" />
+            <TabItem Header="Providers" />
+            <TabItem Header="Chart" />
+            <TabItem Header="Logs" />
+            <TabItem Header="Config" />
         </TabControl>
+
+        <!-- Single content host. Binds to MainViewModel.CurrentVm, which
+             returns the ViewModel for ActiveTabIndex. Only that ViewModel
+             is resolved from DI; the DataTemplates in App.axaml map it to
+             the matching View. -->
+        <ContentControl x:CompileBindings="False"
+                        Content="{Binding CurrentVm}" />
     </DockPanel>
 </Window>

@@ -4,6 +4,11 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
+## Phase 17: Startup Path Optimization [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md`.
+
+---
+
 ## Phase 16: MT5 .tkc Cache Extraction [COMPLETED]
 See `docs/ROADMAP_ARCHIVE.md`.
 

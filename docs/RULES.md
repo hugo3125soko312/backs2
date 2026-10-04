@@ -70,6 +70,12 @@ ONLY SPEAK IN ENGLISH
     - Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 - Charting:
     - ScottPlot.Avalonia 5.0.55 is the standard.
+- Tab host & ViewModel resolution:
+    - Views must not resolve their own ViewModels in the constructor. `Application.Current is App app` → `app.Services.GetRequiredService<TViewModel>()` inside a View ctor is forbidden — it forces eager construction of every tab's ViewModel and its transitive singleton dependencies at startup.
+    - `MainViewModel` exposes one lazily-resolved property per tab (`OverviewVm`, `RunnerVm`, ...). `CurrentVm` is a switch on `ActiveTabIndex` returning the correct property; `OnActiveTabIndexChanged` raises `PropertyChanged(nameof(CurrentVm))`.
+    - `MainWindow.axaml` uses a headers-only `TabControl` (empty `TabItem` elements) plus one sibling `ContentControl` bound to `CurrentVm`. Never place `<views:XView />` directly inside a `TabItem` — that re-introduces eager construction for every tab.
+    - VM→View mapping lives exclusively in `App.axaml` DataTemplates, one per tab ViewModel.
+    - View code-behind is `InitializeComponent()` plus View-local wiring that does not depend on a specific ViewModel instance. Anything that touches the DataContext goes in `OnDataContextChanged`.
 - Build vs Run Protocol:
     - Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
     - Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.

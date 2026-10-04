@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -25,23 +23,27 @@ namespace backs2.Views;
 
 public partial class DataAutomationView : UserControl
 {
-    private readonly DataAutomationViewModel? _vm;
+    private DataAutomationViewModel? _vm;
 
     public DataAutomationView()
     {
         InitializeComponent();
+    }
 
-        if (Application.Current is App app)
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (DataContext is DataAutomationViewModel vm && _vm == null)
         {
-            _vm = app.Services.GetRequiredService<DataAutomationViewModel>();
-            DataContext = _vm;
-            _vm.CalibrateValueRequested += async (_, key) => await RunCalibrationAsync(CalibrationMode.Region, key);
-            _vm.CalibrateClickRequested += async (_, _) => await RunCalibrationAsync(CalibrationMode.Point, null);
-            _vm.PreviewCalibrationRequested += async (_, _) => await RunPreviewAsync();
+            _vm = vm;
+            vm.CalibrateValueRequested += async (_, key) => await RunCalibrationAsync(CalibrationMode.Region, key);
+            vm.CalibrateClickRequested += async (_, _) => await RunCalibrationAsync(CalibrationMode.Point, null);
+            vm.PreviewCalibrationRequested += async (_, _) => await RunPreviewAsync();
         }
     }
 
-    private async Task RunCalibrationAsync(CalibrationMode mode, string? valueKey)
+    private async System.Threading.Tasks.Task RunCalibrationAsync(CalibrationMode mode, string? valueKey)
     {
         if (_vm == null || Application.Current is not App app) return;
 
@@ -129,7 +131,7 @@ public partial class DataAutomationView : UserControl
         }
     }
 
-    private async Task RunPreviewAsync()
+    private async System.Threading.Tasks.Task RunPreviewAsync()
     {
         if (_vm == null || Application.Current is not App app) return;
 

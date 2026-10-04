@@ -1,11 +1,11 @@
-// src\gui\Chart\ChartView.axaml.cs
+// src/gui/Chart/ChartView.axaml.cs
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using backs2.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 using ScottPlot.Avalonia;
 
 namespace backs2.Views;
@@ -21,11 +21,6 @@ public partial class ChartView : UserControl
     {
         InitializeComponent();
 
-        if (Application.Current is App app)
-        {
-            DataContext = app.Services.GetRequiredService<ChartViewModel>();
-        }
-
         _plotView = this.FindControl<AvaPlot>("Plot");
 
         if (_plotView != null)
@@ -39,11 +34,17 @@ public partial class ChartView : UserControl
             // or Timeframe ComboBox has focus switches the selection instead
             // of panning the chart.
             AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        }
+    }
 
-            if (DataContext is ChartViewModel vm)
-            {
-                vm.SetPlotControl(_plotView);
-            }
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (_plotView == null) return;
+        if (DataContext is ChartViewModel vm)
+        {
+            vm.SetPlotControl(_plotView);
         }
     }
 

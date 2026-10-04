@@ -11,6 +11,7 @@ using backs2.Core.Runner;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Diagnostics;
 using backs2.Core.Providers;
 using backs2.Core.Metrics;
 
@@ -31,20 +32,24 @@ public partial class App : Application
     {
         LogManager.Debug(LogTag.App, "OnFrameworkInitializationCompleted → building DI container");
 
+        var appSw = Stopwatch.StartNew();
+
         var collection = new ServiceCollection();
         ConfigureServices(collection);
         Services = collection.BuildServiceProvider();
+        LogManager.Info(LogTag.App, $"[startup] DI container built in {appSw.ElapsedMilliseconds}ms");
 
+        var cfgSw = Stopwatch.StartNew();
         var cfg = Services.GetRequiredService<ConfigManager>();
         LogManager.SetMinimumLevel(cfg.Settings.LogLevel);
-        LogManager.Info(LogTag.App, $"Log level set to {cfg.Settings.LogLevel}");
+        LogManager.Info(LogTag.App, $"[startup] ConfigManager resolved in {cfgSw.ElapsedMilliseconds}ms (LogLevel={cfg.Settings.LogLevel})");
 
-        // Start the MT5 TCP listener before any view is constructed,
-        // so the EA can connect as soon as the window appears.
+        var mt5Sw = Stopwatch.StartNew();
         try
         {
             var mt5Server = Services.GetRequiredService<Mt5TickServer>();
             mt5Server.Start();
+            LogManager.Info(LogTag.App, $"[startup] MT5 server started in {mt5Sw.ElapsedMilliseconds}ms");
         }
         catch (Exception ex)
         {
@@ -53,13 +58,27 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var vmSw = Stopwatch.StartNew();
+            MainViewModel mainVm;
+            try
+            {
+                mainVm = Services.GetRequiredService<MainViewModel>();
+                LogManager.Info(LogTag.App, $"[startup] MainViewModel resolved in {vmSw.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error(LogTag.App, "MainViewModel resolution failed", ex);
+                throw;
+            }
+
+            var winSw = Stopwatch.StartNew();
             try
             {
                 desktop.MainWindow = new MainWindow
                 {
-                    DataContext = Services.GetRequiredService<MainViewModel>()
+                    DataContext = mainVm
                 };
-                LogManager.Info(LogTag.App, "MainWindow constructed");
+                LogManager.Info(LogTag.App, $"[startup] MainWindow constructed in {winSw.ElapsedMilliseconds}ms");
             }
             catch (Exception ex)
             {
@@ -67,6 +86,8 @@ public partial class App : Application
                 throw;
             }
         }
+
+        LogManager.Info(LogTag.App, $"[startup] OnFrameworkInitializationCompleted total {appSw.ElapsedMilliseconds}ms");
 
         base.OnFrameworkInitializationCompleted();
     }
