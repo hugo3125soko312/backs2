@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,17 +23,21 @@ public sealed class MonteCarloEngine
         double profitTargetPercent,
         int iterations = 1000,
         int expectedBlockSize = 5,
+        double bestDayRulePercent = 50.0,
         int? seed = null,
         IProgress<int>? progress = null)
     {
         if (slices == null || slices.Length == 0 || startingCapital <= 0 || targetDurationSlices <= 0)
         {
-            return EmptyResult(startingCapital, expectedBlockSize, targetDurationSlices, drawdownType ?? "static");
+            return EmptyResult(
+                startingCapital, expectedBlockSize, targetDurationSlices,
+                drawdownType ?? "static", bestDayRulePercent);
         }
 
         if (iterations < 1) iterations = 1;
         if (iterations > MaxIterations) iterations = MaxIterations;
         if (expectedBlockSize < 1) expectedBlockSize = 1;
+        if (bestDayRulePercent < 0) bestDayRulePercent = 0;
 
         int n = slices.Length;
 
@@ -41,6 +46,10 @@ public sealed class MonteCarloEngine
         var slicesElapsed = new int[iterations];
         var maxDrawdowns = new double[iterations];
         var equityCurves = new double[iterations][];
+        var bestDayRatios = new double[iterations];
+        var longestLosingStreaks = new int[iterations];
+        var longestFlatStretches = new int[iterations];
+        var ruinCauses = new byte[iterations];
 
         int dailyFloorLoss = (int)Math.Round(startingCapital * (maxDailyLossPercent / 100.0));
         int maxFloorLoss = (int)Math.Round(startingCapital * (maxLossPercent / 100.0));
@@ -79,13 +88,21 @@ public sealed class MonteCarloEngine
                 out var terminal,
                 out var outcome,
                 out var elapsed,
-                out var maxDd);
+                out var maxDd,
+                out var bestDayRatio,
+                out var longestLosing,
+                out var longestFlat,
+                out var ruinCause);
 
             terminalBalances[i] = terminal;
             outcomes[i] = outcome;
             slicesElapsed[i] = elapsed;
             maxDrawdowns[i] = maxDd;
             equityCurves[i] = curve;
+            bestDayRatios[i] = bestDayRatio;
+            longestLosingStreaks[i] = longestLosing;
+            longestFlatStretches[i] = longestFlat;
+            ruinCauses[i] = ruinCause;
 
             if (progress != null)
             {
@@ -103,11 +120,16 @@ public sealed class MonteCarloEngine
             slicesElapsed,
             maxDrawdowns,
             equityCurves,
+            bestDayRatios,
+            longestLosingStreaks,
+            longestFlatStretches,
+            ruinCauses,
             iterations,
             expectedBlockSize,
             startingCapital,
             targetDurationSlices,
             drawdownType ?? "static",
+            bestDayRulePercent,
             curveBytes);
     }
 
@@ -127,13 +149,28 @@ public sealed class MonteCarloEngine
         out double terminalBalance,
         out byte outcome,
         out int slicesElapsed,
-        out double maxDrawdownPercent)
+        out double maxDrawdownPercent,
+        out double bestDayRatio,
+        out int longestLosingStreak,
+        out int longestFlatStretch,
+        out byte ruinCause)
     {
         double balance = startingCapital;
         double hwm = startingCapital;
         double dayStartBalance = startingCapital;
         double peak = startingCapital;
         double maxDd = 0;
+
+        double dayRealized = 0;
+        double maxDayRealized = 0;
+
+        int losingStreak = 0;
+        int longestLosing = 0;
+
+        int flatStretch = 0;
+        int longestFlat = 0;
+
+        byte cause = MonteCarloRuinCause.None;
 
         int elapsed = 0;
         byte result = OutcomeTimeout;
@@ -155,6 +192,9 @@ public sealed class MonteCarloEngine
 
                 if (s.IsEod)
                 {
+                    if (dayRealized > maxDayRealized) maxDayRealized = dayRealized;
+                    dayRealized = 0;
+
                     dayStartBalance = balance;
 
                     if (trailingEod && balance > hwm) hwm = balance;
@@ -172,20 +212,49 @@ public sealed class MonteCarloEngine
                 else
                     maxFloor = startingCapital - maxFloorLoss;
 
-                if (mtmBalance <= dailyFloor || mtmBalance <= maxFloor)
+                bool dailyHit = mtmBalance <= dailyFloor;
+                bool maxHit = mtmBalance <= maxFloor;
+
+                if (dailyHit || maxHit)
                 {
                     double worst = Math.Min(dailyFloor, maxFloor);
                     balance = worst;
                     curve[produced] = balance;
                     result = OutcomeBlown;
                     elapsed = produced + 1;
+
+                    if (dailyHit && maxHit)
+                        cause = dailyFloor >= maxFloor ? MonteCarloRuinCause.DailyFloor : MonteCarloRuinCause.MaxFloor;
+                    else if (dailyHit)
+                        cause = MonteCarloRuinCause.DailyFloor;
+                    else
+                        cause = MonteCarloRuinCause.MaxFloor;
+
                     goto done;
                 }
 
+                double peakBefore = peak;
                 double mtmHigh = balance + s.MtmHigh;
                 if (mtmHigh > peak) peak = mtmHigh;
 
                 balance += s.RealizedPnl;
+                dayRealized += s.RealizedPnl;
+
+                if (s.RealizedPnl < 0)
+                {
+                    losingStreak++;
+                    if (losingStreak > longestLosing) longestLosing = losingStreak;
+                }
+                else if (s.RealizedPnl > 0)
+                {
+                    losingStreak = 0;
+                }
+
+                if (peak > peakBefore)
+                    flatStretch = 0;
+                else
+                    flatStretch++;
+                if (flatStretch > longestFlat) longestFlat = flatStretch;
 
                 if (trailingIntraday && balance > hwm) hwm = balance;
 
@@ -206,10 +275,19 @@ public sealed class MonteCarloEngine
         elapsed = targetDurationSlices;
 
     done:
+        if (dayRealized > maxDayRealized) maxDayRealized = dayRealized;
+
         terminalBalance = balance;
         outcome = result;
         slicesElapsed = elapsed;
         maxDrawdownPercent = maxDd * 100.0;
+
+        double profit = terminalBalance - startingCapital;
+        bestDayRatio = (profit > 0 && maxDayRealized > 0) ? maxDayRealized / profit : 0.0;
+
+        longestLosingStreak = longestLosing;
+        longestFlatStretch = longestFlat;
+        ruinCause = cause;
     }
 
     private static MonteCarloResult BuildResult(
@@ -218,16 +296,28 @@ public sealed class MonteCarloEngine
         int[] slicesElapsed,
         double[] maxDrawdowns,
         double[][] equityCurves,
+        double[] bestDayRatios,
+        int[] longestLosingStreaks,
+        int[] longestFlatStretches,
+        byte[] ruinCauses,
         int iterations,
         int expectedBlockSize,
         double startingCapital,
         int targetDurationSlices,
         string drawdownType,
+        double bestDayRulePercent,
         long curveMemoryBytes)
     {
         int blown = 0, funded = 0, timeout = 0;
         double sumElapsedFund = 0;
         double sumElapsedRuin = 0;
+        int ruinDaily = 0, ruinMax = 0;
+        int bestDayViolations = 0;
+
+        var fundedElapsed = new List<int>(iterations);
+        var ruinedElapsed = new List<int>(iterations);
+
+        double bestDayThreshold = bestDayRulePercent / 100.0;
 
         for (int i = 0; i < iterations; i++)
         {
@@ -236,16 +326,27 @@ public sealed class MonteCarloEngine
                 case OutcomeBlown:
                     blown++;
                     sumElapsedRuin += slicesElapsed[i];
+                    ruinedElapsed.Add(slicesElapsed[i]);
+
+                    if (ruinCauses[i] == MonteCarloRuinCause.DailyFloor) ruinDaily++;
+                    else if (ruinCauses[i] == MonteCarloRuinCause.MaxFloor) ruinMax++;
                     break;
                 case OutcomeFunded:
                     funded++;
                     sumElapsedFund += slicesElapsed[i];
+                    fundedElapsed.Add(slicesElapsed[i]);
                     break;
                 default:
                     timeout++;
                     break;
             }
+
+            if (bestDayThreshold > 0 && bestDayRatios[i] > bestDayThreshold)
+                bestDayViolations++;
         }
+
+        fundedElapsed.Sort();
+        ruinedElapsed.Sort();
 
         var sortedTerminal = (double[])terminalBalances.Clone();
         Array.Sort(sortedTerminal);
@@ -253,24 +354,40 @@ public sealed class MonteCarloEngine
         var sortedDd = (double[])maxDrawdowns.Clone();
         Array.Sort(sortedDd);
 
+        var sortedRatios = (double[])bestDayRatios.Clone();
+        Array.Sort(sortedRatios);
+
+        var sortedLosing = (int[])longestLosingStreaks.Clone();
+        Array.Sort(sortedLosing);
+
+        var sortedFlat = (int[])longestFlatStretches.Clone();
+        Array.Sort(sortedFlat);
+
         return new MonteCarloResult(
             TerminalBalances: terminalBalances,
             Outcomes: outcomes,
             SlicesElapsed: slicesElapsed,
             MaxDrawdowns: maxDrawdowns,
             EquityCurves: equityCurves,
+            BestDayRatios: bestDayRatios,
+            LongestLosingStreaks: longestLosingStreaks,
+            LongestFlatStretches: longestFlatStretches,
+            RuinCauses: ruinCauses,
 
             Iterations: iterations,
             ExpectedBlockSize: expectedBlockSize,
             StartingCapital: startingCapital,
             TargetDurationSlices: targetDurationSlices,
             DrawdownType: drawdownType,
+            BestDayRulePercent: bestDayRulePercent,
 
             PRuin: iterations > 0 ? (double)blown / iterations : 0,
             PFunded: iterations > 0 ? (double)funded / iterations : 0,
             PTimeout: iterations > 0 ? (double)timeout / iterations : 0,
             ExpectedSlicesToFund: funded > 0 ? sumElapsedFund / funded : 0,
             ExpectedSlicesToRuin: blown > 0 ? sumElapsedRuin / blown : 0,
+            MedianSlicesToFund: PercentileInt(fundedElapsed, 50),
+            MedianSlicesToRuin: PercentileInt(ruinedElapsed, 50),
 
             TerminalBalanceMean: Mean(terminalBalances),
             TerminalBalanceMedian: Percentile(sortedTerminal, 50),
@@ -280,14 +397,28 @@ public sealed class MonteCarloEngine
 
             MaxDrawdownMean: Mean(maxDrawdowns),
             MaxDrawdownMedian: Percentile(sortedDd, 50),
+            MaxDrawdownStdDev: StdDev(maxDrawdowns),
             MaxDrawdownP05: Percentile(sortedDd, 5),
             MaxDrawdownP95: Percentile(sortedDd, 95),
+
+            ProbBestDayViolation: iterations > 0 ? (double)bestDayViolations / iterations : 0,
+            BestDayRatioMedian: Percentile(sortedRatios, 50),
+            BestDayRatioP95: Percentile(sortedRatios, 95),
+
+            MedianLongestLosingStreak: PercentileInt(sortedLosing, 50),
+            P95LongestLosingStreak: PercentileInt(sortedLosing, 95),
+            MedianLongestFlatStretch: PercentileInt(sortedFlat, 50),
+            P95LongestFlatStretch: PercentileInt(sortedFlat, 95),
+
+            RuinByDailyFloorCount: ruinDaily,
+            RuinByMaxFloorCount: ruinMax,
 
             CurveMemoryBytes: curveMemoryBytes);
     }
 
     private static MonteCarloResult EmptyResult(
-        double startingCapital, int expectedBlockSize, int targetDurationSlices, string drawdownType)
+        double startingCapital, int expectedBlockSize, int targetDurationSlices,
+        string drawdownType, double bestDayRulePercent)
     {
         return new MonteCarloResult(
             TerminalBalances: Array.Empty<double>(),
@@ -295,20 +426,34 @@ public sealed class MonteCarloEngine
             SlicesElapsed: Array.Empty<int>(),
             MaxDrawdowns: Array.Empty<double>(),
             EquityCurves: Array.Empty<double[]>(),
+            BestDayRatios: Array.Empty<double>(),
+            LongestLosingStreaks: Array.Empty<int>(),
+            LongestFlatStretches: Array.Empty<int>(),
+            RuinCauses: Array.Empty<byte>(),
 
             Iterations: 0,
             ExpectedBlockSize: expectedBlockSize,
             StartingCapital: startingCapital,
             TargetDurationSlices: targetDurationSlices,
             DrawdownType: drawdownType,
+            BestDayRulePercent: bestDayRulePercent,
 
             PRuin: 0, PFunded: 0, PTimeout: 0,
             ExpectedSlicesToFund: 0, ExpectedSlicesToRuin: 0,
+            MedianSlicesToFund: 0, MedianSlicesToRuin: 0,
 
             TerminalBalanceMean: 0, TerminalBalanceMedian: 0, TerminalBalanceStdDev: 0,
             TerminalBalanceP05: 0, TerminalBalanceP95: 0,
 
-            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownP05: 0, MaxDrawdownP95: 0,
+            MaxDrawdownMean: 0, MaxDrawdownMedian: 0, MaxDrawdownStdDev: 0,
+            MaxDrawdownP05: 0, MaxDrawdownP95: 0,
+
+            ProbBestDayViolation: 0, BestDayRatioMedian: 0, BestDayRatioP95: 0,
+
+            MedianLongestLosingStreak: 0, P95LongestLosingStreak: 0,
+            MedianLongestFlatStretch: 0, P95LongestFlatStretch: 0,
+
+            RuinByDailyFloorCount: 0, RuinByMaxFloorCount: 0,
 
             CurveMemoryBytes: 0);
     }
@@ -346,5 +491,19 @@ public sealed class MonteCarloEngine
 
         double weight = rank - lower;
         return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+    }
+
+    private static int PercentileInt(IReadOnlyList<int> sortedValues, double p)
+    {
+        if (sortedValues.Count == 0) return 0;
+        if (sortedValues.Count == 1) return sortedValues[0];
+
+        double rank = (p / 100.0) * (sortedValues.Count - 1);
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper) return sortedValues[lower];
+
+        double weight = rank - lower;
+        return (int)Math.Round(sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight);
     }
 }
