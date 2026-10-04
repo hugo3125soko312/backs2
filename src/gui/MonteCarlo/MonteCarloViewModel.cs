@@ -7,9 +7,13 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using backs2.Core.Accounts;
+using backs2.Core.Analysis;
 using backs2.Core.Compute;
 using backs2.Core.Overview;
+using backs2.Core.Runner;
+using backs2.ViewModels.Messages;
 using ScottPlot.Avalonia;
 
 namespace backs2.ViewModels;
@@ -17,7 +21,8 @@ namespace backs2.ViewModels;
 public enum McPlotMode
 {
     TerminalBalance,
-    MaxDrawdown
+    MaxDrawdown,
+    Cluster
 }
 
 public sealed record PlotModeOption(McPlotMode Mode, string Label);
@@ -43,6 +48,21 @@ public sealed record McBatchRow(
 
 public partial class MonteCarloViewModel : ObservableObject
 {
+    private const int MaxCurvesToPlot = 200;
+    private const int MaxPointsPerCurve = 1000;
+
+    private static readonly ScottPlot.Color[] ClusterPalette =
+    {
+        ScottPlot.Color.FromHex("#4FC3F7"),
+        ScottPlot.Color.FromHex("#EF5350"),
+        ScottPlot.Color.FromHex("#FFB74D"),
+        ScottPlot.Color.FromHex("#AB47BC"),
+        ScottPlot.Color.FromHex("#26A69A"),
+        ScottPlot.Color.FromHex("#FF7043"),
+        ScottPlot.Color.FromHex("#66BB6A"),
+        ScottPlot.Color.FromHex("#EC407A")
+    };
+
     private static readonly IBrush ToneNeutral = new SolidColorBrush(Color.Parse("#E0E0E0"));
     private static readonly IBrush ToneDim     = new SolidColorBrush(Color.Parse("#7A7A7A"));
     private static readonly IBrush ToneWarn    = new SolidColorBrush(Color.Parse("#EF5350"));
@@ -55,11 +75,27 @@ public partial class MonteCarloViewModel : ObservableObject
     private readonly MonteCarloEngine _engine;
     private readonly ComputeWorkerManager _worker;
 
-    private AvaPlot? _plot;
+    private AvaPlot? _histPlot;
+    private AvaPlot? _curvesPlot;
+    private AvaPlot? _clusterPlot;
+
+    private MonteCarloResult? _histRenderedFrom;
+    private McPlotMode? _histRenderedMode;
+    private MonteCarloResult? _curvesRenderedFrom;
+    private MonteCarloResult? _statsRenderedFrom;
+    private OverviewData? _clusterRenderedFrom;
+
+    // Cluster plot state for hit-testing. Rebuilt on each render.
+    private OverviewData? _clusterData;
+    private List<ClusterPoint>? _clusterPoints;
+    private List<ClusterCentroid>? _clusterCentroids;
+
+    private sealed record ClusterPoint(double X, double Y, int ClusterId, Trade Trade);
+    private sealed record ClusterCentroid(double X, double Y, int ClusterId, int Size);
+
     private readonly Dictionary<int, MonteCarloResult> _resultsByIndex = new();
     private IReadOnlyList<OverviewData> _batch = Array.Empty<OverviewData>();
 
-    /// <summary>Drawdown limit of the currently active account, in percent. Set on each RunAsync.</summary>
     private double _lastMaxLossPercent = 10.0;
 
     public ObservableCollection<McKpiCard> Kpis { get; } = new();
@@ -70,7 +106,8 @@ public partial class MonteCarloViewModel : ObservableObject
     public IReadOnlyList<PlotModeOption> PlotModes { get; } = new[]
     {
         new PlotModeOption(McPlotMode.TerminalBalance, "Terminal Balance"),
-        new PlotModeOption(McPlotMode.MaxDrawdown, "Max Drawdown")
+        new PlotModeOption(McPlotMode.MaxDrawdown, "Max Drawdown"),
+        new PlotModeOption(McPlotMode.Cluster, "Trade Clusters")
     };
 
     [ObservableProperty] private OverviewData? _selectedBatchItem;
@@ -83,9 +120,22 @@ public partial class MonteCarloViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectedPlotMode))]
+    [NotifyPropertyChangedFor(nameof(IsHistogramVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCurvesVisible))]
+    [NotifyPropertyChangedFor(nameof(IsClusterVisible))]
     private PlotModeOption _selectedPlotModeOption;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHistogramVisible))]
+    [NotifyPropertyChangedFor(nameof(IsCurvesVisible))]
+    [NotifyPropertyChangedFor(nameof(IsClusterVisible))]
+    private bool _showCurvesDummyFlag; // reserved; the real flag is ShowEquityCurves
+
     public McPlotMode SelectedPlotMode => SelectedPlotModeOption.Mode;
+
+    public bool IsHistogramVisible => !ShowEquityCurves && SelectedPlotMode != McPlotMode.Cluster;
+    public bool IsCurvesVisible    => ShowEquityCurves;
+    public bool IsClusterVisible   => !ShowEquityCurves && SelectedPlotMode == McPlotMode.Cluster;
 
     [ObservableProperty] private string _curveMemoryLabel = "";
 
@@ -120,11 +170,25 @@ public partial class MonteCarloViewModel : ObservableObject
             OnLastRunChanged(this, _lastRun.Batch);
     }
 
-    public void SetPlotControl(AvaPlot plot)
+    public void SetHistogramPlotControl(AvaPlot plot)
     {
-        _plot = plot;
-        ApplyPlotTheme();
-        RenderForSelection();
+        _histPlot = plot;
+        ApplyPlotTheme(_histPlot);
+        EnsureVisiblePlotRendered();
+    }
+
+    public void SetCurvesPlotControl(AvaPlot plot)
+    {
+        _curvesPlot = plot;
+        ApplyPlotTheme(_curvesPlot);
+        EnsureVisiblePlotRendered();
+    }
+
+    public void SetClusterPlotControl(AvaPlot plot)
+    {
+        _clusterPlot = plot;
+        ApplyPlotTheme(_clusterPlot);
+        EnsureVisiblePlotRendered();
     }
 
     private void OnLastRunChanged(object? sender, IReadOnlyList<OverviewData> batch)
@@ -148,12 +212,26 @@ public partial class MonteCarloViewModel : ObservableObject
 
     partial void OnSelectedBatchItemChanged(OverviewData? value)
     {
+        InvalidateAll();
         RefreshSourceInfo();
-        RenderForSelection();
+        RefreshForSelectedResult();
     }
 
-    partial void OnShowEquityCurvesChanged(bool value) => RenderForSelection();
-    partial void OnSelectedPlotModeOptionChanged(PlotModeOption value) => RenderForSelection();
+    partial void OnShowEquityCurvesChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsHistogramVisible));
+        OnPropertyChanged(nameof(IsCurvesVisible));
+        OnPropertyChanged(nameof(IsClusterVisible));
+        EnsureVisiblePlotRendered();
+    }
+
+    partial void OnSelectedPlotModeOptionChanged(PlotModeOption value)
+    {
+        _histRenderedFrom = null;
+        _histRenderedMode = null;
+        _clusterRenderedFrom = null;
+        EnsureVisiblePlotRendered();
+    }
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
@@ -182,6 +260,18 @@ public partial class MonteCarloViewModel : ObservableObject
 
     private OverviewData? CurrentData => SelectedBatchItem ?? _lastRun.Current;
 
+    private void InvalidateAll()
+    {
+        _histRenderedFrom = null;
+        _histRenderedMode = null;
+        _curvesRenderedFrom = null;
+        _statsRenderedFrom = null;
+        _clusterRenderedFrom = null;
+        _clusterData = null;
+        _clusterPoints = null;
+        _clusterCentroids = null;
+    }
+
     private void ClearResults()
     {
         _resultsByIndex.Clear();
@@ -190,9 +280,18 @@ public partial class MonteCarloViewModel : ObservableObject
         Stats.Clear();
         HasResults = false;
         CurveMemoryLabel = "";
-        _plot?.Plot.Clear();
-        ApplyPlotTheme();
-        _plot?.Refresh();
+
+        InvalidateAll();
+
+        _histPlot?.Plot.Clear();
+        _curvesPlot?.Plot.Clear();
+        _clusterPlot?.Plot.Clear();
+        ApplyPlotTheme(_histPlot);
+        ApplyPlotTheme(_curvesPlot);
+        ApplyPlotTheme(_clusterPlot);
+        _histPlot?.Refresh();
+        _curvesPlot?.Refresh();
+        _clusterPlot?.Refresh();
     }
 
     private void RefreshSourceInfo()
@@ -221,11 +320,6 @@ public partial class MonteCarloViewModel : ObservableObject
         HasRunData = data.Trades.Count >= 2;
     }
 
-    /// <summary>
-    /// Exercises the process-isolated compute worker end-to-end from the UI.
-    /// Phase 1 placeholder: the worker emits 5 progress frames and returns.
-    /// Phase 2 replaces the placeholder with real strategy execution.
-    /// </summary>
     [RelayCommand]
     private async Task TestWorkerAsync()
     {
@@ -367,7 +461,8 @@ public partial class MonteCarloViewModel : ObservableObject
 
             HasResults = _resultsByIndex.Count > 0;
 
-            RenderForSelection();
+            InvalidateAll();
+            RefreshForSelectedResult();
 
             StatusText = HasResults
                 ? $"Done — Monte Carlo ran on {_resultsByIndex.Count} dataset(s)."
@@ -409,51 +504,84 @@ public partial class MonteCarloViewModel : ObservableObject
         }
     }
 
-    private void RenderForSelection()
+    private void RefreshForSelectedResult()
     {
         var r = SelectedResult;
-        if (r == null)
+
+        if (r == null && SelectedPlotMode != McPlotMode.Cluster)
         {
             Kpis.Clear();
             Stats.Clear();
             CurveMemoryLabel = "";
-            _plot?.Plot.Clear();
-            ApplyPlotTheme();
-            _plot?.Refresh();
+            _statsRenderedFrom = null;
+            EnsureVisiblePlotRendered();
             return;
         }
 
-        PopulateStats(r);
+        if (r != null && _statsRenderedFrom != r)
+        {
+            PopulateStats(r);
+            _statsRenderedFrom = r;
+        }
 
-        if (ShowEquityCurves)
-            RenderEquityCurves(r);
-        else if (SelectedPlotMode == McPlotMode.MaxDrawdown)
-            RenderMaxDdHistogram(r);
-        else
-            RenderPlots(r);
+        EnsureVisiblePlotRendered();
     }
 
-    private void ApplyPlotTheme()
+    private void EnsureVisiblePlotRendered()
     {
-        if (_plot == null) return;
-        var plot = _plot.Plot;
+        if (ShowEquityCurves)
+        {
+            var r = SelectedResult;
+            if (r == null || _curvesPlot == null) return;
+            if (_curvesRenderedFrom == r) return;
+            RenderEquityCurves(r);
+            _curvesRenderedFrom = r;
+            return;
+        }
+
+        if (SelectedPlotMode == McPlotMode.Cluster)
+        {
+            var data = CurrentData;
+            if (data == null || _clusterPlot == null) return;
+            if (_clusterRenderedFrom == data) return;
+            RenderClusterPlot(data);
+            return;
+        }
+
+        var histR = SelectedResult;
+        if (histR == null || _histPlot == null) return;
+        if (_histRenderedFrom == histR && _histRenderedMode == SelectedPlotMode) return;
+
+        if (SelectedPlotMode == McPlotMode.MaxDrawdown)
+            RenderMaxDdHistogram(histR);
+        else
+            RenderPlots(histR);
+
+        _histRenderedFrom = histR;
+        _histRenderedMode = SelectedPlotMode;
+    }
+
+    private static void ApplyPlotTheme(AvaPlot? plot)
+    {
+        if (plot == null) return;
+        var plt = plot.Plot;
 
         var labelColor = ScottPlot.Color.FromHex("#C8C8C8");
         var axisColor  = ScottPlot.Color.FromHex("#707070");
 
-        plot.FigureBackground.Color = ScottPlot.Color.FromHex("#0F0F0F");
-        plot.DataBackground.Color   = ScottPlot.Color.FromHex("#0F0F0F");
+        plt.FigureBackground.Color = ScottPlot.Color.FromHex("#0F0F0F");
+        plt.DataBackground.Color   = ScottPlot.Color.FromHex("#0F0F0F");
 
-        plot.Axes.Color(axisColor);
-        plot.Axes.Bottom.TickLabelStyle.ForeColor = labelColor;
-        plot.Axes.Left.TickLabelStyle.ForeColor   = labelColor;
-        plot.Axes.Right.TickLabelStyle.ForeColor  = labelColor;
-        plot.Axes.Bottom.Label.ForeColor = labelColor;
-        plot.Axes.Left.Label.ForeColor   = labelColor;
-        plot.Axes.Right.Label.ForeColor  = labelColor;
+        plt.Axes.Color(axisColor);
+        plt.Axes.Bottom.TickLabelStyle.ForeColor = labelColor;
+        plt.Axes.Left.TickLabelStyle.ForeColor   = labelColor;
+        plt.Axes.Right.TickLabelStyle.ForeColor  = labelColor;
+        plt.Axes.Bottom.Label.ForeColor = labelColor;
+        plt.Axes.Left.Label.ForeColor   = labelColor;
+        plt.Axes.Right.Label.ForeColor  = labelColor;
 
-        plot.Grid.MajorLineColor = ScottPlot.Color.FromHex("#262626");
-        plot.Grid.MinorLineColor = ScottPlot.Color.FromHex("#1A1A1A");
+        plt.Grid.MajorLineColor = ScottPlot.Color.FromHex("#262626");
+        plt.Grid.MinorLineColor = ScottPlot.Color.FromHex("#1A1A1A");
     }
 
     private void PopulateStats(MonteCarloResult r)
@@ -528,12 +656,12 @@ public partial class MonteCarloViewModel : ObservableObject
 
     private void RenderPlots(MonteCarloResult r)
     {
-        if (_plot == null) return;
+        if (_histPlot == null) return;
         if (r.TerminalBalances.Length == 0) return;
 
-        var plt = _plot.Plot;
+        var plt = _histPlot.Plot;
         plt.Clear();
-        ApplyPlotTheme();
+        ApplyPlotTheme(_histPlot);
 
         var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.TerminalBalances);
         var barPlot = plt.Add.Bars(hist.Bins, hist.Counts);
@@ -555,18 +683,18 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Axes.Bottom.Label.Text = "Terminal Balance";
         plt.Axes.Left.Label.Text = "Frequency";
 
-        ApplyPlotTheme();
-        _plot.Refresh();
+        ApplyPlotTheme(_histPlot);
+        _histPlot.Refresh();
     }
 
     private void RenderMaxDdHistogram(MonteCarloResult r)
     {
-        if (_plot == null) return;
+        if (_histPlot == null) return;
         if (r.MaxDrawdowns.Length == 0) return;
 
-        var plt = _plot.Plot;
+        var plt = _histPlot.Plot;
         plt.Clear();
-        ApplyPlotTheme();
+        ApplyPlotTheme(_histPlot);
 
         double limit = _lastMaxLossPercent;
         double p99 = ComputePercentile(r.MaxDrawdowns, 99.0);
@@ -601,22 +729,22 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Axes.Bottom.Label.Text = "Max Drawdown (%)";
         plt.Axes.Left.Label.Text = "Frequency";
 
-        ApplyPlotTheme();
-        _plot.Refresh();
+        ApplyPlotTheme(_histPlot);
+        _histPlot.Refresh();
     }
 
     private void RenderEquityCurves(MonteCarloResult r)
     {
-        if (_plot == null) return;
+        if (_curvesPlot == null) return;
         if (r.EquityCurves.Length == 0) return;
         if (r.TargetDurationSlices < 2) return;
 
         var data = CurrentData;
         if (data?.SourceData == null || data.SourceData.Count < 2) return;
 
-        var plt = _plot.Plot;
+        var plt = _curvesPlot.Plot;
         plt.Clear();
-        ApplyPlotTheme();
+        ApplyPlotTheme(_curvesPlot);
 
         double t0 = data.SourceData[0].Timestamp.ToOADate();
         double t1 = data.SourceData[data.SourceData.Count - 1].Timestamp.ToOADate();
@@ -626,17 +754,26 @@ public partial class MonteCarloViewModel : ObservableObject
         for (int k = 0; k < r.TargetDurationSlices; k++)
             xs[k] = t0 + step * k;
 
-        var red = ScottPlot.Color.FromHex("#EF5350").WithAlpha(0.15);
-        var green = ScottPlot.Color.FromHex("#26A69A").WithAlpha(0.15);
+        var (xsDown, _) = DownsampleAxis(xs, MaxPointsPerCurve);
+        double sampleStep = xs.Length > MaxPointsPerCurve
+            ? (double)xs.Length / xsDown.Length
+            : 1.0;
+
+        var indices = SelectCurveIndices(r, MaxCurvesToPlot);
+
+        var red = ScottPlot.Color.FromHex("#EF5350").WithAlpha(0.35);
+        var green = ScottPlot.Color.FromHex("#26A69A").WithAlpha(0.35);
         var blue = ScottPlot.Color.FromHex("#4FC3F7").WithAlpha(0.10);
 
-        for (int i = 0; i < r.EquityCurves.Length; i++)
+        foreach (var i in indices)
         {
             var curve = r.EquityCurves[i];
             int elapsed = r.SlicesElapsed[i];
             if (elapsed < 2) continue;
 
-            var line = plt.Add.ScatterLine(xs, curve);
+            var ysDown = DownsampleValues(curve, elapsed, xsDown.Length, sampleStep);
+
+            var line = plt.Add.ScatterLine(xsDown, ysDown);
             line.LineWidth = 1;
             line.MarkerSize = 0;
             line.Color = r.Outcomes[i] switch
@@ -650,12 +787,299 @@ public partial class MonteCarloViewModel : ObservableObject
         plt.Axes.DateTimeTicksBottom();
         plt.Axes.AutoScale();
 
-        plt.Title($"Equity Curves — {r.Iterations} paths");
+        plt.Title($"Equity Curves — {indices.Count} of {r.EquityCurves.Length} paths");
         plt.Axes.Bottom.Label.Text = "Date";
         plt.Axes.Left.Label.Text = "Balance";
 
-        ApplyPlotTheme();
-        _plot.Refresh();
+        ApplyPlotTheme(_curvesPlot);
+        _curvesPlot.Refresh();
+    }
+
+    // ── Cluster plot ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fires off the clustering on a background thread. The cluster assignment
+    /// is O(N × K × D × I) which is fast, but we keep it off the UI thread
+    /// anyway so a slow strategy with tens of thousands of trades does not
+    /// block the toggle. Rendering happens on the UI thread in the callback.
+    /// </summary>
+    private void RenderClusterPlot(OverviewData data)
+    {
+        if (_clusterPlot == null) return;
+        if (data.Trades.Count < 2) return;
+
+        // Mark the render as pending so subsequent toggles during the async
+        // window do not fire duplicate work.
+        _clusterRenderedFrom = data;
+
+        var trades = data.Trades;
+        _ = Task.Run(() =>
+        {
+            int n = trades.Count;
+            int k = Math.Max(3, Math.Min(8, (int)Math.Sqrt(n / 10.0)));
+            var assignments = KMeansClusterer.Cluster(trades, k);
+            Dispatcher.UIThread.Post(() => DrawClusterPlotOnUi(data, trades, assignments, k));
+        });
+    }
+
+    private void DrawClusterPlotOnUi(OverviewData data, IReadOnlyList<Trade> trades, int[] assignments, int k)
+    {
+        if (_clusterPlot == null) return;
+        if (data != CurrentData) return;
+
+        var plt = _clusterPlot.Plot;
+        plt.Clear();
+        ApplyPlotTheme(_clusterPlot);
+
+        int n = trades.Count;
+        var points = new List<ClusterPoint>(n);
+
+        // Per-cluster accumulators for the geometric centroid.
+        var sumX = new double[k];
+        var sumY = new double[k];
+        var cnt = new int[k];
+
+        for (int i = 0; i < n; i++)
+        {
+            var t = trades[i];
+            double x = t.EntryTime.ToOADate();
+            double y = t.PnLPercent * 100.0;
+            int c = assignments[i];
+
+            points.Add(new ClusterPoint(x, y, c, t));
+            sumX[c] += x;
+            sumY[c] += y;
+            cnt[c]++;
+        }
+
+        // Draw each cluster as its own scatter series so the legend colors match.
+        for (int c = 0; c < k; c++)
+        {
+            int size = cnt[c];
+            if (size == 0) continue;
+
+            var xs = new double[size];
+            var ys = new double[size];
+            int idx = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (assignments[i] != c) continue;
+                xs[idx] = points[i].X;
+                ys[idx] = points[i].Y;
+                idx++;
+            }
+
+            var sc = plt.Add.Scatter(xs, ys);
+            sc.Color = ClusterPalette[c % ClusterPalette.Length];
+            sc.MarkerSize = 6;
+            sc.MarkerShape = ScottPlot.MarkerShape.FilledCircle;
+            sc.LineWidth = 0;
+            sc.LegendText = $"Cluster {c + 1}  (n={size})";
+        }
+
+        // Centroids: large hollow diamonds on top of the scatter cloud.
+        var centroids = new List<ClusterCentroid>(k);
+        for (int c = 0; c < k; c++)
+        {
+            if (cnt[c] == 0) continue;
+            double cx = sumX[c] / cnt[c];
+            double cy = sumY[c] / cnt[c];
+            centroids.Add(new ClusterCentroid(cx, cy, c, cnt[c]));
+
+            var marker = plt.Add.Scatter(new[] { cx }, new[] { cy });
+            marker.Color = ClusterPalette[c % ClusterPalette.Length];
+            marker.MarkerSize = 22;
+            marker.MarkerShape = ScottPlot.MarkerShape.OpenDiamond;
+            marker.MarkerLineWidth = 2;
+            marker.LineWidth = 0;
+            marker.LegendText = null;
+        }
+
+        plt.Axes.DateTimeTicksBottom();
+        plt.Axes.AutoScale();
+
+        plt.Title($"Trade Clusters — {n:N0} trades, {k} clusters (click to navigate)");
+        plt.Axes.Bottom.Label.Text = "Entry time";
+        plt.Axes.Left.Label.Text = "PnL (%)";
+
+        ApplyPlotTheme(_clusterPlot);
+        _clusterPlot.Refresh();
+
+        _clusterData = data;
+        _clusterPoints = points;
+        _clusterCentroids = centroids;
+    }
+
+    /// <summary>
+    /// Called by the view's PointerPressed handler. Finds the closest centroid
+    /// (within a generous pixel threshold) or, failing that, the closest trade
+    /// point, and issues a NavigateToTradeMessage so the Chart tab can jump.
+    /// </summary>
+    public void HandleClusterPlotClick(double pixelX, double pixelY)
+    {
+        if (_clusterPlot == null) return;
+        if (_clusterData == null || _clusterPoints == null || _clusterPoints.Count == 0) return;
+
+        var click = new ScottPlot.Pixel((float)pixelX, (float)pixelY);
+        var clickCoords = _clusterPlot.Plot.GetCoordinates(click);
+
+        // Centroid hit: prefer a group click. Threshold is generous (40 px)
+        // because the markers are large and the user's mental model is
+        // "click the cluster", not "click the exact centroid pixel".
+        const double centroidThresholdPx = 40.0;
+
+        int bestCentroid = -1;
+        double bestCentroidDistSq = centroidThresholdPx * centroidThresholdPx;
+
+        if (_clusterCentroids != null)
+        {
+            for (int i = 0; i < _clusterCentroids.Count; i++)
+            {
+                var c = _clusterCentroids[i];
+                var cCoords = new ScottPlot.Coordinates(c.X, c.Y);
+                var cPixel = _clusterPlot.Plot.GetPixel(cCoords);
+                double dx = cPixel.X - pixelX;
+                double dy = cPixel.Y - pixelY;
+                double d2 = dx * dx + dy * dy;
+                if (d2 < bestCentroidDistSq)
+                {
+                    bestCentroidDistSq = d2;
+                    bestCentroid = i;
+                }
+            }
+        }
+
+        if (bestCentroid >= 0)
+        {
+            var c = _clusterCentroids![bestCentroid];
+            // Pick the earliest trade in the cluster as the representative.
+            Trade? first = null;
+            foreach (var p in _clusterPoints)
+            {
+                if (p.ClusterId != c.ClusterId) continue;
+                if (first == null || p.Trade.EntryTime < first.EntryTime) first = p.Trade;
+            }
+            if (first != null)
+            {
+                NavigateTo(first);
+                StatusText = $"Cluster {c.ClusterId + 1} (n={c.Size}) → first trade at {first.EntryTime:yyyy-MM-dd HH:mm}";
+                return;
+            }
+        }
+
+        // Fallback: nearest trade point. Always accept — being able to click
+        // anywhere and land on the nearest trade is more useful than forcing
+        // the user to click exactly on a 6px marker.
+        ClusterPoint? nearest = null;
+        double nearestD2 = double.MaxValue;
+        foreach (var p in _clusterPoints)
+        {
+            var pCoords = new ScottPlot.Coordinates(p.X, p.Y);
+            var pPixel = _clusterPlot.Plot.GetPixel(pCoords);
+            double dx = pPixel.X - pixelX;
+            double dy = pPixel.Y - pixelY;
+            double d2 = dx * dx + dy * dy;
+            if (d2 < nearestD2)
+            {
+                nearestD2 = d2;
+                nearest = p;
+            }
+        }
+
+        if (nearest != null)
+        {
+            NavigateTo(nearest.Trade);
+            StatusText = $"Trade → {nearest.Trade.Side} @ {nearest.Trade.EntryTime:yyyy-MM-dd HH:mm} · " +
+                         $"PnL {nearest.Trade.PnLPercent * 100.0:+0.00;-0.00}%";
+        }
+    }
+
+    private void NavigateTo(Trade trade)
+    {
+        if (_clusterData == null) return;
+
+        // Fire and forget. If no receiver is registered yet (Chart tab not
+        // wired), this is a no-op — nothing to guard against.
+        WeakReferenceMessenger.Default.Send(new NavigateToTradeMessage(
+            _clusterData.Symbol,
+            _clusterData.Timeframe,
+            trade.EntryTime));
+    }
+
+    private static (double[] xs, int[] sourceIndices) DownsampleAxis(double[] xs, int maxPoints)
+    {
+        if (xs.Length <= maxPoints)
+        {
+            var identity = new int[xs.Length];
+            for (int i = 0; i < xs.Length; i++) identity[i] = i;
+            return ((double[])xs.Clone(), identity);
+        }
+
+        int n = maxPoints;
+        var outXs = new double[n];
+        var srcIdx = new int[n];
+        double stepD = (double)(xs.Length - 1) / (n - 1);
+
+        for (int k = 0; k < n; k++)
+        {
+            int src = (int)Math.Round(k * stepD);
+            if (src >= xs.Length) src = xs.Length - 1;
+            outXs[k] = xs[src];
+            srcIdx[k] = src;
+        }
+
+        return (outXs, srcIdx);
+    }
+
+    private static double[] DownsampleValues(double[] curve, int elapsed, int outLen, double step)
+    {
+        var result = new double[outLen];
+        int upper = Math.Min(elapsed, curve.Length);
+
+        for (int k = 0; k < outLen; k++)
+        {
+            int src = (int)Math.Round(k * step);
+            if (src >= upper) src = upper - 1;
+            if (src < 0) src = 0;
+            result[k] = curve[src];
+        }
+
+        return result;
+    }
+
+    private static List<int> SelectCurveIndices(MonteCarloResult r, int max)
+    {
+        int n = r.EquityCurves.Length;
+        var indices = new List<int>(Math.Min(max, n));
+
+        for (int i = 0; i < n && indices.Count < max; i++)
+        {
+            if (r.Outcomes[i] != MonteCarloOutcome.Timeout)
+                indices.Add(i);
+        }
+
+        if (indices.Count >= max) return indices;
+
+        var timeouts = new List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            if (r.Outcomes[i] == MonteCarloOutcome.Timeout)
+                timeouts.Add(i);
+        }
+
+        int remaining = max - indices.Count;
+        if (timeouts.Count <= remaining)
+        {
+            indices.AddRange(timeouts);
+        }
+        else
+        {
+            double stepD = (double)timeouts.Count / remaining;
+            for (int k = 0; k < remaining; k++)
+                indices.Add(timeouts[(int)(k * stepD)]);
+        }
+
+        return indices;
     }
 
     private static double ComputePercentile(double[] values, double p)

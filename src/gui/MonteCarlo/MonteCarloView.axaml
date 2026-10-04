@@ -22,7 +22,6 @@
 
     <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="8">
 
-        <!-- Row 0: compact tab-style settings toggle -->
         <StackPanel Grid.Row="0" Spacing="0" Margin="0,0,0,8">
 
             <ToggleButton IsChecked="{Binding IsSettingsExpanded, Mode=TwoWay}"
@@ -115,7 +114,6 @@
             </Border>
         </StackPanel>
 
-        <!-- Banner -->
         <Border Grid.Row="1"
                 Background="{StaticResource BannerBg}"
                 CornerRadius="4"
@@ -126,10 +124,8 @@
                        Foreground="{StaticResource BannerFg}" />
         </Border>
 
-        <!-- Main -->
         <Grid Grid.Row="2" ColumnDefinitions="440,6,*">
 
-            <!-- Stats rail -->
             <Border Grid.Column="0"
                     Background="#0F0F0F"
                     BorderBrush="{StaticResource CardBorder}"
@@ -317,7 +313,8 @@
                             <ComboBox ItemsSource="{Binding PlotModes}"
                                       SelectedItem="{Binding SelectedPlotModeOption, Mode=TwoWay}"
                                       Width="160"
-                                      VerticalAlignment="Center">
+                                      VerticalAlignment="Center"
+                                      IsEnabled="{Binding !ShowEquityCurves}">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate DataType="vm:PlotModeOption">
                                         <TextBlock Text="{Binding Label}" />
@@ -332,7 +329,14 @@
                         </StackPanel>
                     </Border>
 
-                    <ScottPlot:AvaPlot Grid.Row="1" x:Name="PlotControl" />
+                    <Grid Grid.Row="1">
+                        <ScottPlot:AvaPlot x:Name="HistogramPlot"
+                                           IsVisible="{Binding IsHistogramVisible}" />
+                        <ScottPlot:AvaPlot x:Name="CurvesPlot"
+                                           IsVisible="{Binding IsCurvesVisible}" />
+                        <ScottPlot:AvaPlot x:Name="ClusterPlot"
+                                           IsVisible="{Binding IsClusterVisible}" />
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>

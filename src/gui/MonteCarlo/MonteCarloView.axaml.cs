@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,7 +16,17 @@ public partial class MonteCarloView : UserControl
         {
             var vm = app.Services.GetRequiredService<MonteCarloViewModel>();
             DataContext = vm;
-            vm.SetPlotControl(PlotControl);
+            vm.SetHistogramPlotControl(HistogramPlot);
+            vm.SetCurvesPlotControl(CurvesPlot);
+            vm.SetClusterPlotControl(ClusterPlot);
+            ClusterPlot.PointerPressed += OnClusterPlotPointerPressed;
         }
+    }
+
+    private void OnClusterPlotPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is not MonteCarloViewModel vm) return;
+        var pt = e.GetPosition(ClusterPlot);
+        vm.HandleClusterPlotClick(pt.X, pt.Y);
     }
 }
