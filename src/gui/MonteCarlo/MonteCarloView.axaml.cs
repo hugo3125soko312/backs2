@@ -2,6 +2,8 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using ScottPlot.Avalonia;
@@ -22,7 +24,6 @@ public partial class MonteCarloView : UserControl
             var vm = app.Services.GetRequiredService<MonteCarloViewModel>();
             DataContext = vm;
 
-            // UserInputProcessor is on the AvaPlot control, not the Plot object.
             HistogramPlot.UserInputProcessor.Disable();
             CurvesPlot.UserInputProcessor.Disable();
             ClusterPlot.UserInputProcessor.Disable();
@@ -31,9 +32,12 @@ public partial class MonteCarloView : UserControl
             vm.SetCurvesPlotControl(CurvesPlot);
             vm.SetClusterPlotControl(ClusterPlot);
 
-            HistogramPlot.KeyDown += OnPlotKeyDown;
-            CurvesPlot.KeyDown    += OnPlotKeyDown;
-            ClusterPlot.KeyDown   += OnPlotKeyDown;
+            // Tunnel-phase handler. Fires on the way down from the root
+            // before any focused child (ComboBox, ToggleButton) can consume
+            // arrow keys. Without this, Up/Down while the plot-mode or
+            // dataset ComboBox has focus cycles the dropdown selection
+            // instead of panning the plot.
+            AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
 
             ClusterPlot.PointerPressed += OnClusterPlotPointerPressed;
         }
@@ -46,10 +50,45 @@ public partial class MonteCarloView : UserControl
         vm.HandleClusterPlotClick(pt.X, pt.Y);
     }
 
-    private static void OnPlotKeyDown(object? sender, KeyEventArgs e)
+    private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {
-        if (sender is not AvaPlot plot) return;
+        // Text entry keeps its arrow keys. NumericUpDown's spinner and
+        // in-field cursor movement both depend on them.
+        if (IsTextEntry(e.Source)) return;
 
+        var plot = VisiblePlot();
+        if (plot == null) return;
+
+        if (ApplyPanZoom(plot, e.Key))
+            e.Handled = true;
+    }
+
+    private AvaPlot? VisiblePlot()
+    {
+        if (HistogramPlot.IsVisible) return HistogramPlot;
+        if (CurvesPlot.IsVisible)    return CurvesPlot;
+        if (ClusterPlot.IsVisible)   return ClusterPlot;
+        return null;
+    }
+
+    private static bool IsTextEntry(object? source)
+    {
+        if (source is TextBox) return true;
+
+        if (source is Visual visual)
+        {
+            for (var v = visual.GetVisualParent(); v != null; v = v.GetVisualParent())
+            {
+                if (v is NumericUpDown) return true;
+                if (v is TextBox) return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ApplyPanZoom(AvaPlot plot, Key key)
+    {
         var plt = plot.Plot;
         var limits = plt.Axes.GetLimits();
 
@@ -60,52 +99,49 @@ public partial class MonteCarloView : UserControl
 
         double xSpan = xMax - xMin;
         double ySpan = yMax - yMin;
-        if (xSpan <= 0 || double.IsNaN(xSpan)) return;
-        if (ySpan <= 0 || double.IsNaN(ySpan)) return;
+        if (xSpan <= 0 || double.IsNaN(xSpan)) return false;
+        if (ySpan <= 0 || double.IsNaN(ySpan)) return false;
 
         double xPan = xSpan * PanFraction;
         double yPan = ySpan * PanFraction;
         double xZoom = xSpan * ZoomFraction;
 
-        switch (e.Key)
+        switch (key)
         {
             case Key.Left:
                 plt.Axes.SetLimitsX(xMin - xPan, xMax - xPan);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
 
             case Key.Right:
                 plt.Axes.SetLimitsX(xMin + xPan, xMax + xPan);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
 
             case Key.Up:
                 plt.Axes.SetLimitsY(yMin + yPan, yMax + yPan);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
 
             case Key.Down:
                 plt.Axes.SetLimitsY(yMin - yPan, yMax - yPan);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
 
             case Key.OemPlus:
             case Key.Add:
                 plt.Axes.SetLimitsX(xMin + xZoom, xMax - xZoom);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
 
             case Key.OemMinus:
             case Key.Subtract:
                 plt.Axes.SetLimitsX(xMin - xZoom, xMax + xZoom);
                 plot.Refresh();
-                e.Handled = true;
-                break;
+                return true;
+
+            default:
+                return false;
         }
     }
 }

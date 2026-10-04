@@ -2,6 +2,8 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using ScottPlot.Avalonia;
@@ -28,18 +30,46 @@ public partial class ChartView : UserControl
 
         if (_plotView != null)
         {
-            // UserInputProcessor is on the AvaPlot control, not the Plot object.
             _plotView.UserInputProcessor.Disable();
 
             _plotView.PointerMoved += OnPlotPointerMoved;
             _plotView.PointerExited += OnPlotPointerExited;
-            _plotView.KeyDown += OnPlotKeyDown;
+
+            // Tunnel-phase handler. Without this, Up/Down while the Dataset
+            // or Timeframe ComboBox has focus switches the selection instead
+            // of panning the chart.
+            AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
 
             if (DataContext is ChartViewModel vm)
             {
                 vm.SetPlotControl(_plotView);
             }
         }
+    }
+
+    private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_plotView == null) return;
+        if (IsTextEntry(e.Source)) return;
+
+        if (ApplyPanZoom(_plotView, e.Key))
+            e.Handled = true;
+    }
+
+    private static bool IsTextEntry(object? source)
+    {
+        if (source is TextBox) return true;
+
+        if (source is Visual visual)
+        {
+            for (var v = visual.GetVisualParent(); v != null; v = v.GetVisualParent())
+            {
+                if (v is NumericUpDown) return true;
+                if (v is TextBox) return true;
+            }
+        }
+
+        return false;
     }
 
     private void OnPlotPointerMoved(object? sender, PointerEventArgs e)
@@ -57,11 +87,9 @@ public partial class ChartView : UserControl
         if (DataContext is ChartViewModel vm) vm.ClearCrosshair();
     }
 
-    private void OnPlotKeyDown(object? sender, KeyEventArgs e)
+    private static bool ApplyPanZoom(AvaPlot plot, Key key)
     {
-        if (_plotView == null) return;
-
-        var plt = _plotView.Plot;
+        var plt = plot.Plot;
         var limits = plt.Axes.GetLimits();
 
         double xMin = limits.Left;
@@ -71,53 +99,49 @@ public partial class ChartView : UserControl
 
         double xSpan = xMax - xMin;
         double ySpan = yMax - yMin;
-        if (xSpan <= 0 || double.IsNaN(xSpan)) return;
-        if (ySpan <= 0 || double.IsNaN(ySpan)) return;
+        if (xSpan <= 0 || double.IsNaN(xSpan)) return false;
+        if (ySpan <= 0 || double.IsNaN(ySpan)) return false;
 
         double xPan = xSpan * PanFraction;
         double yPan = ySpan * PanFraction;
         double xZoom = xSpan * ZoomFraction;
 
-        switch (e.Key)
+        switch (key)
         {
             case Key.Left:
                 plt.Axes.SetLimitsX(xMin - xPan, xMax - xPan);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
 
             case Key.Right:
                 plt.Axes.SetLimitsX(xMin + xPan, xMax + xPan);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
 
             case Key.Up:
-                // Content moves down when the viewport moves up.
                 plt.Axes.SetLimitsY(yMin + yPan, yMax + yPan);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
 
             case Key.Down:
                 plt.Axes.SetLimitsY(yMin - yPan, yMax - yPan);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
 
             case Key.OemPlus:
             case Key.Add:
                 plt.Axes.SetLimitsX(xMin + xZoom, xMax - xZoom);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
 
             case Key.OemMinus:
             case Key.Subtract:
                 plt.Axes.SetLimitsX(xMin - xZoom, xMax + xZoom);
-                _plotView.Refresh();
-                e.Handled = true;
-                break;
+                plot.Refresh();
+                return true;
+
+            default:
+                return false;
         }
     }
 }
