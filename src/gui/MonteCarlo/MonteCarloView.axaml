@@ -326,15 +326,25 @@
                                       IsChecked="{Binding ShowEquityCurves, Mode=TwoWay}"
                                       Foreground="{StaticResource CardLabelFg}"
                                       VerticalAlignment="Center" />
+
+                            <TextBlock Text="← → ↑ ↓ pan   + − zoom"
+                                       FontSize="10"
+                                       Foreground="{StaticResource CardLabelFg}"
+                                       VerticalAlignment="Center"
+                                       Margin="12,0,0,0"
+                                       Opacity="0.6" />
                         </StackPanel>
                     </Border>
 
                     <Grid Grid.Row="1">
                         <ScottPlot:AvaPlot x:Name="HistogramPlot"
+                                           Focusable="True"
                                            IsVisible="{Binding IsHistogramVisible}" />
                         <ScottPlot:AvaPlot x:Name="CurvesPlot"
+                                           Focusable="True"
                                            IsVisible="{Binding IsCurvesVisible}" />
                         <ScottPlot:AvaPlot x:Name="ClusterPlot"
+                                           Focusable="True"
                                            IsVisible="{Binding IsClusterVisible}" />
                     </Grid>
                 </Grid>

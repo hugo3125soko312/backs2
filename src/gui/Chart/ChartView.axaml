@@ -70,7 +70,7 @@
         <Border Grid.Row="1" Classes="chartFrame" Margin="8,0,8,8" BorderThickness="1" BorderBrush="#333" UseLayoutRounding="True">
             <Panel Classes="chartHost" ClipToBounds="True">
                 <Border Background="#1E1E1E" />
-                <sp:AvaPlot x:Name="Plot">
+                <sp:AvaPlot x:Name="Plot" Focusable="True">
                     <sp:AvaPlot.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Auto (fits data to screen)" Command="{Binding AutoScaleCommand}" />
