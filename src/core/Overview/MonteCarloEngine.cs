@@ -50,9 +50,6 @@ public sealed class MonteCarloEngine
 
         int n = slices.Length;
 
-        // Decide up-front whether to retain per-simulation equity curves.
-        // Above the memory ceiling they are dropped; the run still produces
-        // every scalar stat, and the equity-curve plot will show a hint.
         long curveCells = (long)iterations * targetDurationSlices;
         bool retainCurves = curveCells <= MaxCurveCells;
 
@@ -132,9 +129,6 @@ public sealed class MonteCarloEngine
         }
         catch (OperationCanceledException)
         {
-            // Caller requested cancellation. Return whatever completed.
-            // BuildResult tolerates partially-filled arrays: unfilled slots
-            // remain 0 / default, which the aggregates handle gracefully.
             throw;
         }
 
@@ -443,6 +437,10 @@ public sealed class MonteCarloEngine
             RuinByDailyFloorCount: ruinDaily,
             RuinByMaxFloorCount: ruinMax,
 
+            EdgePercent: double.NaN,
+            NullMeanTerminalBalance: double.NaN,
+            NullIterations: 0,
+
             CurveMemoryBytes: curveMemoryBytes,
             CurvesRetained: curvesRetained);
     }
@@ -485,6 +483,10 @@ public sealed class MonteCarloEngine
             MedianLongestFlatStretch: 0, P95LongestFlatStretch: 0,
 
             RuinByDailyFloorCount: 0, RuinByMaxFloorCount: 0,
+
+            EdgePercent: double.NaN,
+            NullMeanTerminalBalance: double.NaN,
+            NullIterations: 0,
 
             CurveMemoryBytes: 0,
             CurvesRetained: false);

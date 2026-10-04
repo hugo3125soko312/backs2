@@ -14,6 +14,10 @@ public partial class MonteCarloViewModel
     private static readonly IBrush ToneAmber   = new SolidColorBrush(Color.Parse("#FFB74D"));
     private static readonly IBrush ToneAccent  = new SolidColorBrush(Color.Parse("#4FC3F7"));
 
+    // Threshold below which Edge % is treated as indistinguishable from random.
+    // Reads as "the strategy's directional skill is within noise of a coin flip."
+    private const double EdgeNoiseBand = 5.0;
+
     private MonteCarloResult? _statsRenderedFrom;
 
     private void PopulateStats(MonteCarloResult r)
@@ -32,6 +36,8 @@ public partial class MonteCarloViewModel
             r.PFunded.ToString("P2"),
             "target reached",
             r.PFunded > 0 ? ToneGood : ToneDim));
+
+        Kpis.Add(BuildEdgeKpi(r));
 
         Kpis.Add(new McKpiCard(
             "MEDIAN MAX DD",
@@ -70,6 +76,22 @@ public partial class MonteCarloViewModel
             new McStatLine("95th pct flat stretch",  $"{r.P95LongestFlatStretch:N0} slices",     ToneDim),
         }));
 
+        if (!double.IsNaN(r.EdgePercent))
+        {
+            double delta = r.TerminalBalanceMean - r.NullMeanTerminalBalance;
+            IBrush deltaTone = r.EdgePercent > EdgeNoiseBand  ? ToneGood
+                             : r.EdgePercent < -EdgeNoiseBand ? ToneWarn
+                             : ToneDim;
+
+            Stats.Add(new McStatSection("EDGE VS RANDOM", new[]
+            {
+                new McStatLine("Strategy mean terminal", r.TerminalBalanceMean.ToString("N0"),  ToneNeutral),
+                new McStatLine("Random-signal null mean", r.NullMeanTerminalBalance.ToString("N0"), ToneDim),
+                new McStatLine("Delta", delta.ToString("+0;-0;0"), deltaTone),
+                new McStatLine("Null iterations", r.NullIterations.ToString("N0"), ToneDim),
+            }));
+        }
+
         int ruinTotal = r.RuinByDailyFloorCount + r.RuinByMaxFloorCount;
         if (ruinTotal > 0)
         {
@@ -95,5 +117,43 @@ public partial class MonteCarloViewModel
         CurveMemoryLabel = r.CurvesRetained
             ? $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · {r.CurveMemoryBytes / (1024.0 * 1024.0):F1} MB"
             : $"{r.Iterations:N0} sims × {r.TargetDurationSlices:N0} slices · curves dropped";
+    }
+
+    private static McKpiCard BuildEdgeKpi(MonteCarloResult r)
+    {
+        if (double.IsNaN(r.EdgePercent))
+        {
+            return new McKpiCard(
+                "EDGE %",
+                "—",
+                $"requires {EdgeMinTrades}+ trades",
+                ToneDim);
+        }
+
+        string value = r.EdgePercent.ToString("+0.0;-0.0;0.0") + "%";
+
+        if (r.EdgePercent > EdgeNoiseBand)
+        {
+            return new McKpiCard(
+                "EDGE %",
+                value,
+                $"vs null ({r.NullIterations:N0} sims)",
+                ToneGood);
+        }
+
+        if (r.EdgePercent < -EdgeNoiseBand)
+        {
+            return new McKpiCard(
+                "EDGE %",
+                value,
+                $"worse than random ({r.NullIterations:N0} sims)",
+                ToneWarn);
+        }
+
+        return new McKpiCard(
+            "EDGE %",
+            value,
+            "indistinguishable from random",
+            ToneDim);
     }
 }

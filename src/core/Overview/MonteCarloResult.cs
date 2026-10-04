@@ -72,5 +72,13 @@ public sealed record MonteCarloResult(
     int RuinByDailyFloorCount,
     int RuinByMaxFloorCount,
 
+    // Edge vs random-signal null
+    // EdgePercent and NullMeanTerminalBalance are NaN when the null pass was
+    // not run (too few trades, or the run was cancelled before the null pass
+    // completed). NullIterations is 0 in that case.
+    double EdgePercent,
+    double NullMeanTerminalBalance,
+    int NullIterations,
+
     long CurveMemoryBytes,
     bool CurvesRetained);

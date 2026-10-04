@@ -44,8 +44,21 @@ public sealed record McBatchRow(
 
 public partial class MonteCarloViewModel : ObservableObject
 {
-    /// <summary>Hard cap enforced by the engine and mirrored in the UI slider.</summary>
     public static int MaxIterations => MonteCarloEngine.MaxIterations;
+
+    /// <summary>Minimum trade count required to compute Edge %.</summary>
+    public const int EdgeMinTrades = 30;
+
+    /// <summary>
+    /// Iterations for the null-model pass. The null mean is an i.i.d.
+    /// distribution mean; 10,000 iterations puts the standard error of that
+    /// mean well below the resolution we care about, at ~10% of the cost of
+    /// a full-size second pass.
+    /// </summary>
+    public const int EdgeNullIterations = 10_000;
+
+    /// <summary>Fixed seed for the null-model coin flips. Deterministic across runs.</summary>
+    private const int EdgeNullSeed = 42;
 
     private readonly LastRunStore _lastRun;
     private readonly AccountService _accounts;
@@ -204,11 +217,6 @@ public partial class MonteCarloViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Resets every render-cache marker. Fields live in the Plots and
-    /// Cluster partials; touching them here keeps invalidation in one
-    /// place regardless of which sub-system changed.
-    /// </summary>
     private void InvalidateAll()
     {
         _histRenderedFrom = null;
@@ -463,6 +471,56 @@ public partial class MonteCarloViewModel : ObservableObject
                 LogManager.Info(LogTag.MonteCarlo,
                     $"MC completed for {data.Symbol}@{data.Timeframe}: " +
                     $"{iterations:N0} iter, curvesRetained={result.CurvesRetained}");
+
+                // Edge % — random-signal null model. Only run when there are
+                // enough trades for the mean to be stable; the null pass is
+                // a second Monte Carlo on counterfactual slices.
+                if (data.Trades.Count >= EdgeMinTrades)
+                {
+                    StatusText = $"Running null model for {data.Symbol}@{data.Timeframe}...";
+
+                    var nullTrades = NullModelGenerator.GenerateRandomSignalTrades(data.Trades, EdgeNullSeed);
+                    var nullSlices = TimeSliceBuilder.Build(nullTrades, data.SourceData);
+
+                    int nullIterations = Math.Min(iterations, EdgeNullIterations);
+
+                    var nullResult = await Task.Run(() => _engine.Run(
+                        nullSlices,
+                        targetDurationSlices,
+                        startingCapital,
+                        drawdownType,
+                        maxDailyLossPct,
+                        maxLossPct,
+                        profitTargetPct,
+                        iterations: nullIterations,
+                        expectedBlockSize: blockSize,
+                        bestDayRulePercent: bestDayRulePct,
+                        seed: EdgeNullSeed,
+                        progress: null,
+                        cancellationToken: ct), ct);
+
+                    // Normalize by starting capital — always positive, always
+                    // defined. Null net profit can be near zero (random
+                    // directions cancel), which would blow up a ratio
+                    // denominator. This form reads as "+N% of starting
+                    // capital ahead of random".
+                    double edgePct =
+                        (result.TerminalBalanceMean - nullResult.TerminalBalanceMean)
+                        / startingCapital * 100.0;
+
+                    _resultsByIndex[i] = result with
+                    {
+                        EdgePercent = edgePct,
+                        NullMeanTerminalBalance = nullResult.TerminalBalanceMean,
+                        NullIterations = nullIterations
+                    };
+
+                    LogManager.Info(LogTag.MonteCarlo,
+                        $"MC edge for {data.Symbol}@{data.Timeframe}: " +
+                        $"strategy mean {result.TerminalBalanceMean:N0}, " +
+                        $"null mean {nullResult.TerminalBalanceMean:N0}, " +
+                        $"edge {edgePct:+0.00;-0.00}% (null iter {nullIterations:N0})");
+                }
             }
 
             HasResults = _resultsByIndex.Count > 0;
