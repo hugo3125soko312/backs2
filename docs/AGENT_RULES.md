@@ -27,12 +27,18 @@ section wins.
 ### 1. Shell commands are always fenced and always copy-ready
 - Any command the user is expected to run MUST be inside a fenced code block
   tagged `powershell`. No exceptions, even for one-liners.
+- The fence is what gives the user a one-click **Copy** button in their chat
+  UI. A command shown as prose, as indented text, or wrapped only in single
+  backticks does **not** render a copy button and forces the user to
+  hand-select the text. That is a formatting bug.
 - Never inline a command in prose with single backticks when the user may need
   to run it. Inline backticks are for identifiers (class names, paths, symbols),
   not for commands.
 - The block must be directly copy-pasteable: no `PS>` prompt, no leading `$`,
   no line numbers, no trailing commentary on the same line.
 - Multiple commands go in one block, one per line, in execution order.
+- **Every example command in this document is fenced for a reason — mimic the
+  fence, not just the command inside it.**
 
 ### 2. File contents are always wrapped in an outer fence
 Your response is rendered as Markdown. If you emit a `.md`, `.cs`, `.axaml`,
@@ -56,21 +62,30 @@ Rule:
 ### 3. The clipboard handoff is bidirectional
 There are two directions. They use different commands. Do not confuse them.
 
-**(a) You need files FROM the user.** (Covered in "Requesting Files from the
-User" — repeated here for emphasis.) Emit exactly one line:
+**Every clipboard command is emitted inside a ```` ```powershell ```` fenced
+block. Never as prose, never as indented text, never as an inline backtick.
+The fence is the mechanism that gives the user the copy button. One command
+per response — do not bundle both directions.**
 
-    Get-Content path\to\file1.cs, path\to\file2.axaml | Set-Clipboard
+**(a) You need files FROM the user.** (Covered in "Requesting Files from the
+User" — repeated here for emphasis.) Emit exactly one fenced block:
+
+```powershell
+Get-Content path\to\file1.cs, path\to\file2.axaml | Set-Clipboard
+```
 
 **(b) The user asks YOU for a file's contents.** ("show me X.cs", "what's in
-RULES.md", "give me the current App.axaml") Emit exactly one line:
+RULES.md", "give me the current App.axaml") Emit exactly one fenced block:
 
-    Get-Content path\to\file.cs -Raw | Set-Clipboard
+```powershell
+Get-Content path\to\file.cs -Raw | Set-Clipboard
+```
 
 …and stop. Do not print the file contents. Do not narrate. The `-Raw` flag
 preserves newlines; the pipe delivers the file to the user's clipboard so
 they can paste it back to you on the next turn.
 
-Never emit bare `Get-Content path\to\file.cs` as a response to "show me X".
+Never emit a bare `Get-Content path\to\file.cs` as a response to "show me X".
 That prints to the terminal, which is not the handoff the user wants.
 
 ### 4. Escalation to a stronger reasoning LLM (planning tasks)
@@ -139,7 +154,7 @@ How to escalate:
 
 4. After the closing fence, emit exactly one line, on its own:
 
-       Awaiting response from <LLM name>. Paste it back and I'll continue.
+   Awaiting response from <LLM name>. Paste it back and I'll continue.
 
 5. Stop. Do not continue working. Do not pre-empt the answer. Do not
    produce a "meanwhile, here's a draft" section. The turn ends with the
@@ -157,9 +172,11 @@ When the user starts a fresh chat and re-pastes the bundle (via
 new chat has the docs but NOT the working state. Do not guess at what
 was in flight. Request it.
 
-Emit exactly one line (per §3a) asking for the working state:
+Emit exactly one fenced block (per §3a) asking for the working state:
 
-    git status --short; git log --oneline -5; git diff --stat | Set-Clipboard
+```powershell
+git status --short; git log --oneline -5; git diff --stat
+```
 
 Wait for the user to paste the output back. Read it and then:
 - State in one or two sentences what you now understand the in-flight
@@ -177,11 +194,12 @@ user is supplying the working state to you, not the other way around.
 
 ### 6. Pre-send self-check
 Before sending any response, verify:
-- [ ] Every command the user might run is inside a ```powershell block.
+- [ ] Every command the user might run is inside a ```powershell fenced block.
+- [ ] Every "give me file X" request is inside a ```powershell fenced block,
+      not a bare `Get-Content`, not prose, not indented text, and not an
+      inline backtick.
 - [ ] Every embedded file is inside an outer ```` block (or longer).
 - [ ] No fenced block contains a fence of equal or greater length.
-- [ ] Every "give me file X" request is a `| Set-Clipboard` command, not a
-      bare `Get-Content` and not prose.
 - [ ] No thinking, rationale, or caveats are inside a file-content block.
 - [ ] If this is a fresh chat and the user said "continue where we left
       off", you requested the working state via §5 before doing anything.
@@ -210,12 +228,15 @@ Update the following, only for sections the change actually affected:
 Docs must be written as if the code already exists in its final form. Never leave a doc describing a "planned" state for something that just shipped.
 
 ### Step 2 — Stage, commit, verify
-    git add -A
-    git commit -m "<type>(<scope>): <summary>" -m "- <bullet>" -m "- <bullet>"
-    git status
+
+```powershell
+git add -A
+git commit -m "<type>(<scope>): <summary>" -m "- <bullet>" -m "- <bullet>"
+git status
+```
 
 Types: feat, fix, perf, docs, refactor, chore, wip.
-Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue.
+Scope: providers, cache, strategies, logs, data, chart, config, metrics, gui, runner, presets, accounts, overview, montecarlo, queue, mt5, writers.
 Summary: one line, imperative mood, no trailing period, under 72 characters.
 
 The commit is atomic: code and docs land together for a feature / script completion. Do NOT split into a code commit and a docs commit unless the change set is a numbered ROADMAP phase, in which case the split (code first, docs second) is acceptable.
@@ -233,9 +254,14 @@ Close the response with a single sentence confirming what the commit covers.
 
 ## Requesting Files from the User
 - Never say "I need file X" or "please provide file X" in prose.
-- Provide a single Get-Content ... | Set-Clipboard command listing every file needed, on one line.
+- Provide a single `Get-Content … | Set-Clipboard` command listing every file
+  needed, on one line, inside a ```powershell fenced block.
 - Format:
-  Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipboard
+
+```powershell
+Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipboard
+```
+
 - Use relative paths from the project root. Comma-separated. No line breaks.
 - Do not also list the files in prose — the command is the request.
 
@@ -243,11 +269,29 @@ Close the response with a single sentence confirming what the commit covers.
 - You have access to PowerShell 7 environments.
 - You may propose PowerShell 7 commands to perform diagnostic or file-system tasks.
 - File Access Constraint: Before reading, writing, or modifying any file, you must explicitly state the file path and request permission or wait for the user to confirm the operation.
-- Execution Protocol: If an action requires terminal interaction, propose the exact PowerShell command, wait for the user to execute it and provide the output, then analyze the results before proceeding.
-- Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running dotnet build --no-incremental. Do not propose code changes to those symptoms until a clean rebuild has been tried.
+- Execution Protocol: If an action requires terminal interaction, propose the exact PowerShell command inside a ```powershell fenced block, wait for the user to execute it and provide the output, then analyze the results before proceeding.
+- Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
 - Diagnosis first: When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes. Exception: when the error message itself identifies a specific missing file (e.g. "Unable to resolve type X", "Root element is missing"), rewrite the file directly instead of running a diagnostic loop.
 - Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes. Repeated speculative changes waste the user's time.
-- Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15` — success ends with `Build succeeded`.
-- Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
+- Build only (compile-time changes):
+
+```powershell
+dotnet build --no-incremental 2>&1 | Select-Object -Last 15
+```
+
+  Success ends with `Build succeeded`.
+
+- Build + run (runtime changes):
+
+```powershell
+dotnet run
+```
+
+  Then after the app closes:
+
+```powershell
+Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
+```
+
 - Ask for build OR run, never both. Compile-only change → build. Runtime change → run.
 - If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.

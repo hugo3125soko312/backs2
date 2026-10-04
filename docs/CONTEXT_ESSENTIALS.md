@@ -1,7 +1,7 @@
 <!-- docs\CONTEXT_ESSENTIALS.md -->
 # backs2 — AI Context Essentials
 
-Distilled reference for AI agents. The full detail lives in `docs\ARCHITECTURE.md`, `docs\PROJECT_CONTEXT.md`, and `docs\RULES.md` — request them via `Get-Content docs\ARCHITECTURE.md | Set-Clipboard` when the task needs a deep dive. This file is the single bundled reference; when it and a full doc disagree, the full doc wins (but only after it has been requested).
+Distilled reference for AI agents. The full detail lives in `docs\ARCHITECTURE.md`, `docs\PROJECT_CONTEXT.md`, and `docs\RULES.md` — request the specific file when the task needs a deep dive. This file is the single bundled reference; when it and a full doc disagree, the full doc wins (but only after it has been requested).
 
 ## 1. Project identity
 
@@ -56,7 +56,7 @@ Registered: VWAP, CVD, RSI(14), ATR(14), SessionHigh, ZScore, VP-POC, VP-VAH, VP
 - Types: `int`, `double`, `bool`, `string`. Parse doubles with `CultureInfo.InvariantCulture`.
 - One open position at a time — `TradeRecorder._hasOpen` enforces it.
 - Strategy parameters live in the source file. Never add a sidecar parameter file.
-- Full authoring guide: request `docs\STRATS_GUIDE.md`.
+- Full authoring guide lives in `docs\STRATS_GUIDE.md` — request it when writing or refactoring a strategy.
 
 ## 6. Presets
 
@@ -135,7 +135,7 @@ Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cro
 - Use `_httpClientFactory.CreateClient("ResilientClient")`.
 - Log request traces at Debug, success at Info, skipped frames at Warn, exceptions at Error with `ex`.
 - Symbol resolution inside the provider. Timeframe mapping inside `TimeframeMap`.
-- Full integration guide: request `docs\PROVIDER_GUIDE.md`.
+- Full integration guide lives in `docs\PROVIDER_GUIDE.md` — request it when adding a provider.
 
 ## 14. GUI / XAML rules
 
@@ -177,8 +177,26 @@ Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cro
 
 ## 18. Build protocol
 
-- Compile-time change: `dotnet build --no-incremental 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
-- Runtime change: `dotnet run`, then after close `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
+- Compile-time change:
+
+```powershell
+dotnet build --no-incremental 2>&1 | Select-Object -Last 15
+```
+
+  Success ends with `Build succeeded`.
+
+- Runtime change:
+
+```powershell
+dotnet run
+```
+
+  Then after the app closes:
+
+```powershell
+Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
+```
+
 - Ask for build OR run — never both.
 - Stale-source-generator symptoms (`AXSG0111`, phantom `CS1061` on generated members): wipe `obj/` and `bin/`, rebuild `--no-incremental` before touching code.
 
@@ -198,7 +216,8 @@ Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cro
 - `KMeansClusterer.Cluster` is deterministic (fixed seed 42). Do not change the seed.
 - Compute worker: length-prefixed JSON over anonymous pipes. Never add a second IPC dependency.
 - Never re-enable ScottPlot `UserInputProcessor`.
+- Every command emitted to the user lives inside a ```powershell fenced block — including every `Get-Content ... | Set-Clipboard` request. This is what gives the user a one-click copy button. See `docs\AGENT_RULES.md` §1 and §3.
 
 ## 20. Docs on demand
 
-The full doc set is not bundled. Request individual files with `Get-Content <path> | Set-Clipboard` when the task needs a deep dive. The packer's "DOCS NOT BUNDLED" section lists every omitted file and its request command.
+The full doc set is not bundled. Every omitted file is listed at the end of the bundle with its request command in the format defined by `docs\AGENT_RULES.md` §3(a). Request one file at a time when the task touches its subject — do not request them all up front.

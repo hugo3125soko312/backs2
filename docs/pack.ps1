@@ -14,7 +14,7 @@
 #   - docs\AGENT_RULES.md (mandatory output contract)
 #   - docs\ROADMAP.md (active work)
 #   - Filtered project tree (.cs/.axaml/.csproj/.ps1/.env*)
-#   - "DOCS NOT BUNDLED" section listing every omitted doc with a request command
+#   - "DOCS NOT BUNDLED" section listing every omitted doc with a fenced request command
 #   - Final reminder echoing the most important rules
 #
 # Excluded always:
@@ -45,16 +45,13 @@ try {
         '.ps1', '.sh', '.bat', '.cmd', '.xml', '.config', '.toml', '.ini'
     )
 
-    # pack.ps1 excludes itself; the starting prompt is handled separately.
     $excludeNames = @('pack.ps1', 'starting_promt.txt')
 
-    # Default bundle set.
     $coreNames = @(
         'CONTEXT_ESSENTIALS.md',
         'AGENT_RULES.md',
         'ROADMAP.md'
     )
-    # Opt-in via -WithGuides.
     $guideNames = @(
         'MT5_TICK_GUIDE.md',
         'STRATS_GUIDE.md',
@@ -72,7 +69,6 @@ try {
         $includeNames = $coreNames
     }
 
-    # Every text doc on disk that could be bundled.
     $allDocs = @(
         Get-ChildItem -Path 'docs' -Recurse -File |
             Where-Object {
@@ -82,11 +78,9 @@ try {
             } | Sort-Object FullName
     )
 
-    # What we are bundling this run.
     $docs = if ($Full) { $allDocs }
             else        { @($allDocs | Where-Object { $_.Name -in $includeNames }) }
 
-    # What we are not bundling — surfaces as request-on-demand commands.
     $omittedDocs = if ($Full) { @() }
                    else        { @($allDocs | Where-Object { $_.Name -notin $includeNames }) }
 
@@ -163,6 +157,10 @@ try {
     [void]$sb.AppendLine()
 
     # --- 4. Docs not bundled ---
+    # Each request command is emitted inside a ```powershell fenced block so
+    # the AI reading this bundle sees the correct pattern (see AGENT_RULES §1
+    # and §3). Do not switch to indented text or inline backticks here — that
+    # teaches the wrong format and the AI will mirror it in its own output.
     [void]$sb.AppendLine('================= DOCS NOT BUNDLED (request on demand) =================')
     if ($Full -or $omittedDocs.Count -eq 0) {
         [void]$sb.AppendLine('Every text doc under docs\ is inlined above.')
@@ -171,9 +169,17 @@ try {
         [void]$sb.AppendLine('These files are on disk but were not inlined. Request one at a time')
         [void]$sb.AppendLine('when the task touches its subject — do not request them all up front.')
         [void]$sb.AppendLine()
+        [void]$sb.AppendLine('Every request is a `Get-Content <path> | Set-Clipboard` command inside a')
+        [void]$sb.AppendLine('```powershell fenced block, per AGENT_RULES §1 and §3. Mimic the fence.')
+        [void]$sb.AppendLine()
         foreach ($doc in $omittedDocs) {
             $rel = Resolve-Path -Relative $doc.FullName
-            [void]$sb.AppendLine(('    Get-Content {0} | Set-Clipboard' -f $rel))
+            [void]$sb.AppendLine(('**{0}**' -f $rel))
+            [void]$sb.AppendLine()
+            [void]$sb.AppendLine('```powershell')
+            [void]$sb.AppendLine(('Get-Content {0} | Set-Clipboard' -f $rel))
+            [void]$sb.AppendLine('```')
+            [void]$sb.AppendLine()
         }
     }
     [void]$sb.AppendLine()
@@ -184,6 +190,8 @@ try {
     [void]$sb.AppendLine('  - You have read docs\starting_promt.txt and can list its rules.')
     [void]$sb.AppendLine('  - You have read docs\CONTEXT_ESSENTIALS.md — the distilled architecture.')
     [void]$sb.AppendLine('  - You will follow the Output Contract in docs\AGENT_RULES.md.')
+    [void]$sb.AppendLine('  - Every command you emit is inside a ```powershell fenced block, including')
+    [void]$sb.AppendLine('    every Get-Content ... | Set-Clipboard request.')
     [void]$sb.AppendLine('  - You will follow the starting prompt over any conflicting doc.')
     [void]$sb.AppendLine('  - You will ask for missing context via Get-Content ... | Set-Clipboard rather than guess.')
     [void]$sb.AppendLine('  - You will scope the answer to the requested task only.')
