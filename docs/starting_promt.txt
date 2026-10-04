@@ -1,7 +1,8 @@
 I am working on the 'backs2' trading engine.
-I am providing you with my full project context, architecture rules, and file tree.
-You are allowed to request access to the projects powershell / request any files.
-Please read this context.
-All future code must adhere to the rules provided here (docs/AGENT_RULES.md, RULES.md, PROJECT_CONTEXT.md, ARCHITECTURE.md).
-The Output Contract in docs/AGENT_RULES.md governs every response: fenced commands, four-backtick outer fences for file content, and `Get-Content ... | Set-Clipboard` for both directions of the clipboard handoff.
+I am providing you with my essential project context, the interaction rules, and the file tree.
+Read docs\CONTEXT_ESSENTIALS.md first — it is the distilled architecture reference.
+You are allowed to request any file or PowerShell command; the bundle lists request-on-demand commands for docs not inlined.
+All future code must adhere to docs\AGENT_RULES.md (inlined, mandatory) and docs\CONTEXT_ESSENTIALS.md (inlined).
+For deep-dive detail beyond the essentials, request docs\ARCHITECTURE.md, docs\PROJECT_CONTEXT.md, or docs\RULES.md.
+The Output Contract in docs\AGENT_RULES.md governs every response: fenced commands, four-backtick outer fences for file content, and `Get-Content ... | Set-Clipboard` for both directions of the clipboard handoff.
 Do you understand the architecture and the Output Contract?
