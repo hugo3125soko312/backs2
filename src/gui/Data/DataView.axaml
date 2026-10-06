@@ -67,7 +67,7 @@
             <TextBox Grid.Column="7" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
-        <!-- Row 3: data grid -->
+        <!-- Row 3: data grid (grouped by Symbol; header rows inserted into ItemsSource) -->
         <DataGrid Grid.Row="3"
                   ItemsSource="{Binding Rows}"
                   IsReadOnly="True"
@@ -81,6 +81,7 @@
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
                             <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
+                                      IsVisible="{Binding !IsGroupHeader}"
                                       HorizontalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
@@ -98,7 +99,16 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Symbol}" VerticalAlignment="Center" />
+                            <Grid>
+                                <TextBlock Text="{Binding Symbol}"
+                                           VerticalAlignment="Center"
+                                           IsVisible="{Binding !IsGroupHeader}" />
+                                <TextBlock Text="{Binding GroupLabel}"
+                                           VerticalAlignment="Center"
+                                           IsVisible="{Binding IsGroupHeader}"
+                                           FontWeight="Bold"
+                                           Foreground="#4FC3F7" />
+                            </Grid>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -115,7 +125,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Timeframe}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Timeframe}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -132,7 +144,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Tier}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Tier}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -149,7 +163,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Provider}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Provider}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -166,7 +182,10 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <CheckBox IsChecked="{Binding HasVolume}" IsHitTestVisible="False" HorizontalAlignment="Center" />
+                            <CheckBox IsChecked="{Binding HasVolume}"
+                                      IsHitTestVisible="False"
+                                      IsVisible="{Binding !IsGroupHeader}"
+                                      HorizontalAlignment="Center" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -183,7 +202,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding SizeDisplay}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding SizeDisplay}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -200,7 +221,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding LastModifiedLocal, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding LastModifiedLocal, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
@@ -217,7 +240,9 @@
                     </DataGridTemplateColumn.HeaderTemplate>
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <TextBlock Text="{Binding Path}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Path}"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsGroupHeader}" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

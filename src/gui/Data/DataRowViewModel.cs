@@ -5,8 +5,11 @@ namespace backs2.ViewModels;
 
 public partial class DataRowViewModel : ObservableObject
 {
-    private readonly SelectionQueue _queue;
+    private readonly SelectionQueue? _queue;
     private bool _suppressWrite;
+
+    public bool IsGroupHeader { get; }
+    public string GroupLabel { get; }
 
     public string Symbol { get; }
     public string Timeframe { get; }
@@ -24,6 +27,8 @@ public partial class DataRowViewModel : ObservableObject
     public DataRowViewModel(DataEntry entry, SelectionQueue queue)
     {
         _queue = queue;
+        IsGroupHeader = false;
+        GroupLabel = "";
 
         Symbol = entry.Symbol;
         Timeframe = entry.Timeframe;
@@ -40,9 +45,29 @@ public partial class DataRowViewModel : ObservableObject
         _suppressWrite = false;
     }
 
+    private DataRowViewModel(string symbol, int timeframeCount)
+    {
+        _queue = null;
+        IsGroupHeader = true;
+        GroupLabel = $"{symbol}   ({timeframeCount})";
+
+        Symbol = symbol;
+        Timeframe = "";
+        Tier = "";
+        Provider = "";
+        SizeDisplay = "";
+        SizeBytes = 0;
+        LastModifiedLocal = default;
+        Path = "";
+        HasVolume = false;
+    }
+
+    public static DataRowViewModel CreateGroupHeader(string symbol, int timeframeCount)
+        => new(symbol, timeframeCount);
+
     partial void OnIsQueuedChanged(bool value)
     {
-        if (_suppressWrite) return;
+        if (_suppressWrite || _queue == null) return;
 
         if (value) _queue.Add(Symbol, Timeframe, Provider);
         else _queue.Remove(Symbol, Timeframe);
@@ -50,6 +75,8 @@ public partial class DataRowViewModel : ObservableObject
 
     public void RefreshQueuedState()
     {
+        if (_queue == null) return;
+
         _suppressWrite = true;
         IsQueued = _queue.Contains(Symbol, Timeframe);
         _suppressWrite = false;

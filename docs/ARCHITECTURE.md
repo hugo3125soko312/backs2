@@ -137,7 +137,7 @@
 - Monte Carlo — per-dataset outcome probabilities, terminal-balance/max-DD histograms, equity curves, trade clusters. See §14.
 - Metrics — metric catalog browser.
 - Accounts — prop-firm rule browser and active selection.
-- Data — Access-style datasheet with column filters and sort indicators, plus a fetch form (symbol + timeframe + provider) for cache-miss ingestion. Two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
+- Data — Grouped datasheet: one bold header row per symbol (label `{Symbol}   ({N})`), its timeframes nested underneath in bar-interval-descending order (1W → 1m). Column filters and sort indicators on every column; only the Symbol header drives group order (asc/desc). Fetch form (symbol + timeframe + provider) for cache-miss ingestion; two actions: Fetch (diagnostic) and Fetch & Queue (workflow).
 - Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
 - MT5 Ticks — raw tick streaming from MetaTrader 5, broker-side history sync into the local `.tkc` cache, direct `.tkc` decoding into kline cache, and tick-CSV parsing into kline cache. Four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (SYNC_TICKS_RANGE), **.tkc Extract** (local .tkc files → kline cache), **Parsing** (tick CSV → kline cache). See §19 and §20.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
@@ -316,6 +316,10 @@
   - Window close button (X) behaves like Done — commits pending removals.
   - Two rows cannot be in-flight simultaneously — the modal owns a snapshot, mutations happen only on Done.
 - Data tab layout:
+  - **Grouped by ticker.** `Rows` carries one synthetic group-header `DataRowViewModel` (`IsGroupHeader = true`, `GroupLabel = "{Symbol}   ({N})"`) followed by that symbol's data rows. Header rows render bold `#4FC3F7` on the Symbol column, blank everywhere else. All cell templates gate on `IsVisible="{Binding !IsGroupHeader}"` so no empty cells appear on a header.
+  - **Within-group order** is `TimeframeMap.All` index descending — widest bar first (1W, 1D, 4h, 1h, 15m, … 1m). Tiebreak on `Path`.
+  - **Group order** is alphabetical by Symbol; the Symbol header button flips it asc/desc. Other column headers still toggle their glyph, but the grouping layer ignores them.
+  - **Filter interaction.** Filters apply per row first, then grouping runs over the survivors. A group with zero surviving rows disappears entirely.
   - Leftmost column: `On` checkbox (`DataGridTemplateColumn` with a `CheckBox` in the cell template).
   - Columns: Symbol, Timeframe, Tier, Provider, Has Vol, Size, Modified, Path. All headers support dynamic sorting and filtering via text boxes above the grid.
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.

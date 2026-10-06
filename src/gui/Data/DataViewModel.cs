@@ -145,7 +145,6 @@ public partial class DataViewModel : ObservableObject
 
             RefreshData();
 
-            // The cache metadata now reflects whatever provider actually landed.
             string actual = ResolveProviderFromCache(symbol, timeframe);
 
             string viaText;
@@ -263,23 +262,57 @@ public partial class DataViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(FilterPath))
             query = query.Where(e => Contains(e.Path, FilterPath));
 
-        query = SortColumn switch
-        {
-            "Timeframe"         => SortAscending ? query.OrderBy(e => e.Timeframe)         : query.OrderByDescending(e => e.Timeframe),
-            "Tier"              => SortAscending ? query.OrderBy(e => e.Tier)              : query.OrderByDescending(e => e.Tier),
-            "Provider"          => SortAscending ? query.OrderBy(e => e.Provider)          : query.OrderByDescending(e => e.Provider),
-            "SizeBytes"         => SortAscending ? query.OrderBy(e => e.SizeBytes)         : query.OrderByDescending(e => e.SizeBytes),
-            "LastModifiedLocal" => SortAscending ? query.OrderBy(e => e.LastModifiedLocal) : query.OrderByDescending(e => e.LastModifiedLocal),
-            "Path"              => SortAscending ? query.OrderBy(e => e.Path)              : query.OrderByDescending(e => e.Path),
-            "HasVolume"         => SortAscending ? query.OrderBy(e => e.HasVolume)         : query.OrderByDescending(e => e.HasVolume),
-            _                   => SortAscending ? query.OrderBy(e => e.Symbol)            : query.OrderByDescending(e => e.Symbol),
-        };
+        // Group by Symbol. Within each group, order by bar interval descending
+        // (widest first — 1W, 1D, 4h, ... down to 1m). Group order follows the
+        // Symbol sort direction; other sort columns no longer affect the row
+        // layout, since grouping replaces flat per-column sorting.
+        var groupedRows = query
+            .GroupBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new
+            {
+                Symbol = g.Key,
+                Rows = g
+                    .OrderByDescending(r => TimeframeOrder(r.Timeframe))
+                    .ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+            });
+
+        bool symbolSort = string.Equals(SortColumn, "Symbol", StringComparison.OrdinalIgnoreCase);
+        bool descending = symbolSort && !SortAscending;
+
+        var orderedGroups = descending
+            ? groupedRows.OrderByDescending(g => g.Symbol, StringComparer.OrdinalIgnoreCase)
+            : groupedRows.OrderBy(g => g.Symbol, StringComparer.OrdinalIgnoreCase);
 
         Rows.Clear();
-        foreach (var row in query)
-            Rows.Add(row);
 
-        StatusText = $"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued.";
+        int shownRows = 0;
+        int groupCount = 0;
+        foreach (var group in orderedGroups)
+        {
+            Rows.Add(DataRowViewModel.CreateGroupHeader(group.Symbol, group.Rows.Count));
+            groupCount++;
+
+            foreach (var row in group.Rows)
+            {
+                Rows.Add(row);
+                shownRows++;
+            }
+        }
+
+        StatusText = $"{shownRows} of {_all.Count} dataset(s) shown in {groupCount} group(s) — {QueuedCount} queued.";
+    }
+
+    private static int TimeframeOrder(string timeframe)
+    {
+        int index = 0;
+        foreach (var tf in TimeframeMap.All)
+        {
+            if (string.Equals(tf, timeframe, StringComparison.OrdinalIgnoreCase))
+                return index;
+            index++;
+        }
+        return -1;
     }
 
     private static bool Contains(string haystack, string needle)
