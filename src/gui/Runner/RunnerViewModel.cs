@@ -152,11 +152,30 @@ public partial class RunnerViewModel : ObservableObject
         foreach (var item in _queue.Snapshot())
             QueuedItems.Add(item);
 
-        CanRun = QueuedItems.Count > 0 && SelectedStrategy != null && !IsBusy;
+        var distinctSymbols = QueuedItems
+            .Select(q => q.Symbol)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        QueueHint = QueuedItems.Count == 0
-            ? "Queue is empty — add data in the Data tab first."
-            : $"{QueuedItems.Count} dataset(s) queued.";
+        if (QueuedItems.Count == 0)
+        {
+            QueueHint = "Queue is empty — add data in the Data tab first.";
+            CanRun = false;
+        }
+        else if (distinctSymbols.Count > 1)
+        {
+            QueueHint = $"⚠ Queue spans {distinctSymbols.Count} tickers ({string.Join(", ", distinctSymbols)}) — runner supports one ticker at a time.";
+            CanRun = false;
+        }
+        else
+        {
+            var tfs = QueuedItems
+                .Select(q => q.Timeframe)
+                .ToList();
+
+            QueueHint = $"Running {distinctSymbols[0]} — {tfs.Count} timeframe(s): {string.Join(", ", tfs)}";
+            CanRun = SelectedStrategy != null && !IsBusy;
+        }
     }
 
     partial void OnSelectedStrategyChanged(StrategyDescriptor? value)
@@ -222,6 +241,19 @@ public partial class RunnerViewModel : ObservableObject
             return;
         }
 
+        // One-ticker constraint. Refuse outright — do not silently pick the
+        // first ticker. The user has to narrow the queue themselves.
+        var distinctSymbols = queued
+            .Select(q => q.Symbol)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctSymbols.Count > 1)
+        {
+            StatusText = $"Runner supports one ticker at a time — queue contains {distinctSymbols.Count}: {string.Join(", ", distinctSymbols)}. Narrow the queue in the Data tab and try again.";
+            return;
+        }
+
         if (IsBusy) return;
 
         if (queued.Count > 1)
@@ -245,6 +277,14 @@ public partial class RunnerViewModel : ObservableObject
             foreach (var p in Parameters)
                 paramValues[p.Name] = p.EffectiveValue;
 
+            // Announce the effective timeframe list — the queue may be a
+            // subset of the ticker's available timeframes, and we run exactly
+            // what is queued.
+            var effectiveTimeframes = queued
+                .Select(q => q.Timeframe)
+                .ToList();
+            StatusText = $"Running {SelectedStrategy.Name} on {distinctSymbols[0]} — {effectiveTimeframes.Count} timeframe(s): {string.Join(", ", effectiveTimeframes)}";
+
             var batchResults = new List<OverviewData>();
             int totalDatasets = queued.Count;
 
@@ -252,8 +292,6 @@ public partial class RunnerViewModel : ObservableObject
             {
                 var item = queued[i];
                 int datasetIndex = i;
-
-                StatusText = $"Running {SelectedStrategy.Name} on {item.Symbol}@{item.Timeframe} ({datasetIndex + 1}/{totalDatasets})...";
 
                 var progress = new Progress<DataProgress>(p =>
                 {
@@ -276,7 +314,7 @@ public partial class RunnerViewModel : ObservableObject
                         IsProgressIndeterminate = true;
                     }
 
-                    StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {p.Message}";
+                    StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {item.Symbol}@{item.Timeframe} — {p.Message}";
                 });
 
                 var data = await _data.GetSymbolDataAsync(item.Symbol, item.Timeframe, progress);
@@ -364,12 +402,12 @@ public partial class RunnerViewModel : ObservableObject
                 {
                     new TextBlock
                     {
-                        Text = $"You have selected {count} datasets in the queue.",
+                        Text = $"You have selected {count} timeframes in the queue.",
                         FontSize = 13
                     },
                     new TextBlock
                     {
-                        Text = $"Running will execute the strategy on all {count} datasets sequentially.",
+                        Text = $"Running will execute the strategy on all {count} timeframes sequentially.",
                         TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                         Opacity = 0.8,
                         FontSize = 12

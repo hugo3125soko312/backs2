@@ -52,6 +52,8 @@ ONLY SPEAK IN ENGLISH
     - `SelectionQueue` is the only place enabled-dataset state lives.
     - `DataRowViewModel.IsQueued` is the only writer.
     - Queue modal pending-removal is committed on Done, discarded on Cancel.
+    - Group-header checkbox in the Data tab bulk-toggles every *visible* row in that group. Writes still go through per-row `IsQueued`, one `SelectionQueue.Add/Remove` per member row. Never write the group header itself to the queue.
+    - Runner accepts exactly one ticker at a time. Multi-ticker queue = hard refuse (status warning + `CanRun = false`). Single-ticker queue runs exactly the queued timeframes — never silently expand to all cached timeframes for the ticker.
 - Monte Carlo:
     - Operates in the time domain. Never scramble trades directly.
     - Build `TimeSlice[]` via `TimeSliceBuilder.Build(trades, klines)`. One slice per Kline.

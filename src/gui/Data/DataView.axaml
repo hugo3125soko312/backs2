@@ -46,7 +46,7 @@
                        Opacity="0.7" />
         </StackPanel>
 
-        <!-- Row 1: existing toolbar -->
+        <!-- Row 1: toolbar -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
             <Button Content="Refresh" Command="{Binding RefreshDataCommand}" />
             <Button Content="Queue..." Command="{Binding OpenQueueCommand}" />
@@ -67,7 +67,7 @@
             <TextBox Grid.Column="7" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
-        <!-- Row 3: data grid (grouped by Symbol; header rows inserted into ItemsSource) -->
+        <!-- Row 3: data grid -->
         <DataGrid Grid.Row="3"
                   ItemsSource="{Binding Rows}"
                   IsReadOnly="True"
@@ -77,12 +77,20 @@
                   GridLinesVisibility="Horizontal"
                   HeadersVisibility="Column">
             <DataGrid.Columns>
+                <!-- "On" column: group header shows a bulk-select checkbox,
+                     data rows show the per-dataset checkbox. -->
                 <DataGridTemplateColumn Header="On" Width="44">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate DataType="vm:DataRowViewModel">
-                            <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
-                                      IsVisible="{Binding !IsGroupHeader}"
-                                      HorizontalAlignment="Center" />
+                            <Grid>
+                                <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay}"
+                                          IsVisible="{Binding !IsGroupHeader}"
+                                          HorizontalAlignment="Center" />
+                                <CheckBox IsChecked="{Binding IsGroupSelected, Mode=TwoWay}"
+                                          IsVisible="{Binding IsGroupHeader}"
+                                          HorizontalAlignment="Center"
+                                          ToolTip.Tip="Select / deselect every visible timeframe in this ticker" />
+                            </Grid>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

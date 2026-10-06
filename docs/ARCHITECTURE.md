@@ -173,6 +173,8 @@
   - Right column: parameter panel, populated by StrategyParameterParser.Parse(source). Scrollable vertically when overflowing.
   - Toolbar: symbol picker (ComboBox + free-text), Refresh Catalog, Run, Presets…, Save Preset….
   - RunAsync: reads current parameter values into a Dictionary<string,string>, fetches data via DataManager.GetSymbolDataAsync(symbol, "1D", IProgress<DataProgress>), invokes StrategyManager.RunBacktestFromFileAsync(path, data, params), raises RunCompleted with the StrategyRunResult.
+  - One-ticker constraint: RunAsync refuses to start when the queue spans more than one distinct symbol (case-insensitive). The status line names every offending ticker and points back to the Data tab. `CanRun` is false in the same condition, so the Run button is disabled until the queue narrows. Single-ticker queue runs exactly the timeframes that are queued — a subset of the ticker's cached timeframes is legal and is announced on the status line as `Running <strategy> on <ticker> — N timeframe(s): ...`. No silent expansion to "all available timeframes".
+  - QueueHint mirrors the same rule: single-ticker shows `Running <ticker> — N timeframe(s): ...`; multi-ticker shows the ⚠ warning; empty shows the "add data" hint.
 - RunnerParameterViewModel: wraps a StrategyParameter with mutable CurrentValue / CurrentBool. Exposes HasOptions, IsTextInput, IsBoolToggle, IsDirty. IsDirty is true when EffectiveValue differs from DefaultValue.
 - StrategyParameterParser (src/core/Runner/StrategyParameterParser.cs): parses `// @param` lines. Stops at the first non-comment, non-blank line. Supports int, double, bool, string; string params may declare `options: "A", "B"` for a ComboBox.
 - TradeRecorder (src/core/Runner/TradeRecorder.cs): records closed trades. Strategy calls Advance(index), Enter(side, price), Exit(price). Timestamps come from Data[index].
@@ -305,6 +307,7 @@
   - `Contains(symbol, timeframe)`.
   - `Snapshot()` — returns a copy for modal use.
   - `Changed` event — raised after every mutation.
+- Group-header bulk select: each synthetic group-header row in the Data tab carries a checkbox. Toggling it writes through to `SelectionQueue` for every *visible* row in that group (filter-aware). Header state auto-syncs to the members — checked when all visible rows are queued, unchecked otherwise (two-state, no tri-state). Group headers are never queued themselves; only the member rows are.
 - Consumer wiring (`src/gui/Data/`):
   - `DataRowViewModel` wraps each `DataEntry` with an `IsQueued` observable property. Checking the box calls `SelectionQueue.Add`. Unchecking calls `SelectionQueue.Remove`. One write-through per toggle, no batching.
   - `DataViewModel.OpenQueueCommand` raises `OpenQueueRequested`. `DataView.axaml.cs` handles it by opening `QueueWindow` modally.

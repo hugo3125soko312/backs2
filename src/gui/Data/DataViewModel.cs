@@ -17,6 +17,7 @@ public partial class DataViewModel : ObservableObject
     private readonly DataManager _dataManager;
     private readonly SelectionQueue _queue;
     private readonly List<DataRowViewModel> _all = new();
+    private readonly Dictionary<DataRowViewModel, List<DataRowViewModel>> _groupMembers = new();
 
     public ObservableCollection<DataRowViewModel> Rows { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
@@ -76,6 +77,25 @@ public partial class DataViewModel : ObservableObject
 
         foreach (var row in _all)
             row.RefreshQueuedState();
+
+        RefreshHeaderStates();
+    }
+
+    private void RefreshHeaderStates()
+    {
+        foreach (var kvp in _groupMembers)
+        {
+            bool allSelected = kvp.Value.All(r => r.IsQueued);
+            kvp.Key.SetGroupSelectedSilent(allSelected);
+        }
+    }
+
+    private void OnGroupHeaderToggled(DataRowViewModel header, bool selected)
+    {
+        if (!_groupMembers.TryGetValue(header, out var members)) return;
+
+        foreach (var row in members)
+            row.IsQueued = selected;
     }
 
     [RelayCommand]
@@ -262,10 +282,6 @@ public partial class DataViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(FilterPath))
             query = query.Where(e => Contains(e.Path, FilterPath));
 
-        // Group by Symbol. Within each group, order by bar interval descending
-        // (widest first — 1W, 1D, 4h, ... down to 1m). Group order follows the
-        // Symbol sort direction; other sort columns no longer affect the row
-        // layout, since grouping replaces flat per-column sorting.
         var groupedRows = query
             .GroupBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(g => new
@@ -285,12 +301,15 @@ public partial class DataViewModel : ObservableObject
             : groupedRows.OrderBy(g => g.Symbol, StringComparer.OrdinalIgnoreCase);
 
         Rows.Clear();
+        _groupMembers.Clear();
 
         int shownRows = 0;
         int groupCount = 0;
         foreach (var group in orderedGroups)
         {
-            Rows.Add(DataRowViewModel.CreateGroupHeader(group.Symbol, group.Rows.Count));
+            var header = DataRowViewModel.CreateGroupHeader(group.Symbol, group.Rows.Count, OnGroupHeaderToggled);
+            _groupMembers[header] = group.Rows;
+            Rows.Add(header);
             groupCount++;
 
             foreach (var row in group.Rows)
@@ -299,6 +318,8 @@ public partial class DataViewModel : ObservableObject
                 shownRows++;
             }
         }
+
+        RefreshHeaderStates();
 
         StatusText = $"{shownRows} of {_all.Count} dataset(s) shown in {groupCount} group(s) — {QueuedCount} queued.";
     }
