@@ -227,6 +227,30 @@ Update the following, only for sections the change actually affected:
 
 Docs must be written as if the code already exists in its final form. Never leave a doc describing a "planned" state for something that just shipped.
 
+**Doc edits are PowerShell edits, not full-file re-emissions.**
+
+Every doc update -- in the Completion Protocol or on user request -- is performed by a single fenced `powershell` block that surgically edits the file in place. Do not re-emit whole files for small insertions.
+
+The block:
+
+1. Reads the target with `Get-Content <path> -Raw`.
+2. Replaces an anchored substring -- a distinctive existing line or short block -- with the new content.
+3. Uses a single-quoted here-string (`@' ... '@`) for the replacement body, so `$`, `<`, `>`, `&`, backticks, and quotes inside the body do not interpolate.
+4. Guards the write: `if ($c -notmatch [regex]::Escape($anchor)) { throw "..." }`. A drifted anchor aborts before that document's `Set-Content` runs, so the file is left untouched.
+5. Writes with `Set-Content <path> -Value $c -NoNewline`.
+6. Ends with an explicit-path `git add` (never `git add -A`), then `git diff --stat`, then `git commit`, then `git log --oneline -3` and `git status`.
+
+**Full-file emission is reserved for three cases only:**
+- Creating a file that does not yet exist.
+- A from-scratch rewrite where no stable anchor can be trusted.
+- The user explicitly asking to see the file contents.
+
+**Multi-doc commits stay in one block.** If one anchor fires the guard, that document is left untouched, but edits earlier in the same block have already been written. Fix the failed anchor and re-run only the remaining edits -- do not re-run the whole block.
+
+**The `git diff --stat` output printed before `git commit` is the review gate.** If the diff shows anything other than the anchored replacement, stop and re-anchor before committing.
+
+This rule applies to every doc in the repo, not just the Completion Protocol set. It does not apply to code files -- those still use the full-file-replacement pattern from the Output Contract.
+
 ### Step 2 — Stage, commit, verify
 
 ```powershell
