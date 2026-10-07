@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
@@ -126,6 +128,7 @@ public partial class ProviderGroupViewModel : ObservableObject
 public partial class ProvidersViewModel : ObservableObject
 {
     private readonly CacheManager _cache;
+    private bool _refreshing;
 
     public ObservableCollection<ProviderGroupViewModel> Groups { get; } = new();
 
@@ -135,50 +138,92 @@ public partial class ProvidersViewModel : ObservableObject
     public ProvidersViewModel(CacheManager cache)
     {
         _cache = cache;
-        RefreshCommand.Execute(null);
+
+        // Fire-and-forget: the tab renders immediately. Metadata scan runs
+        // on the thread pool and the groups populate when it completes.
+        // Exceptions are swallowed inside RefreshAsync.
+        _ = RefreshAsync();
     }
 
     [RelayCommand]
-    private void Refresh()
+    private Task Refresh() => RefreshAsync();
+
+    private async Task RefreshAsync()
     {
-        Groups.Clear();
+        if (_refreshing) return;
+        _refreshing = true;
 
-        var dir = "data/cache";
-        if (!Directory.Exists(dir))
+        try
         {
-            StatusText = "No cache directory found.";
-            return;
-        }
+            Groups.Clear();
 
-        var files = Directory.GetFiles(dir, "*.json");
-        var metas = new List<CacheMetadata>(files.Length);
-
-        foreach (var f in files)
-        {
-            var m = _cache.ReadCacheMetadata(f);
-            if (m != null) metas.Add(m);
-        }
-
-        var grouped = metas.GroupBy(m => m.Source).OrderBy(g => g.Key);
-
-        foreach (var g in grouped)
-        {
-            var list = g.ToList();
-            int volCount = list.Count(m => m.HasVolume);
-
-            long minT = long.MaxValue;
-            long maxT = long.MinValue;
-            foreach (var m in list)
+            var dir = "data/cache";
+            if (!Directory.Exists(dir))
             {
-                if (m.MinT > 0 && m.MinT < minT) minT = m.MinT;
-                if (m.MaxT > 0 && m.MaxT > maxT) maxT = m.MaxT;
+                StatusText = "No cache directory found.";
+                return;
             }
-            if (minT == long.MaxValue) minT = 0;
-            if (maxT == long.MinValue) maxT = 0;
 
-            Groups.Add(new ProviderGroupViewModel(g.Key, list, volCount, minT, maxT));
+            StatusText = "Scanning cache…";
+
+            var files = Directory.GetFiles(dir, "*.json");
+            var sw = Stopwatch.StartNew();
+
+            // Per-file metadata reads are independent and CPU-bound
+            // (JsonDocument.Parse + full-bar enumeration). Run them on the
+            // thread pool, in parallel across cores. The UI thread stays
+            // responsive; the freeze that used to last seconds is gone.
+            var metas = await Task.Run(() =>
+            {
+                var list = new List<CacheMetadata>(files.Length);
+                var gate = new object();
+
+                Parallel.ForEach(files, f =>
+                {
+                    var m = _cache.ReadCacheMetadata(f);
+                    if (m == null) return;
+                    lock (gate) list.Add(m);
+                });
+
+                return list;
+            }).ConfigureAwait(true);
+
+            // Aggregation and ObservableCollection mutation must be on the
+            // UI thread. This part is O(files) and cheap — dozens of items
+            // at most — so it can't reintroduce the freeze.
+            var grouped = metas.GroupBy(m => m.Source).OrderBy(g => g.Key);
+
+            foreach (var g in grouped)
+            {
+                var list = g.ToList();
+                int volCount = list.Count(m => m.HasVolume);
+
+                long minT = long.MaxValue;
+                long maxT = long.MinValue;
+                foreach (var m in list)
+                {
+                    if (m.MinT > 0 && m.MinT < minT) minT = m.MinT;
+                    if (m.MaxT > 0 && m.MaxT > maxT) maxT = m.MaxT;
+                }
+                if (minT == long.MaxValue) minT = 0;
+                if (maxT == long.MinValue) maxT = 0;
+
+                Groups.Add(new ProviderGroupViewModel(g.Key, list, volCount, minT, maxT));
+            }
+
+            sw.Stop();
+            StatusText = $"Aggregated stats for {Groups.Count} provider(s) across {files.Length} cached dataset(s) in {sw.ElapsedMilliseconds} ms.";
+            LogManager.Debug(LogTag.Cache,
+                $"providers tab refresh: {files.Length} file(s), {Groups.Count} group(s), {sw.ElapsedMilliseconds} ms");
         }
-
-        StatusText = $"Aggregated stats for {Groups.Count} provider(s) across {files.Length} cached dataset(s).";
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Cache, "providers tab refresh failed", ex);
+            StatusText = $"Refresh failed: {ex.Message}";
+        }
+        finally
+        {
+            _refreshing = false;
+        }
     }
 }

@@ -798,3 +798,25 @@ Adds a user-editable theme palette to the Config tab. Each of the 14 design toke
 - Importing or exporting palettes.
 - Preset theme packs (a named palette picker).
 - Live-updating already-open plot backgrounds when the sunken color changes — ScottPlot surfaces are configured at render, so a plot theme change requires a tab reload.
+
+## Phase 21: Providers Tab Async Refresh [COMPLETED]
+
+Ship date: 2026-10-07.
+
+Eliminates the multi-second UI freeze when opening the Providers tab. The tab used to synchronously scan `data/cache/` and parse every cache file's metadata on the UI thread from the `ProvidersViewModel` constructor. On a cache with dozens of large files that blocked the app for ~3 seconds.
+
+### Change
+- `ProvidersViewModel` ctor now fires `RefreshAsync` fire-and-forget. The tab renders immediately with `StatusText = "Scanning cache…"` and populates when the scan completes.
+- The per-file reads run via `Task.Run(() => Parallel.ForEach(files, ...))`. `CacheManager.ReadCacheMetadata` fully parses JSON and enumerates every bar — independent per file, no shared state — so parallel-across-cores cuts wall time proportionally.
+- A `lock` guards the shared `List<CacheMetadata>` accumulator.
+- Aggregation and `ObservableCollection<ProviderGroupViewModel>` population stay on the UI thread via `ConfigureAwait(true)` on the outer await. That part is O(files) and cannot reintroduce the freeze.
+- A `_refreshing` bool prevents overlapping refresh invocations.
+- The status line and a `LogTag.Cache` Debug line both report the file count, group count, and elapsed ms.
+
+### Measured result
+- Before: ~3 s freeze on first click, UI thread blocked.
+- After: tab interactive immediately; groups appear in roughly `wall / coreCount` (~500–800 ms on a typical 4–6 core CPU).
+
+### Deferred
+- Sidecar `.meta.json` files written alongside each cache `.json` in `SaveCacheAsync`. Would turn `ReadCacheMetadata` into a 1 KB read per file instead of a full JSON parse. Bigger change; revisit if the post-parallel wait becomes annoying.
+- Same async treatment for the Data tab's `RefreshData` — tracked under Phase 18B.

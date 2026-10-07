@@ -359,7 +359,10 @@
 - Columns, in order: Provider, Dataset, Volume, Start, End, Avg Span, Timeframes.
 - Layout: `ItemsControl` of provider groups. Each group renders a bold provider header row followed by an indented `ItemsControl` of dataset rows, hidden when `IsExpanded` is false. Column alignment relies on identical fixed `ColumnDefinitions` (`220,220,100,110,110,110,*`) in the header grid and the dataset grid. No user column resizing.
 - Span formatting (`ProviderDatasetRow.FormatDuration`): `< 1 h` → minutes, `< 1 d` → hours, `< 60 d` → days, `< 24 mo` → months (30.4375 d/mo), else years (365.25 d/y). One decimal place. Datasets with `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT` render `—` and are excluded from the group's `AverageSpan`.
-- Refresh: manual only, via the toolbar button. No `FileSystemWatcher`. The tab calls `RefreshCommand` once on construction so it is populated when first opened.
+- Refresh: manual only, via the toolbar button. No `FileSystemWatcher`. The `ProvidersViewModel` constructor kicks off `RefreshAsync` fire-and-forget, so the tab renders immediately and the grid populates when the scan completes.
+- RefreshAsync runs the per-file metadata reads on the thread pool via `Task.Run(() => Parallel.ForEach(files, ...))`. Each `CacheManager.ReadCacheMetadata` call fully parses a cache JSON and enumerates every bar, so a cache with dozens of files was blocking the UI thread for several seconds. The parallel-off-thread pass collapses that to roughly `wall / coreCount` while keeping the window interactive throughout.
+- Aggregation and `ObservableCollection<ProviderGroupViewModel>` population stay on the UI thread — that part is O(files) and cheap; it cannot reintroduce the freeze. The status line reads `Aggregated stats for {N} provider(s) across {M} cached dataset(s) in {ms} ms.` and the same timing is logged under `LogTag.Cache`.
+- Re-entrancy guard: `_refreshing` flag prevents overlapping refresh invocations.
 - `CacheManager.ReadCacheMetadata` contract: single pass over `bars[]`, collecting `HasVolume` and running `MinT`/`MaxT`. Does not assume ascending bar order. `MinT`/`MaxT` remain `0` when `bars` is empty or absent.
 
 ## 17. Time-Domain Monte Carlo (Phase 10.15)

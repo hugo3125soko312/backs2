@@ -87,6 +87,11 @@ ONLY SPEAK IN ENGLISH
     - `MainWindow.axaml` uses a headers-only `TabControl` (empty `TabItem` elements) plus one sibling `ContentControl` bound to `CurrentVm`. Never place `<views:XView />` directly inside a `TabItem` — that re-introduces eager construction for every tab.
     - VM→View mapping lives exclusively in `App.axaml` DataTemplates, one per tab ViewModel.
     - View code-behind is `InitializeComponent()` plus View-local wiring that does not depend on a specific ViewModel instance. Anything that touches the DataContext goes in `OnDataContextChanged`.
+- Tab load latency:
+    - Tab ViewModel constructors must not block the UI thread on file I/O, JSON parsing, or directory enumeration. If a ViewModel needs expensive data to display, kick it off via a fire-and-forget `Task` in the ctor and populate the `ObservableCollection`s when the work completes.
+    - `ObservableCollection<T>` mutations must stay on the UI thread. Do CPU-bound work on the thread pool (via `Task.Run` or `Parallel.ForEach`), then dispatch results back. `ConfigureAwait(true)` on the outer await when the continuation touches collections.
+    - `Parallel.ForEach` over a list of independent files is the standard pattern when per-file work is CPU-heavy. Protect any shared accumulator with a lock.
+    - Add a `_refreshing` flag on any refresh command whose work can overlap itself. Duplicate scans waste cycles and can race with collection clears.
 - Build vs Run Protocol:
     - Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
     - Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
