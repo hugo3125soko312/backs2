@@ -1,12 +1,15 @@
 {
-    "files.exclude": {
-        "**/.git": true,
-        "**/.svn": true,
-        "**/.hg": true,
-        "**/.jj": true,
-        "**/.DS_Store": true,
-        "**/Thumbs.db": true
-    },
-    "hide-files.files": [],
-    "axaml.selectedSolution": "c:\\Users\\petri\\Desktop\\programming\\backs2"
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/.jj": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true
+  },
+  "hide-files.files": [],
+  "axaml.selectedSolution": "c:\\Users\\petri\\Desktop\\programming\\backs2",
+
+  "dotnet.backgroundAnalysis.analyzerDiagnosticsScope": "openFiles",
+  "dotnet.backgroundAnalysis.compilerDiagnosticsScope": "openFiles"
 }
