@@ -83,6 +83,31 @@ Replace the manual "Calibrate Click" step with a visual pass that finds the late
 
 ---
 
+## Phase 18: Data Tab Enhancements [PLANNED]
+
+### Phase 18A -- Total Range column
+Add a `Total Range` column to the Data tab grid showing the span covered by each cached dataset (earliest bar timestamp → latest bar timestamp, formatted as `Nd Nh` / `Nmo Nd` / `Ny Nmo` depending on magnitude).
+
+- [ ] Expose `MinT` / `MaxT` on `DataEntry` (`src/core/DataManager.cs`). `CacheManager.ReadCacheMetadata` already collects both in a single pass over `bars[]` (see `docs/ARCHITECTURE.md` §7) — surface them through `DataEntry`.
+- [ ] Add `RangeDisplay` to `DataRowViewModel` (`src/gui/Data/DataRowViewModel.cs`) using the same duration-formatting style as `ProviderDatasetRow.FormatDuration` (`src/gui/Providers/ProviderDatasetRow.cs`) so the two tabs are visually consistent.
+- [ ] Insert a `Total Range` `DataGridTemplateColumn` in `src/gui/Data/DataView.axaml`. Decide column order — suggested between `Modified` and `Path`.
+- [ ] Sort and filter: add `FilterRange` text box in Row 2 and a `RangeSortGlyph`; sort on the raw duration (`MaxT - MinT`, numeric) rather than the display string.
+- [ ] Hide on group-header rows via `IsVisible="{Binding !IsGroupHeader}"` like every other column.
+- [ ] Sparse-data edge case: a dataset with `MinT <= 0 || MaxT <= 0 || MaxT <= MinT` renders `—` and is excluded from range-based sorting (same rule as `ProviderDatasetRow`).
+
+### Phase 18B -- Data tab first-click latency
+The Data tab is the first tab a user interacts with after startup, and its ViewModel is now constructed lazily (Phase 17) — the ~450 ms `AccountService` cost is gone, but `DataViewModel` construction still does a synchronous `RefreshData()` inside its ctor. On a cache with many files, `_dataManager.GetAvailableData()` reads and parses metadata for every `*.json` under `data/cache/`, blocking the UI thread on first tab open.
+
+- [ ] Instrument: add `Stopwatch` markers around `DataViewModel` ctor body (TimeframeMap population, `AvailableProviders` population, `RefreshData()`) and around `DataManager.GetAvailableData`. Log via `LogManager.Info(LogTag.Data, ...)` the way `App.axaml.cs` does for startup. Baseline before optimising.
+- [ ] Profile: determine how much of `GetAvailableData` time is `Directory.EnumerateFiles` vs. per-file `ReadCacheMetadata`. The metadata pass is single-pass over `bars[]` (already good) — the question is whether N files × parse dominates at realistic N.
+- [ ] Candidate A (cheap): move `RefreshData()` out of the ctor into an async kick-off after first render. The grid shows empty briefly, then populates — the tab is interactive immediately.
+- [ ] Candidate B (mid): parallelise the per-file metadata reads with a bounded `Parallel.ForEach`. Files are independent; `ReadCacheMetadata` doesn't hold locks. Should scale linearly with cores.
+- [ ] Candidate C (expensive, likely wrong): maintain an in-memory index of cache files, rebuilt only when `data/cache/` changes. Requires a `FileSystemWatcher` or a manual refresh hook — probably overkill for a directory that changes only on Fetch.
+- [ ] Same treatment for the post-fetch refresh: `FetchInternal` calls `RefreshData()` synchronously after the fetch completes. Confirm whether that blocks the UI meaningfully when only one file was added — likely a no-op given the cache is small, but worth measuring.
+- [ ] Acceptance: tab is interactive within 100 ms of click on a warm cache; grid populates within 500 ms.
+
+---
+
 ## Phase 12: Hardening & Housekeeping [PLANNED]
 
 ---
