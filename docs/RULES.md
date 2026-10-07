@@ -70,6 +70,12 @@ ONLY SPEAK IN ENGLISH
 - XAML binding inside templates:
     - Use Binding DataContext.Prop with RelativeSource AncestorType=UserControl.
     - Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
+- GUI theming:
+    - All colors, sizes, spacing, and fonts come from `src/gui/Theme/Tokens.axaml`. Reference tokens via `{DynamicResource TokenName}` in XAML.
+    - Never hardcode hex codes in view XAML. The tokens are the single source of truth for the palette.
+    - The shell (custom title bar, left nav rail, status bar) lives in `MainWindow.axaml` and consumes the same tokens. Do not add chrome-specific colors outside the token file.
+    - Navigation commands go in `src/gui/MainViewModel.Shell.cs`. They set `ActiveTabIndex` and do nothing else.
+    - Fullscreen is set from `MainWindow.Opened` and re-applied from `Activated` when the state returns to `Normal`. Never use `WindowState="Maximized"` — DWM applies rounded corners to Maximized + ExtendClientArea windows on Windows 11.
 - Charting:
     - ScottPlot.Avalonia 5.0.55 is the standard.
 - Tab host & ViewModel resolution:

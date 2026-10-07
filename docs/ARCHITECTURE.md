@@ -131,6 +131,17 @@
 - RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 - ViewModel partial-class convention: where a tab's ViewModel grows past ~600 lines it is split into partial-class files alongside the core file. Precedent: `Mt5TickViewModel` (core + `.Extraction.cs` + `.Requester.cs` + `.Parsing.cs` + `.Tkc.cs`) and `MonteCarloViewModel` (core + `.Plots.cs` + `.Stats.cs` + `.Cluster.cs`). Each partial owns a disjoint set of private fields; cross-partial invalidation happens through a coordinator method on the core partial (e.g. `InvalidateAll`).
 
+## 8a. GUI Shell & Design Tokens
+
+- **Custom chrome.** `MainWindow.axaml` uses `ExtendClientAreaToDecorationsHint="True"` + `ExtendClientAreaChromeHints="NoChrome"` + `ExtendClientAreaTitleBarHeightHint="32"`. The OS title bar is not drawn; the app renders its own 32px title bar containing the menu and window controls.
+- **Fullscreen.** `WindowState.FullScreen` is applied from `MainWindow.Opened` and re-applied from `Activated` whenever the window returns to `Normal` (taskbar restore path). Not `Maximized` — on Windows 11, Maximized combined with ExtendClientArea leaves DWM rounded corners and a caption shadow on the window. `SystemDecorations="Full"` + `NoChrome` avoids both. `CanResize="False"` prevents Windows Snap. Alt+F4, Alt+Tab, and minimize-to-taskbar all work normally.
+- **Menu bar.** A `Menu` inside the custom title bar, VS Code-style. Items without implementations are present as `IsEnabled="False"` placeholders so the menu structure is legible. Navigation items bind to commands in `MainViewModel.Shell.cs` — they set `ActiveTabIndex` and nothing else. Window operations (Minimize, Exit) are `Click` handlers in `MainWindow.axaml.cs` since they need the Window instance.
+- **Left nav rail.** A `ListBox` on the left, width 180, `SelectedIndex` bound to `MainViewModel.ActiveTabIndex`. Twelve `ListBoxItem`s, one per tab, each with a 3px left accent stripe (`Border` with `IsVisible` gated on `IsSelected`) and a text label. Replaces the top `TabControl`. The `9`-is-Chart invariant and `MainViewModel.Receive(NavigateToTradeMessage)` work unchanged — the binding is still `SelectedIndex` ↔ `ActiveTabIndex`, just rendered vertically.
+- **Status bar.** Two-cell bottom bar. Left cell binds `MainViewModel.StatusText`. Right cell is a static placeholder reserved for a future contextual value (active account, queue count). Per-tab status lines (Data, Runner, MT5) remain inside their own views — the shell status bar is a separate strip, not a replacement.
+- **Design tokens.** `src/gui/Theme/Tokens.axaml` is a `ResourceDictionary` of `SolidColorBrush`, `x:Double`, `FontFamily`, and `CornerRadius` entries. Merged into `App.axaml` via `<ResourceInclude Source="avares://backs2/src/gui/Theme/Tokens.axaml"/>`. Every shell element uses `{DynamicResource TokenName}` — never hardcoded hex.
+- **`MainViewModel.Shell.cs`** is a partial-class file holding only navigation commands (one per tab). No DI graph, no state, no logic — pure `ActiveTabIndex = N` setters.
+- **Resolution target.** 1080p @ 100% scaling is the reference. Grid rows 26px, base text 12px, panel headers 16px, status bar 11px.
+
 ## 9. Tabs
 - Overview — last-run summary with per-dataset table and aggregate footer.
 - Runner — strategy catalog, parameter editor, source preview, preset save/load, run button.

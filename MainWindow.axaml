@@ -3,51 +3,288 @@
         xmlns:vm="using:backs2.ViewModels"
         x:Class="backs2.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="backs2 - Trading Engine"
-        Width="1000" Height="600">
+        Title="backs2"
+        WindowStartupLocation="Manual"
+        CanResize="False"
+        SystemDecorations="Full"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="32"
+        Background="{DynamicResource SurfaceApp}">
 
     <Window.Styles>
-        <Style Selector="TabItem">
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="MinHeight" Value="25"/>
+        <!-- ============ Menu bar ============ -->
+        <Style Selector="Menu">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style Selector="Menu > MenuItem">
             <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+        </Style>
+        <Style Selector="Menu > MenuItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{DynamicResource SurfaceElevated}"/>
+        </Style>
+
+        <!-- ============ Nav rail ============ -->
+        <Style Selector="ListBox.nav-rail">
+            <Setter Property="Background" Value="{DynamicResource SurfaceApp}"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="ListBox.nav-rail ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav-rail ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SurfacePanel}"/>
+        </Style>
+        <Style Selector="ListBox.nav-rail ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SurfacePanel}"/>
+        </Style>
+
+        <!-- ============ Title bar icon buttons ============ -->
+        <Style Selector="Button.titlebar-btn">
+            <Setter Property="Width" Value="44"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.titlebar-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SurfaceElevated}"/>
+            <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextPrimary}"/>
+        </Style>
+        <Style Selector="Button.titlebar-btn.close:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource SemanticDanger}"/>
+            <Setter Property="TextBlock.Foreground" Value="White"/>
         </Style>
     </Window.Styles>
 
-    <DockPanel>
-        <Border DockPanel.Dock="Bottom" Height="25" Background="#2D2D2D">
-            <TextBlock Text="{Binding StatusText}"
-                       Foreground="White"
-                       FontSize="11"
-                       VerticalAlignment="Center"
-                       Margin="10,0"/>
+    <DockPanel LastChildFill="True">
+
+        <!-- ==================== Custom title bar + menu ==================== -->
+        <Border DockPanel.Dock="Top"
+                Height="{DynamicResource TitleBarHeight}"
+                Background="{DynamicResource SurfaceApp}"
+                BorderBrush="{DynamicResource BorderDefault}"
+                BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+
+                <!-- Left: brand + menu -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="backs2"
+                               FontWeight="SemiBold"
+                               FontSize="13"
+                               Foreground="{DynamicResource TextPrimary}"
+                               VerticalAlignment="Center"
+                               Margin="12,0,16,0"/>
+
+                    <Menu VerticalAlignment="Center">
+                        <MenuItem Header="File">
+                            <MenuItem Header="New Strategy" IsEnabled="False"/>
+                            <MenuItem Header="Open Strategy" IsEnabled="False"/>
+                            <Separator/>
+                            <MenuItem Header="Import Data" IsEnabled="False"/>
+                            <MenuItem Header="Export Results" IsEnabled="False"/>
+                            <Separator/>
+                            <MenuItem Header="Exit" Click="OnExitClick"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Data">
+                            <MenuItem Header="Fetch Symbol" Command="{Binding NavigateToDataCommand}"/>
+                            <MenuItem Header="Refresh Cache" IsEnabled="False"/>
+                            <MenuItem Header="Manage Queue…" IsEnabled="False"/>
+                            <MenuItem Header="Clear Stale Entries" IsEnabled="False"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Strategy">
+                            <MenuItem Header="Run" IsEnabled="False"/>
+                            <MenuItem Header="Cancel" IsEnabled="False"/>
+                            <Separator/>
+                            <MenuItem Header="Validate Script" IsEnabled="False"/>
+                            <MenuItem Header="Edit Parameters" IsEnabled="False"/>
+                            <MenuItem Header="Presets…" IsEnabled="False"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Analysis">
+                            <MenuItem Header="Overview" Command="{Binding NavigateToOverviewCommand}"/>
+                            <MenuItem Header="Monte Carlo" Command="{Binding NavigateToMonteCarloCommand}"/>
+                            <MenuItem Header="Metrics" Command="{Binding NavigateToMetricsCommand}"/>
+                            <MenuItem Header="Chart" Command="{Binding NavigateToChartCommand}"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Account">
+                            <MenuItem Header="Select Active" Command="{Binding NavigateToAccountsCommand}"/>
+                            <MenuItem Header="Manage Accounts" IsEnabled="False"/>
+                            <MenuItem Header="Reload Firms" IsEnabled="False"/>
+                        </MenuItem>
+
+                        <MenuItem Header="View">
+                            <MenuItem Header="Overview" Command="{Binding NavigateToOverviewCommand}"/>
+                            <MenuItem Header="Runner" Command="{Binding NavigateToRunnerCommand}"/>
+                            <MenuItem Header="Data" Command="{Binding NavigateToDataCommand}"/>
+                            <MenuItem Header="MT5 Ticks" Command="{Binding NavigateToMt5TicksCommand}"/>
+                            <MenuItem Header="Logs" Command="{Binding NavigateToLogsCommand}"/>
+                            <MenuItem Header="Config" Command="{Binding NavigateToConfigCommand}"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Window">
+                            <MenuItem Header="Minimize" Click="OnMinimizeClick"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Help">
+                            <MenuItem Header="Documentation" IsEnabled="False"/>
+                            <MenuItem Header="Shortcuts" IsEnabled="False"/>
+                            <MenuItem Header="About" IsEnabled="False"/>
+                        </MenuItem>
+                    </Menu>
+                </StackPanel>
+
+                <!-- Right: window controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button Classes="titlebar-btn"
+                            Content="—"
+                            Click="OnMinimizeClick"
+                            ToolTip.Tip="Minimize"/>
+                    <Button Classes="titlebar-btn close"
+                            Content="✕"
+                            Click="OnExitClick"
+                            ToolTip.Tip="Exit"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Tab strip only. TabItems carry no content, so nothing is
-             materialized for unselected tabs. -->
-        <TabControl DockPanel.Dock="Top"
-                    x:CompileBindings="False"
-                    SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
-            <TabItem Header="Overview" />
-            <TabItem Header="Runner" />
-            <TabItem Header="Monte Carlo" />
-            <TabItem Header="Metrics" />
-            <TabItem Header="Accounts" />
-            <TabItem Header="Data" />
-            <TabItem Header="Data Automation" />
-            <TabItem Header="MT5 Ticks" />
-            <TabItem Header="Providers" />
-            <TabItem Header="Chart" />
-            <TabItem Header="Logs" />
-            <TabItem Header="Config" />
-        </TabControl>
+        <!-- ==================== Status bar ==================== -->
+        <Border DockPanel.Dock="Bottom"
+                Height="{DynamicResource StatusBarHeight}"
+                Background="{DynamicResource SurfaceApp}"
+                BorderBrush="{DynamicResource BorderDefault}"
+                BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto" Margin="12,0">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusText}"
+                           FontSize="{DynamicResource FontSizeStatus}"
+                           Foreground="{DynamicResource TextSecondary}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="backs2 · backtesting engine"
+                           FontSize="{DynamicResource FontSizeStatus}"
+                           Foreground="{DynamicResource TextDisabled}"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
 
-        <!-- Single content host. Binds to MainViewModel.CurrentVm, which
-             returns the ViewModel for ActiveTabIndex. Only that ViewModel
-             is resolved from DI; the DataTemplates in App.axaml map it to
-             the matching View. -->
-        <ContentControl x:CompileBindings="False"
-                        Content="{Binding CurrentVm}" />
+        <!-- ==================== Main content: nav rail + content host ==================== -->
+        <Grid ColumnDefinitions="180,*">
+
+            <!-- Left nav rail -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource SurfaceApp}"
+                    BorderBrush="{DynamicResource BorderDefault}"
+                    BorderThickness="0,0,1,0">
+                <ListBox Classes="nav-rail"
+                         SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Overview" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Runner" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Monte Carlo" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Metrics" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Accounts" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Data" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Data Automation" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="MT5 Ticks" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Providers" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Chart" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Logs" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <Grid ColumnDefinitions="3,*">
+                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
+                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
+                            <TextBlock Grid.Column="1" Text="Config" Padding="12,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListBoxItem>
+                </ListBox>
+            </Border>
+
+            <!-- Content host -->
+            <ContentControl Grid.Column="1"
+                            x:CompileBindings="False"
+                            Content="{Binding CurrentVm}"/>
+        </Grid>
     </DockPanel>
 </Window>

@@ -735,3 +735,31 @@ Deferred to first-click (no longer on the startup path): Accounts tab (~450 ms -
 `docs/RULES.md` -- Views must not resolve their own ViewModels from the DI container in the constructor. See the "Tab host & ViewModel resolution" rule.
 '@
 Add-Content -Path 'docs\ROADMAP_ARCHIVE.md' -Value $entry
+## Phase 19: GUI Shell & Design Tokens [COMPLETED]
+
+Ship date: 2026-10-07.
+
+First pass of the professional GUI revamp. Establishes a design-token foundation and replaces the OS-chrome-plus-top-tabs shell with a custom title bar, VS Code-style menu, left nav rail, and two-cell status bar. The rest of the app's visual language (component patterns, per-tab reskins) is deferred to later phases.
+
+### Design tokens
+- `src/gui/Theme/Tokens.axaml` — ResourceDictionary of the full palette (surface ramp, text ramp, borders, accent, semantic), typography scale, spacing scale, radius, and shell dimensions. Merged into `App.axaml`.
+- Palette is Grafana-adjacent: `#0D1117` app bg, `#161B22` panel bg, `#21262D` elevated, `#000000` sunken (plots). Text `#E6EDF3` / `#848D97` / `#484F58`. Accent `#2F81F7`, hover `#458EF7`, pressed `#176BE0`. Semantic `#238636` / `#D29922` / `#F85149`. Border `#30363D`.
+- Typography: Inter for UI, Cascadia Code / Consolas for numerics. Sizes: 11 status, 12 grid, 14 body, 16 header.
+- Spacing 4/8/12/16. Radius 2px. Row height 26px. Title bar 32px. Status bar 24px. Nav rail 180px.
+
+### Shell
+- Custom title bar via `ExtendClientAreaToDecorationsHint` + `NoChrome`. Menu bar with File, Data, Strategy, Analysis, Account, View, Window, Help — most items are placeholders pending later phases.
+- Left nav rail (`ListBox` bound to `ActiveTabIndex`) replaces the horizontal `TabControl`. 3px accent stripe on the selected item.
+- Two-cell status bar at the bottom: `StatusText` on the left, static placeholder on the right.
+- `MainViewModel.Shell.cs` holds 12 navigation commands — pure `ActiveTabIndex = N` setters.
+
+### Fullscreen
+- `WindowState.FullScreen` applied from `Opened`, re-applied from `Activated` when the state returns to `Normal`. Handles the taskbar-restore path.
+- Rejected `WindowState="Maximized"` — Windows 11 DWM applies rounded corners to Maximized + ExtendClientArea windows, and the initial maximize was unreliable in Avalonia 11.0.x.
+
+### Deferred to later phases
+- Component patterns (buttons, inputs, grids, plot frames, modals) — Phase 3 of the design plan.
+- Per-tab reskins using the tokens — Phase 3/4.
+- Icons for the nav rail (currently text labels only).
+- Theme color configuration via the Config tab (planned as a separate feature).
+- Right cell of the status bar (active account + queue count) — blocked on wiring a lazy provider to avoid the Phase 17 startup-cost regression.
