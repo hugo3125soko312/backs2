@@ -2,9 +2,13 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
-             xmlns:cp="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls.ColorPicker"
+             xmlns:views="using:backs2.Views"
              x:Class="backs2.Views.ConfigView"
              x:DataType="vm:ConfigViewModel">
+
+    <UserControl.Resources>
+        <views:ColorToBrushConverter x:Key="ColorToBrush"/>
+    </UserControl.Resources>
 
     <ScrollViewer>
         <StackPanel Margin="20" Spacing="12">
@@ -16,38 +20,82 @@
                     <DataTemplate x:DataType="vm:SettingItem">
                         <StackPanel Margin="0,0,0,12">
                             <Label Content="{Binding DisplayName}" FontSize="12" Opacity="0.8"/>
-                            
-                            <NumericUpDown Value="{Binding IntValue}" 
-                                           IsVisible="{Binding IsInt}" 
+
+                            <NumericUpDown Value="{Binding IntValue}"
+                                           IsVisible="{Binding IsInt}"
                                            Minimum="0" Maximum="9999" />
-                            
-                            <NumericUpDown Value="{Binding DoubleValue}" 
-                                           IsVisible="{Binding IsDouble}" 
-                                           Minimum="0" Maximum="9999" 
+
+                            <NumericUpDown Value="{Binding DoubleValue}"
+                                           IsVisible="{Binding IsDouble}"
+                                           Minimum="0" Maximum="9999"
                                            Increment="0.1" />
-                            
-                            <TextBox Text="{Binding StringValue}" 
+
+                            <TextBox Text="{Binding StringValue}"
                                      IsVisible="{Binding IsString}" />
-                            
-                            <ToggleSwitch IsChecked="{Binding BoolValue}" 
+
+                            <ToggleSwitch IsChecked="{Binding BoolValue}"
                                           IsVisible="{Binding IsBool}" />
-                            
-                            <cp:ColorPicker Color="{Binding ColorValue}" 
-                                            IsVisible="{Binding IsColor}" 
-                                            ColorSpectrumShape="Ring"
-                                            HorizontalAlignment="Left" />
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <!-- ==================== Theme Colors ==================== -->
+            <Expander Header="Theme Colors"
+                      FontSize="14"
+                      FontWeight="SemiBold"
+                      Margin="0,10,0,0"
+                      IsExpanded="False"
+                      HorizontalAlignment="Stretch">
+                <StackPanel Margin="0,8,0,0" Spacing="8">
+                    <TextBlock Text="Edit any color, then click Save Settings to apply live."
+                               FontSize="11"
+                               Opacity="0.7"
+                               TextWrapping="Wrap"/>
+
+                    <ItemsControl ItemsSource="{Binding ThemeSettings}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SettingItem">
+                                <Grid ColumnDefinitions="220,*" Margin="0,0,0,6">
+                                    <Label Grid.Column="0"
+                                           Content="{Binding DisplayName}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"/>
+
+                                    <Button Grid.Column="1"
+                                            Width="60" Height="28"
+                                            Padding="0"
+                                            HorizontalAlignment="Left"
+                                            Background="{DynamicResource SurfaceElevated}"
+                                            BorderBrush="{DynamicResource BorderDefault}"
+                                            BorderThickness="1"
+                                            Click="OnColorButtonClick"
+                                            Tag="{Binding}">
+                                        <Border Width="52" Height="22"
+                                                CornerRadius="2"
+                                                BorderBrush="{DynamicResource BorderDefault}"
+                                                BorderThickness="1"
+                                                Background="{Binding ColorValue, Converter={StaticResource ColorToBrush}}"/>
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Content="Reset to Defaults"
+                            Click="OnResetThemeClick"
+                            HorizontalAlignment="Left"
+                            Margin="0,4,0,0"/>
+                </StackPanel>
+            </Expander>
+
+            <!-- ==================== Provider Order ==================== -->
             <TextBlock Text="Provider Order (first success wins)"
                        FontSize="14" FontWeight="SemiBold"
                        Margin="0,10,0,0"/>
 
             <Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,Auto,Auto">
 
-                <!-- Available -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                     <TextBlock Text="Available" FontSize="11" Opacity="0.7"/>
                     <ListBox ItemsSource="{Binding AvailableProviders}"
@@ -55,7 +103,6 @@
                              Height="120"/>
                 </StackPanel>
 
-                <!-- Center buttons -->
                 <StackPanel Grid.Row="0" Grid.Column="1"
                             VerticalAlignment="Center"
                             Spacing="4" Margin="8,0">
@@ -63,7 +110,6 @@
                     <Button Content="←" Command="{Binding RemoveProviderCommand}" Width="32"/>
                 </StackPanel>
 
-                <!-- Current order -->
                 <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4">
                     <TextBlock Text="In Order" FontSize="11" Opacity="0.7"/>
                     <ListBox ItemsSource="{Binding ProviderOrder}"

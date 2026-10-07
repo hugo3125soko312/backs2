@@ -763,3 +763,38 @@ First pass of the professional GUI revamp. Establishes a design-token foundation
 - Icons for the nav rail (currently text labels only).
 - Theme color configuration via the Config tab (planned as a separate feature).
 - Right cell of the status bar (active account + queue count) — blocked on wiring a lazy provider to avoid the Phase 17 startup-cost regression.
+
+## Phase 20: Theme Color Configuration [COMPLETED]
+
+Ship date: 2026-10-07.
+
+Adds a user-editable theme palette to the Config tab. Each of the 14 design tokens introduced in Phase 19 is now backed by an `AppSettings` property, surfaced as a color swatch in a collapsed "Theme Colors" expander, and applied live to the shell on confirmation.
+
+### Settings
+- `AppSettings` gains 14 `Theme*Color` string properties (app bg, panel bg, elevated, sunken, text primary/secondary/disabled, border, accent, accent hover, accent pressed, semantic success/warn/danger). Defaults match the shipped palette.
+- `ConfigManager.LoadConfig` seeds every property with `??=` so pre-theme `settings.json` files load cleanly.
+
+### Applier
+- `src/gui/Theme/ThemeApplier.cs` — static. Parses each `Theme*Color` with `Color.TryParse` and writes a `SolidColorBrush` into `Application.Current.Resources` for the matching token key. Silently skips unparseable values, so a bad hand-edit of `settings.json` degrades to the token default rather than throwing.
+- Called from `App.axaml.cs` immediately after `ConfigManager` resolves, before `MainWindow` constructs. Called again from `ConfigViewModel.ApplyThemePreview` on color-dialog OK.
+
+### Config tab
+- `SettingItem.IsColor` (existing) routes any `string` property whose name contains "Color" into `ConfigViewModel.ThemeSettings`. Everything else stays in `DynamicSettings`.
+- `ConfigView.axaml` gains a collapsed `Expander` labelled "Theme Colors" between Engine Settings and Provider Order. Each row is a `Label` + a 60×28 swatch button (`ColorToBrushConverter` binds the `ColorValue` to a background).
+- A "Reset to Defaults" button inside the expander restores the shipped palette in memory; Save Settings persists.
+
+### Color picker
+- `src/gui/Config/ColorPickerWindow.axaml` — modal `Window` built from the primitive controls (`ColorSpectrum`, `ColorSlider`, `ColorPreviewer`) rather than `ColorPicker` / `ColorView`.
+- **Why not the standard controls:** `ColorPicker` (and its `ColorView` sibling) exhibited two reproducible failures in Avalonia 11.0.11 — the popup's inner content lazy-loads on first click, freezing the app for a beat; and when instantiated directly in a `Window` the templated content rendered transparent. Both are documented in Avalonia discussions #9128 and #9098.
+- The dialog exposes: the ring spectrum, a numeric Brightness slider (0–100) that reaches pure black at 0, a preview swatch, a hex input (`#RRGGBB`), and a live RGB readout.
+- Hex/spectrum/slider stay in sync via an `_syncing` guard in `ColorPickerWindow.axaml.cs`. Slider at 0 produces true black regardless of the hue-ring position.
+
+### Live apply semantics
+- On OK: `ConfigView.axaml.cs` writes `picker.Result` into the `SettingItem.ColorValue` and calls `ConfigViewModel.ApplyThemePreview(item)`, which re-runs `ThemeApplier.Apply` against the current settings. The shell recolors immediately.
+- Persistence is still gated on the Save Settings button. Closing the app without Save reverts to the on-disk palette on next launch.
+- This deliberately splits "preview" from "commit". The user sees the change live but has to opt into writing it to `settings.json`.
+
+### Deferred
+- Importing or exporting palettes.
+- Preset theme packs (a named palette picker).
+- Live-updating already-open plot backgrounds when the sunken color changes — ScottPlot surfaces are configured at render, so a plot theme change requires a tab reload.

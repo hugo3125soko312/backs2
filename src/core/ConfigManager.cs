@@ -35,6 +35,27 @@ public class AppSettings
     // resolve bases\{broker}\ticks\{symbol}\YYYYMM.tkc.
     public string Mt5TerminalDataRoot { get; set; } = "";
     public string Mt5TerminalBroker   { get; set; } = "";
+
+    // ==================== Theme ====================
+    // ARGB hex strings. Parsed by Avalonia.Media.Color.TryParse and
+    // written into Application.Current.Resources by ThemeApplier. The
+    // Config tab renders each of these as a ColorPicker because the
+    // name contains "Color" (see SettingItem.IsColor).
+    // Defaults match src/gui/Theme/Tokens.axaml.
+    public string ThemeAppBgColor          { get; set; } = "#FF0D1117";
+    public string ThemePanelBgColor        { get; set; } = "#FF161B22";
+    public string ThemeElevatedColor       { get; set; } = "#FF21262D";
+    public string ThemeSunkenColor         { get; set; } = "#FF000000";
+    public string ThemeTextPrimaryColor    { get; set; } = "#FFE6EDF3";
+    public string ThemeTextSecondaryColor  { get; set; } = "#FF848D97";
+    public string ThemeTextDisabledColor   { get; set; } = "#FF484F58";
+    public string ThemeBorderColor         { get; set; } = "#FF30363D";
+    public string ThemeAccentColor         { get; set; } = "#FF2F81F7";
+    public string ThemeAccentHoverColor    { get; set; } = "#FF458EF7";
+    public string ThemeAccentPressedColor  { get; set; } = "#FF176BE0";
+    public string ThemeSemanticSuccessColor { get; set; } = "#FF238636";
+    public string ThemeSemanticWarnColor   { get; set; } = "#FFD29922";
+    public string ThemeSemanticDangerColor { get; set; } = "#FFF85149";
 }
 
 public class ConfigManager
@@ -145,6 +166,23 @@ public class ConfigManager
         Settings.Mt5Host ??= "127.0.0.1";
         Settings.Mt5TerminalDataRoot ??= "";
         Settings.Mt5TerminalBroker ??= "";
+
+        // Theme defaults — populated when an older settings.json
+        // (written before the theme system existed) is loaded.
+        Settings.ThemeAppBgColor ??= "#FF0D1117";
+        Settings.ThemePanelBgColor ??= "#FF161B22";
+        Settings.ThemeElevatedColor ??= "#FF21262D";
+        Settings.ThemeSunkenColor ??= "#FF000000";
+        Settings.ThemeTextPrimaryColor ??= "#FFE6EDF3";
+        Settings.ThemeTextSecondaryColor ??= "#FF848D97";
+        Settings.ThemeTextDisabledColor ??= "#FF484F58";
+        Settings.ThemeBorderColor ??= "#FF30363D";
+        Settings.ThemeAccentColor ??= "#FF2F81F7";
+        Settings.ThemeAccentHoverColor ??= "#FF458EF7";
+        Settings.ThemeAccentPressedColor ??= "#FF176BE0";
+        Settings.ThemeSemanticSuccessColor ??= "#FF238636";
+        Settings.ThemeSemanticWarnColor ??= "#FFD29922";
+        Settings.ThemeSemanticDangerColor ??= "#FFF85149";
     }
 
     public void SaveConfig()

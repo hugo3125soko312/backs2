@@ -76,6 +76,9 @@ ONLY SPEAK IN ENGLISH
     - The shell (custom title bar, left nav rail, status bar) lives in `MainWindow.axaml` and consumes the same tokens. Do not add chrome-specific colors outside the token file.
     - Navigation commands go in `src/gui/MainViewModel.Shell.cs`. They set `ActiveTabIndex` and do nothing else.
     - Fullscreen is set from `MainWindow.Opened` and re-applied from `Activated` when the state returns to `Normal`. Never use `WindowState="Maximized"` — DWM applies rounded corners to Maximized + ExtendClientArea windows on Windows 11.
+    - Theme colors live on `AppSettings` as `Theme*Color` ARGB hex strings. Add a new themable color by declaring the property, adding a default in `ConfigManager.LoadConfig` and in `Tokens.axaml`, and mapping it in `ThemeApplier.Apply`. The Config tab auto-renders it in the Theme Colors expander.
+    - Never use Avalonia's `ColorPicker` or `ColorView` in this app. Both exhibit first-click lazy-load freezes and blank-render bugs in 11.0.x (Avalonia discussions #9128 / #9098). The supported picker is `src/gui/Config/ColorPickerWindow.axaml`, built from `ColorSpectrum` + `ColorSlider` + `ColorPreviewer`.
+    - Clicking OK in the color picker applies the theme live via `ConfigViewModel.ApplyThemePreview`. Persistence still requires the Save Settings button. Do not auto-save from the color dialog.
 - Charting:
     - ScottPlot.Avalonia 5.0.55 is the standard.
 - Tab host & ViewModel resolution:

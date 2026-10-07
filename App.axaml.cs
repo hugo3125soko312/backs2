@@ -8,6 +8,7 @@ using backs2.Core.DataAutomation;
 using backs2.Core.MT5;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
+using backs2.Theme;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -43,6 +44,8 @@ public partial class App : Application
         var cfg = Services.GetRequiredService<ConfigManager>();
         LogManager.SetMinimumLevel(cfg.Settings.LogLevel);
         LogManager.Info(LogTag.App, $"[startup] ConfigManager resolved in {cfgSw.ElapsedMilliseconds}ms (LogLevel={cfg.Settings.LogLevel})");
+
+        ThemeApplier.Apply(cfg.Settings);
 
         var mt5Sw = Stopwatch.StartNew();
         try

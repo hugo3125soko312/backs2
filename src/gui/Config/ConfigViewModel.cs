@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Providers;
+using backs2.Theme;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace backs2.ViewModels;
@@ -42,7 +43,7 @@ public partial class SettingItem : ObservableObject
         else if (IsBool) BoolValue = (bool)(val ?? false);
         else if (IsColor)
         {
-            var s = (string)(val ?? "#FFFFFFFF");
+            var s = (string)(val ?? "#FF0D1117");
             if (Avalonia.Media.Color.TryParse(s, out var c)) ColorValue = c;
         }
         else if (IsString) StringValue = (string)(val ?? "");
@@ -63,6 +64,7 @@ public partial class ConfigViewModel : ObservableObject
     private readonly ConfigManager _config;
 
     public ObservableCollection<SettingItem> DynamicSettings { get; } = new();
+    public ObservableCollection<SettingItem> ThemeSettings { get; } = new();
     public ObservableCollection<string> ProviderOrder { get; } = new();
     public ObservableCollection<string> AvailableProviders { get; } = new();
 
@@ -76,7 +78,10 @@ public partial class ConfigViewModel : ObservableObject
         foreach (var prop in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (prop.Name == nameof(AppSettings.ProviderOrder)) continue;
-            DynamicSettings.Add(new SettingItem(prop, _config.Settings));
+
+            var item = new SettingItem(prop, _config.Settings);
+            if (item.IsColor) ThemeSettings.Add(item);
+            else DynamicSettings.Add(item);
         }
 
         DiscoverProviders(serviceProvider);
@@ -155,9 +160,15 @@ public partial class ConfigViewModel : ObservableObject
             setting.Apply(_config.Settings);
         }
 
+        foreach (var setting in ThemeSettings)
+        {
+            setting.Apply(_config.Settings);
+        }
+
         _config.Settings.ProviderOrder = new List<string>(ProviderOrder);
 
         _config.SaveConfig();
+        ThemeApplier.Apply(_config.Settings);
         LogManager.Info(LogTag.Config, "settings saved");
     }
 }
