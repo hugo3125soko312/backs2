@@ -114,6 +114,7 @@ public partial class App : Application
 
         // Parameter optimizer batch archives
         services.AddSingleton<OptimizationStore>();
+        services.AddSingleton<OptimizationRunner>();
 
         // Compute worker: process-isolated strategy / Monte Carlo execution.
         services.AddSingleton<ComputeWorkerManager>();
