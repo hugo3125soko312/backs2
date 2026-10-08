@@ -2,6 +2,7 @@
 /obj
 /.env
 data/cache
+data/optimizations
 logs/
 config/settings.json
 /data/ticks

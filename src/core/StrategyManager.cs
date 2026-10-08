@@ -29,6 +29,15 @@ public class StrategyManager
 
     private sealed record CachedScript(DateTime LastWriteUtc, long Size, ScriptRunner<object?> Runner);
 
+    /// <summary>
+    /// Serialises backtests through a single-thread throttle. Enabled by
+    /// default for the single-run UI path. The parameter optimizer sets this
+    /// to false after the --verify-strategy-parallelism check confirms the
+    /// compiled <see cref="ScriptRunner{T}"/> is safe for concurrent
+    /// invocation (see docs/ROADMAP_ARCHIVE.md Phase 26B.1).
+    /// </summary>
+    public bool SerializeBacktests { get; set; } = true;
+
     public StrategyManager(MetricRegistry registry)
     {
         _registry = registry;
@@ -41,7 +50,14 @@ public class StrategyManager
         CancellationToken ct = default)
     {
         var started = DateTime.UtcNow;
-        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+
+        bool tookLock = false;
+        if (SerializeBacktests)
+        {
+            await _throttle.WaitAsync(ct).ConfigureAwait(false);
+            tookLock = true;
+        }
+
         try
         {
             if (!System.IO.File.Exists(path))
@@ -96,13 +112,19 @@ public class StrategyManager
         }
         finally
         {
-            _throttle.Release();
+            if (tookLock) _throttle.Release();
         }
     }
 
     public async Task RunBacktestAsync(string script, List<Kline> data)
     {
-        await _throttle.WaitAsync().ConfigureAwait(false);
+        bool tookLock = false;
+        if (SerializeBacktests)
+        {
+            await _throttle.WaitAsync().ConfigureAwait(false);
+            tookLock = true;
+        }
+
         try
         {
             var recorder = new TradeRecorder(data);
@@ -124,7 +146,7 @@ public class StrategyManager
         }
         finally
         {
-            _throttle.Release();
+            if (tookLock) _throttle.Release();
         }
     }
 

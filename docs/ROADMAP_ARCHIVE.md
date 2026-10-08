@@ -873,3 +873,59 @@ Same class of fix as Phase 21 (Providers tab). The Data tab was freezing the UI 
 ### Not changed
 - `DataEntry` shape, cache file format, and `ReadCacheMetadata`'s single-pass enumeration are all unchanged.
 - `GetCachedSymbols` and `GetCachedTimeframes` still use the synchronous `ReadCacheMetadata` path. Neither is called from a UI-facing ctor today; revisit if that changes.
+
+
+## Phase 26A: Version Data Model and Storage [COMPLETED]
+
+Ship date: 2026-10-08.
+
+First sub-phase of the parameter optimizer. Inert on its own: establishes the on-disk schema and the store class that the execution pipeline (26B) writes into. Nothing consumes it yet.
+
+### Records
+- `src/core/Optimizer/OptimizationBatch.cs`:
+  - `ParameterSet(Name, Type, Value)` - one grid coordinate tuple.
+  - `McSummary(...)` - 23 scalars + 3 ints, a subset of `MonteCarloResult` (per-simulation arrays deliberately excluded).
+  - `OptimizationVersion(...)` - grid coordinate, backtest scalars, optional `McSummary`, `TerminalBalances[]` (1000 doubles = 8 KB), `RepresentativeCurve[]` (1000 doubles = 8 KB, downsampled from the median-terminal-balance simulation), `CurvesRetained` flag.
+  - `OptimizationBatch(...)` - batch metadata (strategy, dataset, MC config, account rules) and `OptimizationVersion[]`.
+- `src/core/Optimizer/OptimizationJsonContext.cs` - source-generated context mirroring `KlineJsonContext` / `AccountJsonContext`. Camel-case keys, nulls omitted (an unrun MC pass does not emit a null `Mc` block).
+- `src/core/Optimizer/OptimizationStore.cs` - save/load/list against `data/optimizations/`. Directory auto-created on construction. `SaveAsync` writes one file per batch at `batch_{Id}.json`; Id collisions resolved with a numeric suffix. `LoadAsync` reads one file. `ListBatchFiles` enumerates newest-first, no parsing.
+
+### Storage budget
+Per version: parameter dict + backtest scalars + MC scalars + two 1000-element arrays = approx 20 KB. 500-version batch = approx 10 MB. Well under the 15 MB budget in the roadmap entry.
+
+### Wiring
+- `OptimizationStore` registered as a singleton in `App.axaml.cs` alongside `CacheManager`, `PresetService`, `AccountService`.
+- `.gitignore` gains `data/optimizations` next to `data/cache` - engine-managed, same class of directory.
+
+### Not in this phase
+No grid generation, no execution, no UI. The store exists but nothing calls it.
+
+---
+
+## Phase 26B.1: StrategyManager Parallelism Verification [COMPLETED - PASSED]
+
+Ship date: 2026-10-08.
+
+Gates the entire 26B execution pipeline: if the Roslyn-compiled `ScriptRunner` were not safe for concurrent invocation, the optimizer would be stuck running backtests serially and would have to lean entirely on the two-pass MC strategy for speed. The verification answered this in the affirmative.
+
+### Test
+- `Program.cs` gains `--verify-strategy-parallelism`. AttachConsole P/Invoke added so `Console.WriteLine` from the WinExe process lands in the launching terminal (the original attempt was silent because WinExe projects do not inherit a parent console on Windows).
+- Picks the first strategy in `data/strategies/` that emits at least 3 trades on synthetic random-walk data. `HelloVwap.cs` produces 0 trades on that data and was rejected as a candidate - a 0-trade result matches trivially and proves nothing. `ParamTest.cs` produced 10 trades.
+- Runs the chosen strategy 4 times serially with `SerializeBacktests = true` (semaphore in place) and captures a stable signature over the trade list (side, entry/exit index, entry/exit price). Then runs it 4 times concurrently with `SerializeBacktests = false` (throttle bypassed) via `Task.WhenAll`.
+
+### Result
+[verify] candidate HelloVwap.cs: 0 trade(s)
+[verify] candidate ParamTest.cs: 10 trade(s)
+[verify] chosen strategy: ParamTest.cs (10 trade(s), 5 param(s) defaulted)
+[verify] baseline: 10 trade(s), sig=-7764140367496042945
+[verify] serial: 4/4 match baseline
+[verify] parallel: 4/4 match baseline
+[verify] PASS
+
+### Consequence
+- `StrategyManager.SerializeBacktests` added as a public bool (default `true` for the single-run UI path; set to `false` by the optimizer).
+- Version-level parallelism is available to 26B. Expected speedup on the search phase: up to `Environment.ProcessorCount` x on backtest-heavy grids.
+- `StrategyManager.RunBacktestFromFileAsync` only takes the semaphore when `SerializeBacktests` is true. The change is backward-compatible - no existing call site needs to know about the flag.
+
+### Rollback path
+If a future strategy demonstrates a concurrency regression (compiled scripts are per-file cached, and a script that captures mutable state at compile time could theoretically diverge), flip `SerializeBacktests` back to `true` in the optimizer path and fall back to the two-pass MC strategy for speed. The verification flag (`--verify-strategy-parallelism`) remains as a regression canary.

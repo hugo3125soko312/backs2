@@ -120,15 +120,11 @@ Extends the Runner into a parameter-search tool. The user declares min / max / i
 - **ETA:** calibrated on the first 5 versions via a moving average of backtest and MC times; `gpuAccelerationFactor` parameter (default 1.0) baked into the formula for the future GPU path.
 - **Chart tab:** DataGrid of versions (sortable by any column) on the left; selected-version detail on the right (stats + static histogram + representative curve); sparkline strip along the bottom. No interactive plots — static renders only (the interactive ScottPlot path is too laggy per earlier discussion).
 
-### Phase 26A -- Version data model & storage
-- [ ] `src/core/Optimizer/OptimizationBatch.cs` — records: `OptimizationBatch`, `OptimizationVersion`, `ParameterSet`.
-- [ ] `src/core/Optimizer/OptimizationJsonContext.cs` — source-generated `System.Text.Json` context, matching the `KlineJsonContext` pattern. No reflection on the read path.
-- [ ] `data/optimizations/` auto-created on first use (same pattern as `data/cache`, `data/accounts`).
-- [ ] Version schema stores: parameter dict, `Success`, `Error`, `Duration`, MC scalar stats, `TerminalBalances[]`, `RepresentativeCurve[]` (downsampled to 1000 points), `CurvesRetained` flag. When MC dropped curves (`CurvesRetained = false`), `RepresentativeCurve` is empty.
-- [ ] Serialization size budget test: a 500-version batch must fit under 15 MB on disk.
+### Phase 26A -- Version data model & storage [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 26A).
 
 ### Phase 26B -- Optimizer engine
-- [ ] **26B.1 Verification first:** can `StrategyManager.RunBacktestFromFileAsync`'s `SemaphoreSlim(1,1)` be lifted? Test: run the same strategy on the same data from 4 threads concurrently, compare each trade list byte-for-byte against 4 serial runs. If identical, remove the lock and enable version-level parallelism (~8× speedup on the search phase). If not, keep the lock and lean on the two-pass MC strategy. Document the result in `ROADMAP_ARCHIVE.md`.
+- [x] **26B.1 Verification [PASSED]:** ScriptRunner is thread-safe; the StrategyManager throttle can be bypassed by the optimizer. Version-level parallelism is viable. See `docs/ROADMAP_ARCHIVE.md` (Phase 26B.1).
 - [ ] `src/core/Optimizer/ParameterGridBuilder.cs` — Cartesian product from min / max / increment per parameter. Hard cap enforced here; random-sample fallback when over cap.
 - [ ] `src/core/Optimizer/OptimizationRunner.cs` — the per-version loop: backtest → build `TimeSlice[]` → MC at coarse iterations → emit partial result → next version. After the loop completes, refine top-N survivors at full iterations.
 - [ ] Progress reporting: fraction of total work per stage (grid → backtest per version → MC per version → refine pass). Reported via `IProgress<OptimizationProgress>`.

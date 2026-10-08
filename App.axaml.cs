@@ -6,6 +6,7 @@ using backs2.Core.Accounts;
 using backs2.Core.Compute;
 using backs2.Core.DataAutomation;
 using backs2.Core.MT5;
+using backs2.Core.Optimizer;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 using backs2.Theme;
@@ -110,6 +111,9 @@ public partial class App : Application
         services.AddSingleton<LastRunStore>();
         services.AddSingleton<MonteCarloEngine>();
         services.AddSingleton<SelectionQueue>();
+
+        // Parameter optimizer batch archives
+        services.AddSingleton<OptimizationStore>();
 
         // Compute worker: process-isolated strategy / Monte Carlo execution.
         services.AddSingleton<ComputeWorkerManager>();
