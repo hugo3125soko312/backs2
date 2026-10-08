@@ -108,6 +108,77 @@ The Data tab is the first tab a user interacts with after startup, and its ViewM
 
 ---
 
+## Phase 26: Parameter Optimizer & Version Store [PLANNED]
+
+Extends the Runner into a parameter-search tool. The user declares min / max / increment per numeric `@param`; the optimizer generates a bounded Cartesian grid, backtests each version, runs Monte Carlo per version, and surfaces the results in a repurposed Chart tab. Removes the source-preview pane, folds MC settings into the Runner, deletes the Monte Carlo tab, and deletes `NavigateToTradeMessage` (its cluster-plot publisher goes with the MC tab).
+
+### Design decisions locked (2026-10-08)
+- **Search:** bounded Cartesian with a configurable cap. Default cap **500 combinations** (`AppSettings.OptimizerMaxCombinations`). Above cap, the UI offers a random sample of the full grid.
+- **Two-pass MC:** **100 iterations** during the search phase (`OptimizerCoarseIterations`), full **1000+ iterations** on the **top 20 survivors** (`OptimizerRefineIterations`, `OptimizerRefineTopN`). All four values configurable.
+- **Version storage:** `data/optimizations/batch_{timestamp}.json`, one file per batch. Per version: parameter dict, backtest scalars, MC scalar stats (~30 doubles), `TerminalBalances[]` (1000 doubles), and a **downsampled representative equity curve** — the simulation closest to the median terminal balance, resampled to 1000 evenly-spaced points. ~20 KB per version; ~10 MB per 500-version batch.
+- **Execution:** sequential per version. MC saturates cores internally via its own `Parallel.For`; version-level parallelism is not pursued until 26B.1 verification passes.
+- **ETA:** calibrated on the first 5 versions via a moving average of backtest and MC times; `gpuAccelerationFactor` parameter (default 1.0) baked into the formula for the future GPU path.
+- **Chart tab:** DataGrid of versions (sortable by any column) on the left; selected-version detail on the right (stats + static histogram + representative curve); sparkline strip along the bottom. No interactive plots — static renders only (the interactive ScottPlot path is too laggy per earlier discussion).
+
+### Phase 26A -- Version data model & storage
+- [ ] `src/core/Optimizer/OptimizationBatch.cs` — records: `OptimizationBatch`, `OptimizationVersion`, `ParameterSet`.
+- [ ] `src/core/Optimizer/OptimizationJsonContext.cs` — source-generated `System.Text.Json` context, matching the `KlineJsonContext` pattern. No reflection on the read path.
+- [ ] `data/optimizations/` auto-created on first use (same pattern as `data/cache`, `data/accounts`).
+- [ ] Version schema stores: parameter dict, `Success`, `Error`, `Duration`, MC scalar stats, `TerminalBalances[]`, `RepresentativeCurve[]` (downsampled to 1000 points), `CurvesRetained` flag. When MC dropped curves (`CurvesRetained = false`), `RepresentativeCurve` is empty.
+- [ ] Serialization size budget test: a 500-version batch must fit under 15 MB on disk.
+
+### Phase 26B -- Optimizer engine
+- [ ] **26B.1 Verification first:** can `StrategyManager.RunBacktestFromFileAsync`'s `SemaphoreSlim(1,1)` be lifted? Test: run the same strategy on the same data from 4 threads concurrently, compare each trade list byte-for-byte against 4 serial runs. If identical, remove the lock and enable version-level parallelism (~8× speedup on the search phase). If not, keep the lock and lean on the two-pass MC strategy. Document the result in `ROADMAP_ARCHIVE.md`.
+- [ ] `src/core/Optimizer/ParameterGridBuilder.cs` — Cartesian product from min / max / increment per parameter. Hard cap enforced here; random-sample fallback when over cap.
+- [ ] `src/core/Optimizer/OptimizationRunner.cs` — the per-version loop: backtest → build `TimeSlice[]` → MC at coarse iterations → emit partial result → next version. After the loop completes, refine top-N survivors at full iterations.
+- [ ] Progress reporting: fraction of total work per stage (grid → backtest per version → MC per version → refine pass). Reported via `IProgress<OptimizationProgress>`.
+- [ ] Cancellation: single global `CancellationTokenSource` for the whole run, flowing into every backtest and MC call.
+
+### Phase 26C -- ETA estimator
+- [ ] `src/core/Optimizer/EtaEstimator.cs` — moving average of backtest and MC times, updated after each version. Blind for the first 5 versions, then extrapolates.
+- [ ] Formula: `ETA = remainingCombos * (AvgBacktestTime + AvgMCTime / gpuAccelerationFactor)`.
+- [ ] UI: `TextBlock` in the Runner, updated every ~5 seconds via a throttled timer to avoid UI thread jitter.
+- [ ] Per-parameter table extension: `RunnerParameterViewModel` gains `Min`, `Max`, `Increment` observable properties, a derived `ValueCount`, and a per-row preview.
+- [ ] `gpuAccelerationFactor` reads from a new `AppSettings.OptimizerGpuFactor` setting (default 1.0). Not exposed in the UI yet; the setting exists so the future GPU path is a value change, not a schema change.
+
+### Phase 26D -- Runner UI rework
+- [ ] **26D.1 (ship first):** Move MC settings (Iterations, Block Size, Ruin Threshold %, Best Day Rule %) from the MC tab into the Runner's parameter panel area. Runner stays fully functional; MC tab untouched in this step. This is the pause point that keeps MC available while the Runner rebuild happens.
+- [ ] **26D.2:** Delete the source-preview `TextBox` from `RunnerView.axaml`. The middle column becomes the strategy chooser — a searchable `DataGrid` (Name, Path, Modified, Parameter count) replacing the current `ListBox`.
+- [ ] `RunnerParameterViewModel` gains min / max / increment fields per numeric parameter. Derived `ValueCount` per parameter, `TotalCombinations` across all parameters. UI blocks `Optimize` when `TotalCombinations` exceeds the cap and offers a random-sample mode.
+- [ ] Add an `Optimize` button next to `Run`. `Run` keeps single-configuration behavior. `Optimize` runs the grid.
+- [ ] ETA display and progress bar wired to the optimizer.
+- [ ] Optimizer settings block (cap, coarse iters, refine iters, refine top N) added to the Runner's MC settings panel.
+
+### Phase 26E -- Monte Carlo tab removal
+- [ ] Delete `src/gui/MonteCarlo/MonteCarloViewModel.cs` and partials `.Plots.cs`, `.Stats.cs`, `.Cluster.cs`.
+- [ ] Delete `src/gui/MonteCarlo/MonteCarloView.axaml` + `.axaml.cs`.
+- [ ] Evaluate `src/core/Analysis/KMeansClusterer.cs` for orphan status; delete if the cluster plot was its only consumer.
+- [ ] Delete `src/gui/Messages/NavigateToTradeMessage.cs`.
+- [ ] Remove `IRecipient<NavigateToTradeMessage>` from `MainViewModel` and `ChartViewModel`; delete both `Receive` implementations.
+- [ ] Remove the Monte Carlo nav-rail item from `MainWindow.axaml`. **`ActiveTabIndex` shifts: Metrics 3→2, Accounts 4→3, Data 5→4, Data Automation 6→5, MT5 Ticks 7→6, Providers 8→7, Chart 9→8, Logs 10→9, Config 11→10.** Update every hardcoded index in `MainViewModel.Shell.cs` navigation commands. Audit for any other reference to index 2, 9, 10, or 11.
+- [ ] Unregister `MonteCarloViewModel` from `App.axaml.cs` (`ConfigureServices` and `Application.DataTemplates`).
+
+### Phase 26F -- Chart tab repurpose
+- [ ] `ChartViewModel` drops `Series`, `SelectedDataset`, `SelectedTimeframe`, all crosshair fields, `SetPlotControl`, and the `IRecipient` implementation. No longer consumes `SelectionQueue`.
+- [ ] New shape: `Batches` (list of optimization batch files on disk), `SelectedBatch`, `Versions` (per-version rows), `SelectedVersion`, `VersionDetail` (stat block + terminal-balance histogram + representative curve).
+- [ ] Left column: version `DataGrid` — combination index, one column per parameter, PRuin, PFunded, EdgePercent, median terminal balance. Sortable on every column.
+- [ ] Right pane: selected-version stats (the full 30-field block), static histogram image, static curve image. Renders generated off the UI thread and cached per version.
+- [ ] Bottom strip: sparkline images, one per version, up to a few hundred. Static; generated lazily.
+- [ ] Delete `ChartPlotBuilder.cs`, `ChartSeriesFactory.cs`, `ChartAxisFactory.cs` if unused after the rework.
+- [ ] Remove the keyboard pan/zoom tunnel handler from `ChartView.axaml.cs` (no interactive plots to navigate).
+
+### Phase 26G -- Compute worker migration
+- [ ] Move `OptimizationRunner` execution into the Compute Worker (`backs2.exe --worker`). Belongs with the eventual Compute Worker Phase 3 migration. Out of scope for 26A-F.
+
+### Deferred -- GPU acceleration
+See `docs/ARCHITECTURE.md` "Future: GPU acceleration" note (added with Phase 26's first commit). Summary: CPU-only today via `Parallel.For` inside `MonteCarloEngine.Run`; future path via a compute framework such as `ILGPU` or `ComputeSharp` for the hot `SimulateOnce` loop; keep `MonteCarloEngine.Run`'s public surface stable via an `IComputeBackend` parameter or a CPU/GPU split behind a common interface. `AppSettings.OptimizerGpuFactor` (26C) is the placeholder hook that lets the ETA model project a GPU-enabled run without a schema change.
+
+---
+
+## Phase 27: GPU-Accelerated Monte Carlo [PLANNED]
+Placeholder for the eventual GPU path described in `docs/ARCHITECTURE.md` "Future: GPU acceleration". Target the hot `SimulateOnce` loop in `MonteCarloEngine`. Expected shape: `MonteCarloEngine.Run` gains an `IComputeBackend` parameter or splits into CPU/GPU variants. Precondition: `AppSettings.OptimizerGpuFactor` and the ETA model in Phase 26C must already be shipped so the projection machinery is in place. Do not start until Phase 26 is fully closed.
+
+---
 ## Phase 22: Build Performance [PLANNED]
 
 Reduces the dev-loop build time. Baseline (measured 2026-10-07): incremental `dotnet build` = 7.14s, `dotnet build --no-incremental` = 15.56s. Phase 22 addresses the incremental loop via csproj hygiene and protocol changes. The dominant root cause -- the Avalonia 11.0.11 XAML compiler defeating incremental builds -- is tracked separately as Phase 23.
