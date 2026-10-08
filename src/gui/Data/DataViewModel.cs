@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -18,6 +19,11 @@ public partial class DataViewModel : ObservableObject
     private readonly SelectionQueue _queue;
     private readonly List<DataRowViewModel> _all = new();
     private readonly Dictionary<DataRowViewModel, List<DataRowViewModel>> _groupMembers = new();
+
+    // Latest-wins refresh. If a fetch completes and triggers a refresh while
+    // the ctor-triggered refresh is still in flight, the newer one cancels
+    // the older one instead of racing it.
+    private CancellationTokenSource? _refreshCts;
 
     public ObservableCollection<DataRowViewModel> Rows { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
@@ -68,7 +74,11 @@ public partial class DataViewModel : ObservableObject
         foreach (var p in config.Settings.ProviderOrder)
             AvailableProviders.Add(p);
 
-        RefreshData();
+        // Fire-and-forget: the tab renders immediately with "Scanning cache…"
+        // and the grid populates when the metadata scan completes. The
+        // continuation lands on the UI thread via ConfigureAwait(true) inside
+        // RefreshDataAsync.
+        _ = RefreshData();
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)
@@ -99,16 +109,33 @@ public partial class DataViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RefreshData()
+    private Task RefreshData() => RefreshDataAsync();
+
+    private async Task RefreshDataAsync()
     {
+        var prev = _refreshCts;
+        _refreshCts = new CancellationTokenSource();
+        prev?.Cancel();
+
+        var ct = _refreshCts.Token;
+
         try
         {
+            StatusText = "Scanning cache…";
+
+            var entries = await _dataManager.GetAvailableDataAsync(ct).ConfigureAwait(true);
+            if (ct.IsCancellationRequested) return;
+
             _all.Clear();
-            foreach (var entry in _dataManager.GetAvailableData())
+            foreach (var entry in entries)
                 _all.Add(new DataRowViewModel(entry, _queue));
 
             QueuedCount = _queue.Items.Count;
             ApplyView();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer refresh — nothing to do.
         }
         catch (Exception ex)
         {
@@ -163,7 +190,10 @@ public partial class DataViewModel : ObservableObject
                 return;
             }
 
-            RefreshData();
+            // Awaited: the cache listing must reflect the just-written file
+            // before we resolve its provider below. Cancels any in-flight
+            // ctor refresh via the CTS.
+            await RefreshData();
 
             string actual = ResolveProviderFromCache(symbol, timeframe);
 

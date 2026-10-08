@@ -332,6 +332,7 @@
   - `Cancel` closes with result `false` and commits nothing.
   - Window close button (X) behaves like Done — commits pending removals.
   - Two rows cannot be in-flight simultaneously — the modal owns a snapshot, mutations happen only on Done.
+- Refresh path: `DataViewModel` ctor fires `RefreshData` fire-and-forget. `DataManager.GetAvailableDataAsync` runs the per-file metadata reads under `Parallel.For` inside a `Task.Run`, so the tab renders immediately with `Scanning cache…` and populates when the scan completes. A `CancellationTokenSource` field gives latest-wins semantics — a fetch-triggered refresh cancels the in-flight ctor-triggered one instead of racing it. The synchronous `GetAvailableData` is kept for callers that already run off the UI thread; new UI-facing code should use the async overload.
 - Data tab layout:
   - **Grouped by ticker.** `Rows` carries one synthetic group-header `DataRowViewModel` (`IsGroupHeader = true`, `GroupLabel = "{Symbol}   ({N})"`) followed by that symbol's data rows. Header rows render bold `#4FC3F7` on the Symbol column, blank everywhere else. All cell templates gate on `IsVisible="{Binding !IsGroupHeader}"` so no empty cells appear on a header.
   - **Within-group order** is `TimeframeMap.All` index descending — widest bar first (1W, 1D, 4h, 1h, 15m, … 1m). Tiebreak on `Path`.

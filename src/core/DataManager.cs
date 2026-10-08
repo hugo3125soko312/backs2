@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -209,28 +210,71 @@ public class DataManager
         return new List<Kline>();
     }
 
+    /// <summary>
+    /// Synchronous metadata scan of data/cache. Kept for back-compat;
+    /// callers on the UI thread should prefer GetAvailableDataAsync.
+    /// </summary>
     public List<DataEntry> GetAvailableData()
     {
-        var entries = new List<DataEntry>();
+        var files = CollectCacheFiles();
+        var metas = new CacheMetadata?[files.Length];
+        for (int i = 0; i < files.Length; i++)
+            metas[i] = _diskCache.ReadCacheMetadata(files[i]);
 
-        const string cacheDir = "data/cache";
-        if (Directory.Exists(cacheDir))
+        return BuildEntries(files, metas);
+    }
+
+    /// <summary>
+    /// Off-thread, parallel metadata scan. Each file's ReadCacheMetadata
+    /// is independent — full JSON parse + full-bar enumeration — so the
+    /// Parallel.For cuts wall time by core count and Task.Run keeps the
+    /// UI thread free.
+    /// </summary>
+    public async Task<List<DataEntry>> GetAvailableDataAsync(CancellationToken ct = default)
+    {
+        return await Task.Run(() =>
         {
-            foreach (var file in Directory.GetFiles(cacheDir, "*.json"))
-            {
-                var info = new FileInfo(file);
-                var meta = _diskCache.ReadCacheMetadata(file);
+            var files = CollectCacheFiles();
+            var metas = new CacheMetadata?[files.Length];
 
-                entries.Add(new DataEntry(
-                    Symbol: meta?.Symbol ?? Path.GetFileNameWithoutExtension(info.Name),
-                    Timeframe: meta?.Timeframe ?? "",
-                    Tier: "Cache",
-                    Provider: meta?.Source ?? "Unknown",
-                    Path: info.FullName,
-                    SizeBytes: info.Length,
-                    LastModifiedLocal: info.LastWriteTime,
-                    HasVolume: meta?.HasVolume ?? false));
-            }
+            Parallel.For(
+                0,
+                files.Length,
+                new ParallelOptions { CancellationToken = ct },
+                i => metas[i] = _diskCache.ReadCacheMetadata(files[i]));
+
+            ct.ThrowIfCancellationRequested();
+            return BuildEntries(files, metas);
+        }, ct).ConfigureAwait(true);
+    }
+
+    private static string[] CollectCacheFiles()
+    {
+        const string cacheDir = "data/cache";
+        return Directory.Exists(cacheDir)
+            ? Directory.GetFiles(cacheDir, "*.json")
+            : Array.Empty<string>();
+    }
+
+    private List<DataEntry> BuildEntries(string[] cacheFiles, CacheMetadata?[] metas)
+    {
+        var entries = new List<DataEntry>(cacheFiles.Length + 16);
+
+        for (int i = 0; i < cacheFiles.Length; i++)
+        {
+            var file = cacheFiles[i];
+            var info = new FileInfo(file);
+            var meta = metas[i];
+
+            entries.Add(new DataEntry(
+                Symbol: meta?.Symbol ?? Path.GetFileNameWithoutExtension(info.Name),
+                Timeframe: meta?.Timeframe ?? "",
+                Tier: "Cache",
+                Provider: meta?.Source ?? "Unknown",
+                Path: info.FullName,
+                SizeBytes: info.Length,
+                LastModifiedLocal: info.LastWriteTime,
+                HasVolume: meta?.HasVolume ?? false));
         }
 
         if (Directory.Exists("data"))

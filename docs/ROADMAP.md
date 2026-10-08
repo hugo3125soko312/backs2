@@ -158,6 +158,24 @@ Root cause of the 7.14s incremental build. Avalonia PR #17539 (merged Nov 2024) 
 
 ---
 
+## Phase 24: Tab Responsiveness [IN PROGRESS]
+
+Extends the Phase 21 pattern (off-thread, parallel metadata scan + fire-and-forget ctor refresh) to the remaining tabs whose ViewModels do disk I/O in their constructors. Diagnosis from 2026-10-08: only Data and Accounts are affected. Config, Metrics, Overview, Logs, Chart, Runner, and Monte Carlo do no disk I/O in ctor and are already responsive.
+
+### Phase 24A -- Data tab [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 24A).
+
+### Phase 24B -- Accounts tab [PENDING]
+- [ ] `AccountService` ctor scans `data/accounts/` and parses each firm JSON. ~150 ms cold on first Accounts click.
+- [ ] Same pattern as 24A: async init + fire-and-forget from `AccountViewModel` ctor.
+- [ ] `MonteCarloViewModel` reads `AccountService.Active` at run start — needs a guard for the uninitialised state.
+- [ ] Optional: it is under the "noticeable freeze" bar; do only if the phase is otherwise cheap.
+
+### Phase 24C -- Config tab [CLOSED - no change]
+Provider discovery via `ActivatorUtilities.CreateInstance` completes in ~8 ms per the Phase 17 startup log. Nothing to fix. Closed for the record.
+
+---
+
 ## Phase 12: Hardening & Housekeeping [PLANNED]
 
 ---

@@ -850,3 +850,26 @@ First sub-phase of the build-performance work. Two csproj flags changed, nothing
 - Phase 22C (VS Code workspace settings -- `.vscode/settings.json` was already committed in a separate chore commit).
 - Phase 22D (measure and close -- acceptance threshold met early).
 - Phase 23 (Avalonia 11.3.x upgrade -- the real fix for the remaining 4s).
+
+## Phase 24A: Data Tab Async Refresh [COMPLETED]
+
+Ship date: 2026-10-08.
+
+Same class of fix as Phase 21 (Providers tab). The Data tab was freezing the UI for several seconds on first click because `DataViewModel`'s constructor ran a synchronous metadata scan of `data/cache` on the UI thread: `Directory.GetFiles` + `CacheManager.ReadCacheMetadata` per file (full JSON parse + full-bar enumeration to compute `HasVolume`, `MinT`, `MaxT`).
+
+### Change
+- `DataManager.GetAvailableDataAsync(CancellationToken)` added. Runs the file collection + per-file `ReadCacheMetadata` under `Parallel.For` inside a `Task.Run`, then builds the `DataEntry` list on the thread pool. The synchronous `GetAvailableData()` is retained for callers already off the UI thread.
+- `DataViewModel` ctor now fires `RefreshData` fire-and-forget. The tab renders immediately with `Scanning cache…` and populates when the scan completes.
+- Latest-wins: a `CancellationTokenSource?` field is stored per refresh. A new refresh cancels the previous one's token. `Parallel.For` receives the token via `ParallelOptions.CancellationToken`, and the token is checked after the parallel loop and again before touching `_all`.
+- `FetchInternal` awaits `RefreshData` after a successful fetch, so the just-written file is visible before the provider is resolved from cache metadata. This await also cancels any in-flight ctor refresh (correct — the fetch reflects newer state).
+
+### Why `Parallel.For` and not `Parallel.ForEach`
+`Parallel.For` with an index lets the results go into a pre-sized `CacheMetadata?[]` array. `Parallel.ForEach` would need a locked accumulator. Both work; the indexed form avoids the lock.
+
+### Result
+- Before: UI thread blocked for seconds on first Data-tab click; the tab was unusable until the scan finished.
+- After: tab interactive immediately; grid populates within roughly `wall / coreCount`.
+
+### Not changed
+- `DataEntry` shape, cache file format, and `ReadCacheMetadata`'s single-pass enumeration are all unchanged.
+- `GetCachedSymbols` and `GetCachedTimeframes` still use the synchronous `ReadCacheMetadata` path. Neither is called from a UI-facing ctor today; revisit if that changes.
