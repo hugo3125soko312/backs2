@@ -5,13 +5,11 @@
              x:Class="backs2.Views.RunnerView"
              x:DataType="vm:RunnerViewModel">
 
-    <Grid ColumnDefinitions="280,4,*,4,280" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid ColumnDefinitions="280,4,*" RowDefinitions="Auto,Auto,*,Auto">
 
-        <!-- ==================== Row 0: toolbar ==================== -->
-        <StackPanel Grid.Row="0" Grid.ColumnSpan="5"
+        <StackPanel Grid.Row="0" Grid.ColumnSpan="3"
                     Spacing="6"
                     Margin="8">
-
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="Run on:" VerticalAlignment="Center" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding QueueHint}"
@@ -40,39 +38,27 @@
             </StackPanel>
         </StackPanel>
 
-        <!-- ==================== Row 1: Monte Carlo settings ==================== -->
-        <Expander Grid.Row="1" Grid.ColumnSpan="5"
+        <Expander Grid.Row="1" Grid.ColumnSpan="3"
                   Header="Monte Carlo Settings"
                   IsExpanded="{Binding IsMcPanelExpanded, Mode=TwoWay}"
                   FontSize="12"
                   HorizontalAlignment="Stretch"
                   Margin="8,0,8,8">
-
             <StackPanel Spacing="8" Margin="4,6,4,4">
-
                 <Grid ColumnDefinitions="Auto,110,20,Auto,90,20,Auto,90,*">
-                    <TextBlock Grid.Column="0" Text="Iterations"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"
-                               Opacity="0.75" />
+                    <TextBlock Grid.Column="0" Text="Iterations" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
                     <NumericUpDown Grid.Column="1"
                                    Value="{Binding McIterations, Mode=TwoWay}"
                                    Minimum="10" Maximum="100000" Increment="100"
                                    FormatString="0" ShowButtonSpinner="False" />
 
-                    <TextBlock Grid.Column="3" Text="Block Size"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"
-                               Opacity="0.75" />
+                    <TextBlock Grid.Column="3" Text="Block Size" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
                     <NumericUpDown Grid.Column="4"
                                    Value="{Binding McBlockSize, Mode=TwoWay}"
                                    Minimum="1" Maximum="100" Increment="1"
                                    FormatString="0" ShowButtonSpinner="False" />
 
-                    <TextBlock Grid.Column="6" Text="Ruin Threshold %"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"
-                               Opacity="0.75" />
+                    <TextBlock Grid.Column="6" Text="Ruin Threshold %" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
                     <NumericUpDown Grid.Column="7"
                                    Value="{Binding McRuinThresholdPercent, Mode=TwoWay}"
                                    Minimum="1" Maximum="99" Increment="1"
@@ -91,61 +77,55 @@
             </StackPanel>
         </Expander>
 
-        <!-- ==================== Row 2: three-column content ==================== -->
+        <Border Grid.Row="2" Grid.Column="0"
+                Margin="8,0,0,0"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource BorderDefault}"
+                CornerRadius="4">
+            <Grid RowDefinitions="Auto,*,Auto" Margin="6">
 
-        <!-- Strategy list -->
-        <ListBox Grid.Row="2" Grid.Column="0"
-                 ItemsSource="{Binding Strategies}"
-                 SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}"
-                 Margin="8,0,0,0">
-            <ListBox.ItemTemplate>
-                <DataTemplate DataType="core:StrategyDescriptor">
-                    <StackPanel>
-                        <TextBlock Text="{Binding Name}"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Path}"
-                                   FontSize="10"
-                                   Opacity="0.6"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+                <TextBox Grid.Row="0"
+                         Text="{Binding StrategyFilter, Mode=TwoWay}"
+                         Watermark="Filter strategies..."
+                         Margin="0,0,0,6" />
+
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding FilteredStrategies}"
+                         SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="core:StrategyDescriptor">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Name}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Path}"
+                                           FontSize="10"
+                                           Opacity="0.6"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Button Grid.Row="2"
+                        Content="View Source..."
+                        Command="{Binding ViewSourceCommand}"
+                        HorizontalAlignment="Stretch"
+                        Margin="0,6,0,0" />
+            </Grid>
+        </Border>
 
         <GridSplitter Grid.Row="2" Grid.Column="1"
                       Width="4"
                       Background="Transparent"
                       ResizeDirection="Columns" />
 
-        <!-- Source preview -->
         <Border Grid.Row="2" Grid.Column="2"
-                BorderThickness="1"
-                BorderBrush="{DynamicResource BorderDefault}">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto">
-                <TextBox Text="{Binding SourcePreview}"
-                         IsReadOnly="True"
-                         AcceptsReturn="True"
-                         TextWrapping="NoWrap"
-                         FontFamily="Consolas,Menlo,monospace"
-                         FontSize="12"
-                         Background="Transparent"
-                         BorderThickness="0" />
-            </ScrollViewer>
-        </Border>
-
-        <GridSplitter Grid.Row="2" Grid.Column="3"
-                      Width="4"
-                      Background="Transparent"
-                      ResizeDirection="Columns" />
-
-        <!-- Parameter panel -->
-        <Border Grid.Row="2" Grid.Column="4"
                 Margin="0,0,8,0"
                 Padding="8"
                 BorderThickness="1"
                 BorderBrush="{DynamicResource BorderDefault}"
+                CornerRadius="4"
                 IsVisible="{Binding HasParameters}">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
@@ -185,8 +165,7 @@
             </ScrollViewer>
         </Border>
 
-        <!-- ==================== Row 3: status line ==================== -->
-        <TextBox Grid.Row="3" Grid.ColumnSpan="5"
+        <TextBox Grid.Row="3" Grid.ColumnSpan="3"
                  Text="{Binding StatusText}"
                  IsReadOnly="True"
                  BorderThickness="0"

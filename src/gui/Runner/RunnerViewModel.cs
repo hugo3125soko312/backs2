@@ -79,11 +79,12 @@ public partial class RunnerViewModel : ObservableObject
     private readonly AccountService _accounts;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
+    public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
     public ObservableCollection<RunnerParameterViewModel> Parameters { get; } = new();
     public ObservableCollection<QueuedDataset> QueuedItems { get; } = new();
 
     [ObservableProperty] private StrategyDescriptor? _selectedStrategy;
-    [ObservableProperty] private string _sourcePreview = "";
+    [ObservableProperty] private string _strategyFilter = "";
     [ObservableProperty] private string _statusText = "Ready";
     [ObservableProperty] private string _queueHint = "";
     [ObservableProperty] private bool _isBusy;
@@ -94,9 +95,6 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private bool _isProgressVisible;
     [ObservableProperty] private bool _isProgressIndeterminate;
 
-    // ==================== Monte Carlo settings (26D.1) ====================
-    // Lives on the Runner for now. The MC tab keeps its own transient values
-    // until 26E removes it. Persistence via AppSettings is 26D.2.
     [ObservableProperty] private bool _isMcPanelExpanded = false;
     [ObservableProperty] private int _mcIterations = 1000;
     [ObservableProperty] private int _mcBlockSize = 5;
@@ -104,6 +102,7 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private string _activeAccountName = "(none)";
 
     public event EventHandler<StrategyRunResult>? RunCompleted;
+    public event EventHandler<(string Name, string Source)>? ViewSourceRequested;
 
     public RunnerViewModel(
         StrategyCatalogService catalog,
@@ -132,10 +131,6 @@ public partial class RunnerViewModel : ObservableObject
         SyncQueue();
     }
 
-    // ------------------------------------------------------------------
-    // Monte Carlo settings wiring
-    // ------------------------------------------------------------------
-
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {
         Dispatcher.UIThread.Post(ApplyAccountDefaults);
@@ -158,18 +153,9 @@ public partial class RunnerViewModel : ObservableObject
             McRuinThresholdPercent = funded.MaxLossPercent.Value;
     }
 
-    // ------------------------------------------------------------------
-    // Catalog / queue
-    // ------------------------------------------------------------------
-
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
         Dispatcher.UIThread.Post(() => SyncCatalog(e.Strategies));
-    }
-
-    private void OnQueueChanged(object? sender, EventArgs e)
-    {
-        Dispatcher.UIThread.Post(SyncQueue);
     }
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
@@ -178,6 +164,8 @@ public partial class RunnerViewModel : ObservableObject
 
         Strategies.Clear();
         foreach (var s in latest) Strategies.Add(s);
+
+        ApplyFilter();
 
         if (selectedPath != null)
         {
@@ -190,6 +178,45 @@ public partial class RunnerViewModel : ObservableObject
                 }
             }
         }
+    }
+
+    partial void OnStrategyFilterChanged(string value) => ApplyFilter();
+
+    private void ApplyFilter()
+    {
+        var f = StrategyFilter?.Trim() ?? "";
+
+        var wanted = new List<StrategyDescriptor>();
+        foreach (var s in Strategies)
+        {
+            if (f.Length == 0
+                || s.Name.Contains(f, StringComparison.OrdinalIgnoreCase)
+                || s.Path.Contains(f, StringComparison.OrdinalIgnoreCase))
+            {
+                wanted.Add(s);
+            }
+        }
+
+        for (int i = FilteredStrategies.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(FilteredStrategies[i]))
+                FilteredStrategies.RemoveAt(i);
+        }
+
+        for (int i = 0; i < wanted.Count; i++)
+        {
+            var s = wanted[i];
+            int curIdx = FilteredStrategies.IndexOf(s);
+            if (curIdx < 0)
+                FilteredStrategies.Insert(i, s);
+            else if (curIdx != i)
+                FilteredStrategies.Move(curIdx, i);
+        }
+    }
+
+    private void OnQueueChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(SyncQueue);
     }
 
     private void SyncQueue()
@@ -215,10 +242,7 @@ public partial class RunnerViewModel : ObservableObject
         }
         else
         {
-            var tfs = QueuedItems
-                .Select(q => q.Timeframe)
-                .ToList();
-
+            var tfs = QueuedItems.Select(q => q.Timeframe).ToList();
             QueueHint = $"Running {distinctSymbols[0]} — {tfs.Count} timeframe(s): {string.Join(", ", tfs)}";
             CanRun = SelectedStrategy != null && !IsBusy;
         }
@@ -228,7 +252,6 @@ public partial class RunnerViewModel : ObservableObject
     {
         if (value == null)
         {
-            SourcePreview = "";
             Parameters.Clear();
             HasParameters = false;
             CanRun = false;
@@ -245,7 +268,6 @@ public partial class RunnerViewModel : ObservableObject
         try
         {
             var text = await _catalog.ReadSourceAsync(descriptor.Path);
-            SourcePreview = text;
 
             Parameters.Clear();
             foreach (var p in StrategyParameterParser.Parse(text))
@@ -257,7 +279,6 @@ public partial class RunnerViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            SourcePreview = "";
             Parameters.Clear();
             HasParameters = false;
             StatusText = $"Failed to read {descriptor.Name}: {ex.Message}";
@@ -269,6 +290,26 @@ public partial class RunnerViewModel : ObservableObject
     {
         _catalog.Refresh();
         StatusText = $"Catalog refreshed ({Strategies.Count} strategies).";
+    }
+
+    [RelayCommand]
+    private async Task ViewSourceAsync()
+    {
+        if (SelectedStrategy == null)
+        {
+            StatusText = "Select a strategy first.";
+            return;
+        }
+
+        try
+        {
+            var source = await _catalog.ReadSourceAsync(SelectedStrategy.Path);
+            ViewSourceRequested?.Invoke(this, (SelectedStrategy.Name, source));
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Failed to read source: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -321,9 +362,7 @@ public partial class RunnerViewModel : ObservableObject
             foreach (var p in Parameters)
                 paramValues[p.Name] = p.EffectiveValue;
 
-            var effectiveTimeframes = queued
-                .Select(q => q.Timeframe)
-                .ToList();
+            var effectiveTimeframes = queued.Select(q => q.Timeframe).ToList();
             StatusText = $"Running {SelectedStrategy.Name} on {distinctSymbols[0]} — {effectiveTimeframes.Count} timeframe(s): {string.Join(", ", effectiveTimeframes)}";
 
             var batchResults = new List<OverviewData>();
@@ -336,24 +375,12 @@ public partial class RunnerViewModel : ObservableObject
 
                 var progress = new Progress<DataProgress>(p =>
                 {
-                    double datasetFraction = p.IsDeterminate
-                        ? p.Percent / 100.0
-                        : 0.0;
-
+                    double datasetFraction = p.IsDeterminate ? p.Percent / 100.0 : 0.0;
                     Progress = ((datasetIndex + datasetFraction) / totalDatasets) * 100.0;
 
-                    if (p.IsDeterminate)
-                    {
-                        IsProgressIndeterminate = false;
-                    }
-                    else if (p.Percent >= 100)
-                    {
-                        IsProgressIndeterminate = false;
-                    }
-                    else
-                    {
-                        IsProgressIndeterminate = true;
-                    }
+                    if (p.IsDeterminate) IsProgressIndeterminate = false;
+                    else if (p.Percent >= 100) IsProgressIndeterminate = false;
+                    else IsProgressIndeterminate = true;
 
                     StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {item.Symbol}@{item.Timeframe} — {p.Message}";
                 });
@@ -395,7 +422,6 @@ public partial class RunnerViewModel : ObservableObject
                     Error: result.Success ? null : result.Error));
 
                 RunCompleted?.Invoke(this, result);
-
                 Progress = ((datasetIndex + 1.0) / totalDatasets) * 100.0;
             }
 
@@ -441,11 +467,7 @@ public partial class RunnerViewModel : ObservableObject
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock
-                    {
-                        Text = $"You have selected {count} timeframes in the queue.",
-                        FontSize = 13
-                    },
+                    new TextBlock { Text = $"You have selected {count} timeframes in the queue.", FontSize = 13 },
                     new TextBlock
                     {
                         Text = $"Running will execute the strategy on all {count} timeframes sequentially.",
