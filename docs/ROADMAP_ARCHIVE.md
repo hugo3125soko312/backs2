@@ -820,3 +820,33 @@ Eliminates the multi-second UI freeze when opening the Providers tab. The tab us
 ### Deferred
 - Sidecar `.meta.json` files written alongside each cache `.json` in `SaveCacheAsync`. Would turn `ReadCacheMetadata` into a 1 KB read per file instead of a full JSON parse. Bigger change; revisit if the post-parallel wait becomes annoying.
 - Same async treatment for the Data tab's `RefreshData` — tracked under Phase 18B.
+
+## Phase 22A: csproj Hygiene [COMPLETED]
+
+Ship date: 2026-10-08.
+
+First sub-phase of the build-performance work. Two csproj flags changed, nothing else. Dropped the dev-loop build times substantially -- better than projected.
+
+### Change
+- `EmitCompilerGeneratedFiles` flipped from `true` to `false`. Source generators (CommunityToolkit.Mvvm, Avalonia XAML compiler, System.Text.Json contexts) still run and still emit into the compilation; their output is no longer written to `obj/generated` on every build. On this codebase that was hundreds of files per build. The disk writes also fed back into the incremental-build file-hash check and were invalidating the previous build's outputs, which is the larger effect.
+- `RunAnalyzersDuringBuild` added, set to `false`. Analyzer passes (Avalonia.Analyzers, CommunityToolkit.Mvvm.Analyzers, .NET built-ins) now run only in the IDE background pass, not on every CLI build. Pre-commit verification re-enables them explicitly.
+- Both flags carry an escape hatch: `-p:EmitCompilerGeneratedFiles=true` for source-generator debugging; `-p:RunAnalyzersDuringBuild=true` for the pre-commit build.
+
+### Measured result
+| Build | Before | After | Delta |
+|---|---|---|---|
+| Incremental `dotnet build` | 7.14s | 4.04s | −43% |
+| `dotnet build --no-incremental` | 15.56s | 7.80s | −50% |
+
+### Notes
+- The remaining 4.04s incremental is dominated by the Avalonia 11.0.11 XAML compiler defeating incremental builds (Avalonia PR #17539, fixed in 11.3.x). That is Phase 23's scope.
+- Pre-commit verification builds must use `-p:RunAnalyzersDuringBuild=true` to restore analyzer coverage. Any code that relies on analyzer-only diagnostics will pass silently under the dev-loop flag.
+
+### Files touched
+- `backs2.csproj` -- two `<PropertyGroup>` additions.
+
+### Deferred
+- Phase 22B (build protocol change in `AGENT_RULES.md` / `RULES.md`).
+- Phase 22C (VS Code workspace settings -- `.vscode/settings.json` was already committed in a separate chore commit).
+- Phase 22D (measure and close -- acceptance threshold met early).
+- Phase 23 (Avalonia 11.3.x upgrade -- the real fix for the remaining 4s).

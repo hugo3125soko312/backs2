@@ -4,7 +4,17 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- Phase 22A — build performance.
+         EmitCompilerGeneratedFiles=false: source generators still run, but
+         their output is not written to obj/generated on every build.
+         Escape hatch: build with -p:EmitCompilerGeneratedFiles=true.
+         RunAnalyzersDuringBuild=false: analyzers (Avalonia, CommunityToolkit,
+         .NET built-ins) run in the IDE background pass, not on every CLI
+         build. The pre-commit verification build overrides this with
+         -p:RunAnalyzersDuringBuild=true. -->
+    <EmitCompilerGeneratedFiles>false</EmitCompilerGeneratedFiles>
+    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
   </PropertyGroup>
 
   <ItemGroup>
