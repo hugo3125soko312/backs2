@@ -23,18 +23,13 @@ public class AppSettings
 
     public List<string> QueuedDatasets { get; set; } = new();
 
-    // MT5 raw tick bridge
     public string Mt5Host      { get; set; } = "127.0.0.1";
     public int    Mt5Port      { get; set; } = 5555;
     public int    Mt5TimeoutMs { get; set; } = 60000;
 
-    // MT5 .tkc cache extraction (Extract from .tkc subtab).
     public string Mt5TerminalDataRoot { get; set; } = "";
     public string Mt5TerminalBroker   { get; set; } = "";
 
-    // ==================== Theme ====================
-    // ARGB hex strings. Parsed by Avalonia.Media.Color.TryParse and
-    // written into Application.Current.Resources by ThemeApplier.
     public string ThemeAppBgColor          { get; set; } = "#FF0D1117";
     public string ThemePanelBgColor        { get; set; } = "#FF161B22";
     public string ThemeElevatedColor       { get; set; } = "#FF21262D";
@@ -50,23 +45,19 @@ public class AppSettings
     public string ThemeSemanticWarnColor   { get; set; } = "#FFD29922";
     public string ThemeSemanticDangerColor { get; set; } = "#FFF85149";
 
-    // ==================== Optimizer ====================
-    // Bounded Cartesian grid cap. Above this, the optimizer samples the grid
-    // instead of running it in full. Default 500 per Phase 26 design.
     public int OptimizerMaxCombinations { get; set; } = 500;
-
-    // Iterations used during the search phase (fast, rank-only).
     public int OptimizerCoarseIterations { get; set; } = 100;
-
-    // Iterations used for the refine pass on the top survivors (full).
     public int OptimizerRefineIterations { get; set; } = 1000;
-
-    // Number of survivors to carry into the refine pass.
     public int OptimizerRefineTopN { get; set; } = 20;
-
-    // CPU=1.0. Future GPU MC path sets this to the expected speedup factor.
-    // Only the MC component of the ETA estimate is divided by this value.
     public double OptimizerGpuFactor { get; set; } = 1.0;
+
+    /// <summary>
+    /// Per-parameter grid ranges for the optimizer, persisted so a range
+    /// survives strategy switches and app restarts.
+    /// Key: "{strategyName}|{paramName}". Value: "{min}|{max}|{step}"
+    /// where each field is a user-typed string (empty when unset).
+    /// </summary>
+    public Dictionary<string, string> OptimizerGridRanges { get; set; } = new();
 }
 
 public class ConfigManager
@@ -166,8 +157,6 @@ public class ConfigManager
         Settings.Mt5TerminalDataRoot ??= "";
         Settings.Mt5TerminalBroker ??= "";
 
-        // Theme defaults — populated when an older settings.json
-        // (written before the theme system existed) is loaded.
         Settings.ThemeAppBgColor ??= "#FF0D1117";
         Settings.ThemePanelBgColor ??= "#FF161B22";
         Settings.ThemeElevatedColor ??= "#FF21262D";
@@ -183,14 +172,12 @@ public class ConfigManager
         Settings.ThemeSemanticWarnColor ??= "#FFD29922";
         Settings.ThemeSemanticDangerColor ??= "#FFF85149";
 
-        // Optimizer defaults. Value types default to 0 on deserialization of
-        // an older settings.json; bump zeros to the shipped defaults. Zero is
-        // never a valid value for any of these.
         if (Settings.OptimizerMaxCombinations <= 0)   Settings.OptimizerMaxCombinations = 500;
         if (Settings.OptimizerCoarseIterations <= 0)  Settings.OptimizerCoarseIterations = 100;
         if (Settings.OptimizerRefineIterations <= 0)  Settings.OptimizerRefineIterations = 1000;
         if (Settings.OptimizerRefineTopN <= 0)        Settings.OptimizerRefineTopN = 20;
         if (Settings.OptimizerGpuFactor <= 0)         Settings.OptimizerGpuFactor = 1.0;
+        Settings.OptimizerGridRanges ??= new Dictionary<string, string>();
     }
 
     public void SaveConfig()

@@ -15,12 +15,17 @@ public sealed record PresetDescriptor(
     long SizeBytes
 );
 
+/// <summary>
+/// A saved parameter set. GridRanges is the companion to Values: same keys
+/// (parameter names), values are "min|max|step" strings. Nullable so presets
+/// written before the grid-range feature still deserialize.
+/// </summary>
 public sealed record Preset(
     string StrategyName,
     string PresetName,
     DateTime CreatedUtc,
-    Dictionary<string, string> Values
-);
+    Dictionary<string, string> Values,
+    Dictionary<string, string>? GridRanges = null);
 
 public sealed class PresetService
 {
@@ -89,7 +94,11 @@ public sealed class PresetService
         }
     }
 
-    public void Save(string strategyName, string presetName, Dictionary<string, string> values)
+    public void Save(
+        string strategyName,
+        string presetName,
+        Dictionary<string, string> values,
+        Dictionary<string, string>? gridRanges = null)
     {
         if (string.IsNullOrWhiteSpace(strategyName))
             throw new ArgumentException("Strategy name is required.", nameof(strategyName));
@@ -105,7 +114,8 @@ public sealed class PresetService
             strategyName,
             presetName,
             DateTime.UtcNow,
-            values ?? new Dictionary<string, string>());
+            values ?? new Dictionary<string, string>(),
+            gridRanges);
 
         var json = JsonSerializer.Serialize(
             payload,

@@ -24,6 +24,15 @@
                         Command="{Binding RunCommand}"
                         IsEnabled="{Binding CanRun}" />
 
+                <Button Content="Optimize"
+                        Command="{Binding OptimizeCommand}"
+                        IsEnabled="{Binding CanRun}"
+                        ToolTip.Tip="Search the parameter grid over the queued dataset(s) and run Monte Carlo per version" />
+
+                <Button Content="Cancel"
+                        Command="{Binding CancelOptimizeCommand}"
+                        IsVisible="{Binding IsOptimizing}" />
+
                 <ProgressBar Value="{Binding Progress}"
                              Minimum="0" Maximum="100"
                              Width="180"
@@ -31,10 +40,21 @@
                              IsIndeterminate="{Binding IsProgressIndeterminate}"
                              VerticalAlignment="Center" />
 
+                <TextBlock Text="{Binding EtaText}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{DynamicResource TextSecondary}" />
+
                 <Button Content="Presets..."
                         Command="{Binding OpenPresetsCommand}" />
                 <Button Content="Save Preset..."
                         Command="{Binding SavePresetCommand}" />
+
+                <TextBlock Text="{Binding CombinationSummary}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Margin="16,0,0,0"
+                           Foreground="{DynamicResource TextSecondary}" />
             </StackPanel>
         </StackPanel>
 
@@ -158,6 +178,53 @@
                                 <ToggleSwitch IsChecked="{Binding CurrentBool, Mode=TwoWay}"
                                               IsVisible="{Binding IsBoolToggle}"
                                               HorizontalAlignment="Left" />
+
+                                <Grid ColumnDefinitions="Auto,80,Auto,80,Auto,80,*"
+                                      IsVisible="{Binding IsNumeric}"
+                                      Margin="0,4,0,0">
+                                    <TextBlock Grid.Column="0" Text="Min"
+                                               FontSize="10" Opacity="0.6"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,4,0" />
+                                    <TextBox Grid.Column="1"
+                                             Text="{Binding MinText, Mode=TwoWay}"
+                                             Watermark="min"
+                                             FontSize="11"
+                                             Height="26"
+                                             Padding="6,2"
+                                             VerticalContentAlignment="Center" />
+
+                                    <TextBlock Grid.Column="2" Text="Max"
+                                               FontSize="10" Opacity="0.6"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,4,0" />
+                                    <TextBox Grid.Column="3"
+                                             Text="{Binding MaxText, Mode=TwoWay}"
+                                             Watermark="max"
+                                             FontSize="11"
+                                             Height="26"
+                                             Padding="6,2"
+                                             VerticalContentAlignment="Center" />
+
+                                    <TextBlock Grid.Column="4" Text="Step"
+                                               FontSize="10" Opacity="0.6"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,4,0" />
+                                    <TextBox Grid.Column="5"
+                                             Text="{Binding StepText, Mode=TwoWay}"
+                                             Watermark="step"
+                                             FontSize="11"
+                                             Height="26"
+                                             Padding="6,2"
+                                             VerticalContentAlignment="Center" />
+
+                                    <TextBlock Grid.Column="6"
+                                               Text="{Binding ValueCountText}"
+                                               FontSize="10"
+                                               Foreground="{DynamicResource AccentPrimary}"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0" />
+                                </Grid>
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

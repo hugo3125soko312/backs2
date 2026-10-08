@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,6 +14,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Accounts;
+using backs2.Core.Optimizer;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 
@@ -34,6 +37,21 @@ public partial class RunnerParameterViewModel : ObservableObject
 
     [ObservableProperty] private string _currentValue = "";
     [ObservableProperty] private bool _currentBool;
+    [ObservableProperty] private string _minText = "";
+    [ObservableProperty] private string _maxText = "";
+    [ObservableProperty] private string _stepText = "";
+
+    public double? MinValue     => ParseDouble(MinText);
+    public double? MaxValue     => ParseDouble(MaxText);
+    public double? IncrementValue => ParseDouble(StepText);
+
+    private static double? ParseDouble(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+            return d;
+        return null;
+    }
 
     public bool IsDirty
     {
@@ -66,6 +84,72 @@ public partial class RunnerParameterViewModel : ObservableObject
     }
 
     public string EffectiveValue => IsBool ? (CurrentBool ? "true" : "false") : CurrentValue;
+
+    public string ValueCountText
+    {
+        get
+        {
+            int n = ValueCount;
+            return n <= 1 ? "" : $"-> {n} values";
+        }
+    }
+
+    public int ValueCount
+    {
+        get
+        {
+            if (!IsNumeric) return 1;
+
+            var min = MinValue;
+            var max = MaxValue;
+            var step = IncrementValue;
+
+            if (!min.HasValue || !max.HasValue || !step.HasValue) return 1;
+            if (step.Value <= 0) return 1;
+            if (max.Value < min.Value) return 1;
+
+            double range = max.Value - min.Value;
+            double stepVal = step.Value;
+
+            if (string.Equals(Type, "int", StringComparison.OrdinalIgnoreCase))
+                return (int)Math.Floor(range / stepVal) + 1;
+
+            double raw = range / stepVal;
+            return (int)Math.Floor(Math.Round(raw, 6)) + 1;
+        }
+    }
+
+    public bool HasGridRange => ValueCount > 1;
+
+    partial void OnMinTextChanged(string value) => NotifyGridChanged();
+    partial void OnMaxTextChanged(string value) => NotifyGridChanged();
+    partial void OnStepTextChanged(string value) => NotifyGridChanged();
+
+    private void NotifyGridChanged()
+    {
+        OnPropertyChanged(nameof(MinValue));
+        OnPropertyChanged(nameof(MaxValue));
+        OnPropertyChanged(nameof(IncrementValue));
+        OnPropertyChanged(nameof(ValueCount));
+        OnPropertyChanged(nameof(ValueCountText));
+        OnPropertyChanged(nameof(HasGridRange));
+    }
+
+    /// <summary>
+    /// Serialises the grid range for persistence. Empty fields stay empty.
+    /// </summary>
+    public string GridRangeSerialized()
+        => $"{MinText}|{MaxText}|{StepText}";
+
+    public void ApplySerializedGridRange(string serialized)
+    {
+        if (string.IsNullOrEmpty(serialized)) return;
+
+        var parts = serialized.Split('|');
+        if (parts.Length >= 1) MinText = parts[0];
+        if (parts.Length >= 2) MaxText = parts[1];
+        if (parts.Length >= 3) StepText = parts[2];
+    }
 }
 
 public partial class RunnerViewModel : ObservableObject
@@ -77,6 +161,8 @@ public partial class RunnerViewModel : ObservableObject
     private readonly LastRunStore _lastRun;
     private readonly SelectionQueue _queue;
     private readonly AccountService _accounts;
+    private readonly ConfigManager _config;
+    private readonly OptimizationRunner _optimizer;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -101,6 +187,15 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private double _mcRuinThresholdPercent = 10.0;
     [ObservableProperty] private string _activeAccountName = "(none)";
 
+    [ObservableProperty] private int _totalCombinations = 1;
+    [ObservableProperty] private bool _exceedsCap;
+    [ObservableProperty] private string _combinationSummary = "";
+    [ObservableProperty] private bool _isOptimizing;
+    [ObservableProperty] private string _etaText = "";
+
+    private CancellationTokenSource? _optimizeCts;
+    private bool _suppressGridPersist;
+
     public event EventHandler<StrategyRunResult>? RunCompleted;
     public event EventHandler<(string Name, string Source)>? ViewSourceRequested;
 
@@ -111,7 +206,9 @@ public partial class RunnerViewModel : ObservableObject
         PresetService presets,
         LastRunStore lastRun,
         SelectionQueue queue,
-        AccountService accounts)
+        AccountService accounts,
+        ConfigManager config,
+        OptimizationRunner optimizer)
     {
         _catalog = catalog;
         _strat = strat;
@@ -120,12 +217,16 @@ public partial class RunnerViewModel : ObservableObject
         _lastRun = lastRun;
         _queue = queue;
         _accounts = accounts;
+        _config = config;
+        _optimizer = optimizer;
 
         _catalog.Changed += OnCatalogChanged;
         _queue.Changed += OnQueueChanged;
         _accounts.ActiveChanged += OnActiveAccountChanged;
 
         ApplyAccountDefaults();
+
+        Parameters.CollectionChanged += OnParametersCollectionChanged;
 
         SyncCatalog(_catalog.Current);
         SyncQueue();
@@ -138,19 +239,19 @@ public partial class RunnerViewModel : ObservableObject
 
     private void ApplyAccountDefaults()
     {
-        var active = _accounts.Active;
-        ActiveAccountName = active == null
-            ? "(none)"
-            : $"{active.Firm} · {active.Plan} · {active.Size}";
+        var ctx = _accounts.ResolveActiveFundedContext();
+        if (ctx == null)
+        {
+            ActiveAccountName = _accounts.Active == null
+                ? "(none)"
+                : $"{_accounts.Active.Firm} - {_accounts.Active.Plan} - {_accounts.Active.Size}";
+            return;
+        }
 
-        if (active == null) return;
+        ActiveAccountName = $"{ctx.Account.Firm} - {ctx.Account.Plan} - {ctx.Account.Size}";
 
-        var planSize = _accounts.ResolvePlanSize(active);
-        if (planSize == null || planSize.Phases.Count == 0) return;
-
-        var funded = planSize.Phases[planSize.Phases.Count - 1];
-        if (funded.MaxLossPercent.HasValue)
-            McRuinThresholdPercent = funded.MaxLossPercent.Value;
+        if (ctx.FundedPhase.MaxLossPercent.HasValue)
+            McRuinThresholdPercent = ctx.FundedPhase.MaxLossPercent.Value;
     }
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
@@ -232,18 +333,18 @@ public partial class RunnerViewModel : ObservableObject
 
         if (QueuedItems.Count == 0)
         {
-            QueueHint = "Queue is empty — add data in the Data tab first.";
+            QueueHint = "Queue is empty - add data in the Data tab first.";
             CanRun = false;
         }
         else if (distinctSymbols.Count > 1)
         {
-            QueueHint = $"⚠ Queue spans {distinctSymbols.Count} tickers ({string.Join(", ", distinctSymbols)}) — runner supports one ticker at a time.";
+            QueueHint = $"Queue spans {distinctSymbols.Count} tickers ({string.Join(", ", distinctSymbols)}) - runner supports one ticker at a time.";
             CanRun = false;
         }
         else
         {
             var tfs = QueuedItems.Select(q => q.Timeframe).ToList();
-            QueueHint = $"Running {distinctSymbols[0]} — {tfs.Count} timeframe(s): {string.Join(", ", tfs)}";
+            QueueHint = $"Running {distinctSymbols[0]} - {tfs.Count} timeframe(s): {string.Join(", ", tfs)}";
             CanRun = SelectedStrategy != null && !IsBusy;
         }
     }
@@ -269,16 +370,28 @@ public partial class RunnerViewModel : ObservableObject
         {
             var text = await _catalog.ReadSourceAsync(descriptor.Path);
 
+            _suppressGridPersist = true;
             Parameters.Clear();
             foreach (var p in StrategyParameterParser.Parse(text))
                 Parameters.Add(new RunnerParameterViewModel(p));
 
+            // Restore any previously-saved grid ranges for this strategy.
+            foreach (var p in Parameters)
+            {
+                var key = GridKey(descriptor.Name, p.Name);
+                if (_config.Settings.OptimizerGridRanges.TryGetValue(key, out var serialized))
+                    p.ApplySerializedGridRange(serialized);
+            }
+            _suppressGridPersist = false;
+
             HasParameters = Parameters.Count > 0;
+            RecomputeCombinations();
             StatusText = $"Loaded {descriptor.Name} ({Parameters.Count} params)";
             SyncQueue();
         }
         catch (Exception ex)
         {
+            _suppressGridPersist = false;
             Parameters.Clear();
             HasParameters = false;
             StatusText = $"Failed to read {descriptor.Name}: {ex.Message}";
@@ -335,7 +448,7 @@ public partial class RunnerViewModel : ObservableObject
 
         if (distinctSymbols.Count > 1)
         {
-            StatusText = $"Runner supports one ticker at a time — queue contains {distinctSymbols.Count}: {string.Join(", ", distinctSymbols)}. Narrow the queue in the Data tab and try again.";
+            StatusText = $"Runner supports one ticker at a time - queue contains {distinctSymbols.Count}: {string.Join(", ", distinctSymbols)}. Narrow the queue in the Data tab and try again.";
             return;
         }
 
@@ -343,7 +456,10 @@ public partial class RunnerViewModel : ObservableObject
 
         if (queued.Count > 1)
         {
-            var confirmed = await ConfirmBatchAsync(queued.Count);
+            var confirmed = await ConfirmAsync(
+                "Multiple Datasets",
+                $"You have selected {queued.Count} timeframes in the queue. Running will execute the strategy on all {queued.Count} timeframes sequentially.",
+                "Yes, continue");
             if (!confirmed)
             {
                 StatusText = "Batch run cancelled.";
@@ -363,7 +479,7 @@ public partial class RunnerViewModel : ObservableObject
                 paramValues[p.Name] = p.EffectiveValue;
 
             var effectiveTimeframes = queued.Select(q => q.Timeframe).ToList();
-            StatusText = $"Running {SelectedStrategy.Name} on {distinctSymbols[0]} — {effectiveTimeframes.Count} timeframe(s): {string.Join(", ", effectiveTimeframes)}";
+            StatusText = $"Running {SelectedStrategy.Name} on {distinctSymbols[0]} - {effectiveTimeframes.Count} timeframe(s): {string.Join(", ", effectiveTimeframes)}";
 
             var batchResults = new List<OverviewData>();
             int totalDatasets = queued.Count;
@@ -382,7 +498,7 @@ public partial class RunnerViewModel : ObservableObject
                     else if (p.Percent >= 100) IsProgressIndeterminate = false;
                     else IsProgressIndeterminate = true;
 
-                    StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {item.Symbol}@{item.Timeframe} — {p.Message}";
+                    StatusText = $"[{datasetIndex + 1}/{totalDatasets}] {item.Symbol}@{item.Timeframe} - {p.Message}";
                 });
 
                 var data = await _data.GetSymbolDataAsync(item.Symbol, item.Timeframe, progress);
@@ -430,7 +546,7 @@ public partial class RunnerViewModel : ObservableObject
             int ok = batchResults.Count(r => r.Error == null);
             int total = batchResults.Count;
             int totalTrades = batchResults.Sum(r => r.Trades.Count);
-            StatusText = $"Batch complete — {ok}/{total} succeeded, {totalTrades} trades total.";
+            StatusText = $"Batch complete - {ok}/{total} succeeded, {totalTrades} trades total.";
         }
         catch (Exception ex)
         {
@@ -445,52 +561,213 @@ public partial class RunnerViewModel : ObservableObject
         }
     }
 
-    private async Task<bool> ConfirmBatchAsync(int count)
+    [RelayCommand]
+    private async Task OptimizeAsync()
     {
-        var owner = GetMainWindow();
-        if (owner == null) return true;
-
-        bool confirmed = false;
-
-        var yes = new Button { Content = "Yes, continue" };
-        var no = new Button { Content = "Cancel" };
-
-        var dlg = new Window
+        if (SelectedStrategy == null)
         {
-            Title = "Multiple Datasets",
-            Width = 460,
-            Height = 200,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel
+            StatusText = "No strategy selected.";
+            return;
+        }
+
+        var queued = _queue.Snapshot();
+        if (queued.Count == 0)
+        {
+            StatusText = "Queue is empty. Add data in the Data tab first.";
+            return;
+        }
+
+        var distinctSymbols = queued
+            .Select(q => q.Symbol)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctSymbols.Count > 1)
+        {
+            StatusText = $"Optimizer supports one ticker at a time - queue contains {distinctSymbols.Count}: {string.Join(", ", distinctSymbols)}. Narrow the queue in the Data tab and try again.";
+            return;
+        }
+
+        if (IsBusy) return;
+
+        var grid = BuildGridParameters();
+        if (grid.Count == 0)
+        {
+            StatusText = "Strategy has no parameters to optimize.";
+            return;
+        }
+
+        if (ExceedsCap)
+        {
+            var confirmed = await ConfirmAsync(
+                "Grid will be sampled",
+                $"Your grid has {TotalCombinations:N0} combinations but the cap is {Cap:N0}. The optimizer will randomly sample {Cap:N0} of them. Continue?",
+                "Yes, sample");
+            if (!confirmed)
             {
-                Margin = new Thickness(16),
-                Spacing = 12,
-                Children =
-                {
-                    new TextBlock { Text = $"You have selected {count} timeframes in the queue.", FontSize = 13 },
-                    new TextBlock
-                    {
-                        Text = $"Running will execute the strategy on all {count} timeframes sequentially.",
-                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                        Opacity = 0.8,
-                        FontSize = 12
-                    },
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Children = { no, yes }
-                    }
-                }
+                StatusText = "Optimization cancelled.";
+                return;
             }
-        };
+        }
 
-        yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
-        no.Click += (_, _) => { confirmed = false; dlg.Close(); };
+        var fundedCtx = _accounts.ResolveActiveFundedContext();
+        if (fundedCtx == null)
+        {
+            StatusText = "No active account or funded phase resolved. Set one in the Accounts tab first.";
+            return;
+        }
 
-        await dlg.ShowDialog(owner);
-        return confirmed;
+        try
+        {
+            IsBusy = true;
+            IsOptimizing = true;
+            Progress = 0;
+            IsProgressVisible = true;
+            IsProgressIndeterminate = false;
+            EtaText = "";
+
+            _optimizeCts = new CancellationTokenSource();
+            var ct = _optimizeCts.Token;
+
+            int tradingPeriodDays = fundedCtx.FundedPhase.TradingPeriodDays ?? 90;
+
+            int totalDatasets = queued.Count;
+            int savedBatches = 0;
+            int totalVersions = 0;
+
+            for (int i = 0; i < totalDatasets; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var item = queued[i];
+                int idx = i;
+
+                StatusText = $"[{idx + 1}/{totalDatasets}] Optimize {item.Symbol}@{item.Timeframe} - fetching data...";
+
+                var fetchProgress = new Progress<DataProgress>(p =>
+                {
+                    StatusText = $"[{idx + 1}/{totalDatasets}] {item.Symbol}@{item.Timeframe} - {p.Message}";
+                });
+
+                var data = await _data.GetSymbolDataAsync(item.Symbol, item.Timeframe, fetchProgress);
+                if (data == null || data.Count == 0)
+                {
+                    LogManager.Warn(LogTag.Runner, $"optimize: no data for {item.Symbol}@{item.Timeframe}, skipping");
+                    continue;
+                }
+
+                var optProgress = new Progress<OptimizationProgress>(p =>
+                {
+                    double batchFraction = p.Fraction;
+                    Progress = ((idx + batchFraction) / totalDatasets) * 100.0;
+
+                    EtaText = p.EtaSeconds.HasValue ? FormatEta(p.EtaSeconds.Value) : "";
+
+                    StatusText = $"[{idx + 1}/{totalDatasets}] Optimize {item.Symbol}@{item.Timeframe} - {p.Phase} {p.Completed}/{p.Total}";
+                });
+
+                var runConfig = new OptimizationRunConfig(
+                    MaxCombinations: Cap,
+                    CoarseIterations: Math.Max(10, _config.Settings.OptimizerCoarseIterations),
+                    RefineIterations: Math.Max(10, _config.Settings.OptimizerRefineIterations),
+                    RefineTopN: Math.Max(1, _config.Settings.OptimizerRefineTopN),
+                    MeanBlockSize: McBlockSize,
+                    StartingCapital: fundedCtx.PlanSize.StartingCapital,
+                    DrawdownType: string.IsNullOrWhiteSpace(fundedCtx.FundedPhase.DrawdownType)
+                        ? "static"
+                        : fundedCtx.FundedPhase.DrawdownType!,
+                    MaxLossPercent: fundedCtx.FundedPhase.MaxLossPercent ?? 10.0,
+                    MaxDailyLossPercent: fundedCtx.FundedPhase.MaxDailyLossPercent ?? 5.0,
+                    ProfitTargetPercent: fundedCtx.FundedPhase.ProfitTargetPercent ?? 0.0,
+                    BestDayRulePercent: fundedCtx.FundedPhase.BestDayRulePercent ?? 50.0,
+                    TradingPeriodDays: tradingPeriodDays,
+                    GpuFactor: _config.Settings.OptimizerGpuFactor);
+
+                StatusText = $"[{idx + 1}/{totalDatasets}] Optimize {item.Symbol}@{item.Timeframe} - starting...";
+
+                var batch = await _optimizer.RunAsync(
+                    SelectedStrategy.Path,
+                    SelectedStrategy.Name,
+                    item.Symbol,
+                    item.Timeframe,
+                    data,
+                    grid,
+                    runConfig,
+                    optProgress,
+                    ct);
+
+                savedBatches++;
+                totalVersions += batch.Versions.Length;
+
+                LogManager.Info(LogTag.Runner,
+                    $"optimize: batch {batch.Id} saved ({batch.Versions.Length} version(s))");
+
+                Progress = ((idx + 1.0) / totalDatasets) * 100.0;
+            }
+
+            StatusText = $"Optimization complete - {savedBatches} batch(es), {totalVersions:N0} version(s) total.";
+            EtaText = "";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Optimization cancelled.";
+            EtaText = "";
+            LogManager.Info(LogTag.Runner, "optimization cancelled by user");
+        }
+        catch (Exception ex)
+        {
+            LogManager.Error(LogTag.Runner, "optimization failed", ex);
+            StatusText = $"Optimization failed: {ex.Message}";
+            EtaText = "";
+        }
+        finally
+        {
+            _optimizeCts?.Dispose();
+            _optimizeCts = null;
+            IsBusy = false;
+            IsOptimizing = false;
+            IsProgressVisible = false;
+            IsProgressIndeterminate = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelOptimize()
+    {
+        _optimizeCts?.Cancel();
+        StatusText = "Cancellation requested - will stop after the current batch.";
+    }
+
+    private List<GridParameter> BuildGridParameters()
+    {
+        var list = new List<GridParameter>(Parameters.Count);
+        foreach (var p in Parameters)
+        {
+            list.Add(new GridParameter(
+                Name: p.Name,
+                Type: p.Type,
+                FixedValue: p.EffectiveValue,
+                Min: p.MinValue,
+                Max: p.MaxValue,
+                Increment: p.IncrementValue,
+                Options: p.Options));
+        }
+        return list;
+    }
+
+    private static string FormatEta(double seconds)
+    {
+        if (seconds <= 0 || double.IsNaN(seconds) || double.IsInfinity(seconds)) return "";
+        if (seconds < 60) return $"ETA {seconds:F0}s";
+        if (seconds < 3600)
+        {
+            int m = (int)(seconds / 60);
+            int s = (int)(seconds % 60);
+            return $"ETA {m}m {s}s";
+        }
+        int h = (int)(seconds / 3600);
+        int rem = (int)((seconds - h * 3600) / 60);
+        return $"ETA {h}h {rem}m";
     }
 
     [RelayCommand]
@@ -533,15 +810,21 @@ public partial class RunnerViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(name)) return;
 
         var values = new Dictionary<string, string>();
+        var gridRanges = new Dictionary<string, string>();
         foreach (var p in Parameters)
+        {
             values[p.Name] = p.EffectiveValue;
+            gridRanges[p.Name] = p.GridRangeSerialized();
+        }
 
-        _presets.Save(SelectedStrategy.Name, name, values);
+        _presets.Save(SelectedStrategy.Name, name, values, gridRanges);
         StatusText = $"Saved preset {name}";
     }
 
     private void ApplyPreset(Preset preset)
     {
+        _suppressGridPersist = true;
+
         foreach (var p in Parameters)
         {
             if (preset.Values.TryGetValue(p.Name, out var v))
@@ -549,7 +832,158 @@ public partial class RunnerViewModel : ObservableObject
                 p.CurrentValue = v;
                 p.CurrentBool = string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
             }
+
+            if (preset.GridRanges != null && preset.GridRanges.TryGetValue(p.Name, out var g))
+                p.ApplySerializedGridRange(g);
         }
+
+        _suppressGridPersist = false;
+
+        PersistAllGridRanges();
+    }
+
+    private void OnParametersCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+        {
+            foreach (RunnerParameterViewModel p in e.OldItems)
+                p.PropertyChanged -= OnParameterPropertyChanged;
+        }
+        if (e.NewItems != null)
+        {
+            foreach (RunnerParameterViewModel p in e.NewItems)
+                p.PropertyChanged += OnParameterPropertyChanged;
+        }
+        RecomputeCombinations();
+    }
+
+    private void OnParameterPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        bool gridField = e.PropertyName is nameof(RunnerParameterViewModel.MinText)
+                        or nameof(RunnerParameterViewModel.MaxText)
+                        or nameof(RunnerParameterViewModel.StepText);
+
+        if (gridField)
+        {
+            if (!_suppressGridPersist && sender is RunnerParameterViewModel p)
+                PersistGridRange(p);
+        }
+
+        if (e.PropertyName is nameof(RunnerParameterViewModel.ValueCount)
+            or nameof(RunnerParameterViewModel.MinText)
+            or nameof(RunnerParameterViewModel.MaxText)
+            or nameof(RunnerParameterViewModel.StepText))
+        {
+            RecomputeCombinations();
+        }
+    }
+
+    private static string GridKey(string strategyName, string paramName)
+        => $"{strategyName}|{paramName}";
+
+    private void PersistGridRange(RunnerParameterViewModel p)
+    {
+        if (SelectedStrategy == null) return;
+
+        var key = GridKey(SelectedStrategy.Name, p.Name);
+        var serialized = p.GridRangeSerialized();
+
+        // Treat a fully-empty range as removal so we don't accumulate empty entries.
+        if (serialized == "||")
+            _config.Settings.OptimizerGridRanges.Remove(key);
+        else
+            _config.Settings.OptimizerGridRanges[key] = serialized;
+
+        _config.SaveConfig();
+    }
+
+    private void PersistAllGridRanges()
+    {
+        if (SelectedStrategy == null) return;
+
+        foreach (var p in Parameters)
+        {
+            var key = GridKey(SelectedStrategy.Name, p.Name);
+            var serialized = p.GridRangeSerialized();
+
+            if (serialized == "||")
+                _config.Settings.OptimizerGridRanges.Remove(key);
+            else
+                _config.Settings.OptimizerGridRanges[key] = serialized;
+        }
+
+        _config.SaveConfig();
+    }
+
+    private void RecomputeCombinations()
+    {
+        long total = 1;
+        foreach (var p in Parameters)
+        {
+            total *= p.ValueCount;
+            if (total > int.MaxValue) { total = int.MaxValue; break; }
+        }
+
+        TotalCombinations = (int)total;
+        ExceedsCap = TotalCombinations > Cap;
+
+        if (Parameters.Count == 0)
+        {
+            CombinationSummary = "";
+        }
+        else if (ExceedsCap)
+        {
+            CombinationSummary = $"Grid: {TotalCombinations:N0} combinations exceeds cap {Cap:N0} - will sample";
+        }
+        else
+        {
+            CombinationSummary = $"Grid: {TotalCombinations:N0} combination(s)";
+        }
+    }
+
+    private int Cap => _config.Settings.OptimizerMaxCombinations > 0
+        ? _config.Settings.OptimizerMaxCombinations
+        : 500;
+
+    private async Task<bool> ConfirmAsync(string title, string message, string yesLabel)
+    {
+        var owner = GetMainWindow();
+        if (owner == null) return true;
+
+        bool confirmed = false;
+
+        var yes = new Button { Content = yesLabel };
+        var no = new Button { Content = "Cancel" };
+
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 500,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 13 },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { no, yes }
+                    }
+                }
+            }
+        };
+
+        yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
+        no.Click += (_, _) => { confirmed = false; dlg.Close(); };
+
+        await dlg.ShowDialog(owner);
+        return confirmed;
     }
 
     private static Window? GetMainWindow()

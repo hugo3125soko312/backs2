@@ -10,11 +10,6 @@ using backs2.Core.Runner;
 
 namespace backs2.Core.Optimizer;
 
-/// <summary>
-/// Configuration for one optimization run. Set by the Runner's UI at run
-/// start. Account rules come from the active AccountService selection;
-/// MC iteration counts come from the Runner's settings panel.
-/// </summary>
 public sealed record OptimizationRunConfig(
     int MaxCombinations,
     int CoarseIterations,
@@ -30,22 +25,6 @@ public sealed record OptimizationRunConfig(
     int TradingPeriodDays,
     double GpuFactor = 1.0);
 
-/// <summary>
-/// Executes an optimization run end to end:
-///   1. Generate the parameter grid (ParameterGridBuilder).
-///   2. Parallel backtests across every combination (StrategyManager).
-///   3. Sequential coarse Monte Carlo per version (MonteCarloEngine).
-///   4. Sequential refine Monte Carlo on the top-N survivors.
-///   5. Persist the batch (OptimizationStore).
-///
-/// ETA is estimated internally on every progress event using an
-/// EtaEstimator that calibrates against the first EtaEstimator.BlindWindow
-/// versions before extrapolating.
-///
-/// Trade lists never touch the serializable OptimizationVersion record.
-/// They live in a parallel array indexed by combination index for the
-/// duration of the run, then are dropped once MC completes.
-/// </summary>
 public sealed class OptimizationRunner
 {
     private const int EdgeMinTrades = 30;
@@ -78,13 +57,10 @@ public sealed class OptimizationRunner
             throw new ArgumentException("Optimization needs a non-empty data series.", nameof(data));
 
         var wall = Stopwatch.StartNew();
-        var batchId = DateTime.UtcNow.ToString("HHmmss").Length > 0
-            ? DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")
-            : DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var batchId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 
         var eta = new EtaEstimator { GpuFactor = config.GpuFactor <= 0 ? 1.0 : config.GpuFactor };
 
-        // --- 1. Grid ---
         progress?.Report(new OptimizationProgress("Grid", 0, 1, "Generating parameter grid..."));
         var gridResult = ParameterGridBuilder.Build(grid, config.MaxCombinations);
 
@@ -103,7 +79,6 @@ public sealed class OptimizationRunner
         var versions = new OptimizationVersion[comboCount];
         var tradesByVersion = new IReadOnlyList<Trade>[comboCount];
 
-        // --- 2. Parallel backtests ---
         bool savedSerialize = _strat.SerializeBacktests;
         _strat.SerializeBacktests = false;
 
@@ -170,7 +145,6 @@ public sealed class OptimizationRunner
 
         int targetSlices = ComputeTargetSlices(data, config.TradingPeriodDays);
 
-        // --- 3. Coarse MC, sequential per version ---
         for (int i = 0; i < comboCount; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -182,7 +156,7 @@ public sealed class OptimizationRunner
             {
                 progress?.Report(new OptimizationProgress(
                     "Coarse MC", i + 1, comboCount,
-                    $"Skipping version {i + 1}/{comboCount} — {trades.Count} trade(s)"));
+                    $"Skipping version {i + 1}/{comboCount} - {trades.Count} trade(s)"));
                 continue;
             }
 
@@ -191,7 +165,7 @@ public sealed class OptimizationRunner
             {
                 progress?.Report(new OptimizationProgress(
                     "Coarse MC", i + 1, comboCount,
-                    $"Skipping version {i + 1}/{comboCount} — no time slices"));
+                    $"Skipping version {i + 1}/{comboCount} - no time slices"));
                 continue;
             }
 
@@ -217,7 +191,7 @@ public sealed class OptimizationRunner
             {
                 McRan = true,
                 Mc = BuildMcSummary(mcResult, edgePercent: double.NaN, nullMean: double.NaN, nullIterations: 0),
-                TerminalBalances = mcResult.TerminalBalances,
+                TerminalBalances = SanitizeArray(mcResult.TerminalBalances),
                 RepresentativeCurve = DownsampleCurve(mcResult),
                 CurvesRetained = mcResult.CurvesRetained
             };
@@ -239,7 +213,6 @@ public sealed class OptimizationRunner
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: coarse MC complete at {wall.ElapsedMilliseconds} ms");
 
-        // --- 4. Refine top-N survivors ---
         var survivors = versions
             .Select((v, i) => (Version: v, Index: i))
             .Where(t => t.Version.McRan && t.Version.Mc != null)
@@ -308,7 +281,7 @@ public sealed class OptimizationRunner
             versions[i] = v with
             {
                 Mc = BuildMcSummary(mcResult, edgePct, nullMean, nullIters),
-                TerminalBalances = mcResult.TerminalBalances,
+                TerminalBalances = SanitizeArray(mcResult.TerminalBalances),
                 RepresentativeCurve = DownsampleCurve(mcResult),
                 CurvesRetained = mcResult.CurvesRetained
             };
@@ -326,7 +299,6 @@ public sealed class OptimizationRunner
                 remainingSeconds));
         }
 
-        // --- 5. Persist ---
         progress?.Report(new OptimizationProgress("Save", 0, 1, "Saving batch..."));
 
         var batch = new OptimizationBatch(
@@ -353,7 +325,7 @@ public sealed class OptimizationRunner
         wall.Stop();
         progress?.Report(new OptimizationProgress(
             "Done", 1, 1,
-            $"Optimization complete — {comboCount} version(s) in {wall.Elapsed.TotalSeconds:F1}s"));
+            $"Optimization complete - {comboCount} version(s) in {wall.Elapsed.TotalSeconds:F1}s"));
 
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: complete in {wall.ElapsedMilliseconds} ms");
@@ -365,6 +337,24 @@ public sealed class OptimizationRunner
     // Helpers
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// System.Text.Json rejects NaN and Infinity. Every double that reaches
+    /// the batch archive passes through here first. NaN is "not computed"
+    /// (no null pass run, degenerate distribution) so 0 is the correct
+    /// substitution - readers can tell from NullIterations = 0 that the
+    /// Edge % null model did not run.
+    /// </summary>
+    private static double Safe(double v)
+        => double.IsNaN(v) || double.IsInfinity(v) ? 0.0 : v;
+
+    private static double[] SanitizeArray(double[] src)
+    {
+        if (src == null || src.Length == 0) return Array.Empty<double>();
+        var dst = new double[src.Length];
+        for (int i = 0; i < src.Length; i++) dst[i] = Safe(src[i]);
+        return dst;
+    }
+
     private static McSummary BuildMcSummary(
         MonteCarloResult r,
         double edgePercent,
@@ -372,31 +362,31 @@ public sealed class OptimizationRunner
         int nullIterations)
     {
         return new McSummary(
-            PRuin: r.PRuin,
-            PFunded: r.PFunded,
-            PTimeout: r.PTimeout,
-            ExpectedSlicesToFund: r.ExpectedSlicesToFund,
-            ExpectedSlicesToRuin: r.ExpectedSlicesToRuin,
-            TerminalBalanceMean: r.TerminalBalanceMean,
-            TerminalBalanceMedian: r.TerminalBalanceMedian,
-            TerminalBalanceStdDev: r.TerminalBalanceStdDev,
-            TerminalBalanceP05: r.TerminalBalanceP05,
-            TerminalBalanceP95: r.TerminalBalanceP95,
-            MaxDrawdownMean: r.MaxDrawdownMean,
-            MaxDrawdownMedian: r.MaxDrawdownMedian,
-            MaxDrawdownP05: r.MaxDrawdownP05,
-            MaxDrawdownP95: r.MaxDrawdownP95,
-            ProbBestDayViolation: r.ProbBestDayViolation,
-            BestDayRatioMedian: r.BestDayRatioMedian,
-            BestDayRatioP95: r.BestDayRatioP95,
+            PRuin: Safe(r.PRuin),
+            PFunded: Safe(r.PFunded),
+            PTimeout: Safe(r.PTimeout),
+            ExpectedSlicesToFund: Safe(r.ExpectedSlicesToFund),
+            ExpectedSlicesToRuin: Safe(r.ExpectedSlicesToRuin),
+            TerminalBalanceMean: Safe(r.TerminalBalanceMean),
+            TerminalBalanceMedian: Safe(r.TerminalBalanceMedian),
+            TerminalBalanceStdDev: Safe(r.TerminalBalanceStdDev),
+            TerminalBalanceP05: Safe(r.TerminalBalanceP05),
+            TerminalBalanceP95: Safe(r.TerminalBalanceP95),
+            MaxDrawdownMean: Safe(r.MaxDrawdownMean),
+            MaxDrawdownMedian: Safe(r.MaxDrawdownMedian),
+            MaxDrawdownP05: Safe(r.MaxDrawdownP05),
+            MaxDrawdownP95: Safe(r.MaxDrawdownP95),
+            ProbBestDayViolation: Safe(r.ProbBestDayViolation),
+            BestDayRatioMedian: Safe(r.BestDayRatioMedian),
+            BestDayRatioP95: Safe(r.BestDayRatioP95),
             MedianLongestLosingStreak: r.MedianLongestLosingStreak,
             P95LongestLosingStreak: r.P95LongestLosingStreak,
             MedianLongestFlatStretch: r.MedianLongestFlatStretch,
             P95LongestFlatStretch: r.P95LongestFlatStretch,
             RuinByDailyFloorCount: r.RuinByDailyFloorCount,
             RuinByMaxFloorCount: r.RuinByMaxFloorCount,
-            EdgePercent: edgePercent,
-            NullMeanTerminalBalance: nullMean,
+            EdgePercent: Safe(edgePercent),
+            NullMeanTerminalBalance: Safe(nullMean),
             NullIterations: nullIterations);
     }
 
@@ -418,7 +408,7 @@ public sealed class OptimizationRunner
 
         var curve = r.EquityCurves[best];
         if (curve == null || curve.Length == 0) return Array.Empty<double>();
-        if (curve.Length <= RepresentativeCurveLength) return (double[])curve.Clone();
+        if (curve.Length <= RepresentativeCurveLength) return SanitizeArray(curve);
 
         var result = new double[RepresentativeCurveLength];
         double step = (double)(curve.Length - 1) / (RepresentativeCurveLength - 1);
@@ -426,7 +416,7 @@ public sealed class OptimizationRunner
         {
             int idx = (int)Math.Round(i * step);
             if (idx >= curve.Length) idx = curve.Length - 1;
-            result[i] = curve[idx];
+            result[i] = Safe(curve[idx]);
         }
         return result;
     }

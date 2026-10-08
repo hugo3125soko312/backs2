@@ -22,6 +22,21 @@ public sealed record ActiveAccountSelection(
     string Size
 );
 
+/// <summary>
+/// Resolved active-account triple with its concrete funded phase. Produced
+/// by AccountService.ResolveActiveFundedContext(). Consumers (Monte Carlo,
+/// the parameter optimizer, the Runner) all need the same three things:
+/// the descriptor, the size (for StartingCapital), and the funded phase
+/// (the last entry in Phases — that is where prop-firm rule evaluation
+/// lives). Keeping the extraction in one place means a change to that
+/// convention only has to happen once.
+/// </summary>
+public sealed record ActiveFundedContext(
+    AccountDescriptor Account,
+    PlanSize PlanSize,
+    AccountPhase FundedPhase
+);
+
 public sealed class AccountService
 {
     private const string AccountsFolder = "data/accounts";
@@ -167,6 +182,23 @@ public sealed class AccountService
         LogManager.Info(LogTag.Account,
             $"active: {descriptor.Firm} · {descriptor.Plan} · {descriptor.Size}");
         ActiveChanged?.Invoke(this, descriptor);
+    }
+
+    /// <summary>
+    /// Resolves the active account into its funded phase. Returns null when
+    /// there is no active account, no matching PlanSize, or the PlanSize has
+    /// no phases. The funded phase is the LAST entry in Phases by convention
+    /// (Phase 1 / Phase 2 / Funded). Never assume phase 0.
+    /// </summary>
+    public ActiveFundedContext? ResolveActiveFundedContext()
+    {
+        var active = Active;
+        if (active == null) return null;
+
+        var planSize = ResolvePlanSize(active);
+        if (planSize == null || planSize.Phases.Count == 0) return null;
+
+        return new ActiveFundedContext(active, planSize, planSize.Phases[planSize.Phases.Count - 1]);
     }
 
     private void TryLoadActiveFromSettings()
