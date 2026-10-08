@@ -139,7 +139,9 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 26A).
 
 ### Phase 26D -- Runner UI rework
 - [x] **26D.1 -- Ship MC settings first [COMPLETED]:** MC settings panel added to Runner, backed by `RunnerViewModel` fields; active account banner and ruin threshold auto-update on `AccountService.ActiveChanged`. MC tab untouched.
-- [ ] **26D.2:** Delete the source-preview `TextBox` from `RunnerView.axaml`. The middle column becomes the strategy chooser — a searchable `DataGrid` (Name, Path, Modified, Parameter count) replacing the current `ListBox`.
+- [x] **26D.2a -- Chooser + source viewer [COMPLETED]:** Source-preview column removed. Two-column layout: filter box + `ListBox` chooser + `View Source...` on the left, parameter panel on the right. `StrategySourceWindow` (`src/gui/Strategy/`) opens read-only source on demand. Diff-based `FilteredStrategies` update so filtering does not null the selection.
+- [ ] **26D.2b:** Add min/max/increment fields per numeric `RunnerParameterViewModel`; live combination-count per parameter and per grid; cap warning when total exceeds `OptimizerMaxCombinations`.
+- [ ] **26D.2c:** Add `Optimize` button next to `Run`; wire to `OptimizationRunner.RunAsync`; progress bar + ETA display driven by `OptimizationProgress`.
 - [ ] `RunnerParameterViewModel` gains min / max / increment fields per numeric parameter. Derived `ValueCount` per parameter, `TotalCombinations` across all parameters. UI blocks `Optimize` when `TotalCombinations` exceeds the cap and offers a random-sample mode.
 - [ ] Add an `Optimize` button next to `Run`. `Run` keeps single-configuration behavior. `Optimize` runs the grid.
 - [ ] ETA display and progress bar wired to the optimizer.
