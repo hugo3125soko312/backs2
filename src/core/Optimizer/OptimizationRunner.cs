@@ -27,7 +27,8 @@ public sealed record OptimizationRunConfig(
     double MaxDailyLossPercent,
     double ProfitTargetPercent,
     double BestDayRulePercent,
-    int TradingPeriodDays);
+    int TradingPeriodDays,
+    double GpuFactor = 1.0);
 
 /// <summary>
 /// Executes an optimization run end to end:
@@ -37,10 +38,9 @@ public sealed record OptimizationRunConfig(
 ///   4. Sequential refine Monte Carlo on the top-N survivors.
 ///   5. Persist the batch (OptimizationStore).
 ///
-/// Parallelism shape mirrors the 26B.1 verification: backtests run across
-/// cores because the compiled ScriptRunner is thread-safe; MC runs one
-/// version at a time because MonteCarloEngine saturates cores internally
-/// via Parallel.For. Trying to parallelize both would thrash the thread pool.
+/// ETA is estimated internally on every progress event using an
+/// EtaEstimator that calibrates against the first EtaEstimator.BlindWindow
+/// versions before extrapolating.
 ///
 /// Trade lists never touch the serializable OptimizationVersion record.
 /// They live in a parallel array indexed by combination index for the
@@ -78,7 +78,11 @@ public sealed class OptimizationRunner
             throw new ArgumentException("Optimization needs a non-empty data series.", nameof(data));
 
         var wall = Stopwatch.StartNew();
-        var batchId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var batchId = DateTime.UtcNow.ToString("HHmmss").Length > 0
+            ? DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")
+            : DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+
+        var eta = new EtaEstimator { GpuFactor = config.GpuFactor <= 0 ? 1.0 : config.GpuFactor };
 
         // --- 1. Grid ---
         progress?.Report(new OptimizationProgress("Grid", 0, 1, "Generating parameter grid..."));
@@ -140,10 +144,20 @@ public sealed class OptimizationRunner
                         RepresentativeCurve: Array.Empty<double>(),
                         CurvesRetained: false);
 
+                    eta.ReportBacktest((long)result.Duration.TotalMilliseconds);
+
                     int done = Interlocked.Increment(ref completedBacktests);
+                    double? remaining = eta.Estimate(
+                        remainingCombos: comboCount - done,
+                        refineTopN: config.RefineTopN,
+                        coarseIterations: config.CoarseIterations,
+                        refineIterations: config.RefineIterations,
+                        refineRemaining: config.RefineTopN);
+
                     progress?.Report(new OptimizationProgress(
                         "Backtest", done, comboCount,
-                        $"Backtest {done}/{comboCount}"));
+                        $"Backtest {done}/{comboCount}",
+                        remaining));
                 }).ConfigureAwait(false);
         }
         finally
@@ -181,6 +195,7 @@ public sealed class OptimizationRunner
                 continue;
             }
 
+            var mcSw = Stopwatch.StartNew();
             var mcResult = _mc.Run(
                 slices,
                 targetSlices,
@@ -195,6 +210,8 @@ public sealed class OptimizationRunner
                 seed: null,
                 progress: null,
                 cancellationToken: ct);
+            mcSw.Stop();
+            eta.ReportMc(mcSw.ElapsedMilliseconds);
 
             versions[i] = v with
             {
@@ -205,9 +222,18 @@ public sealed class OptimizationRunner
                 CurvesRetained = mcResult.CurvesRetained
             };
 
+            int coarseRemaining = comboCount - (i + 1);
+            double? remainingSeconds = eta.Estimate(
+                remainingCombos: coarseRemaining,
+                refineTopN: config.RefineTopN,
+                coarseIterations: config.CoarseIterations,
+                refineIterations: config.RefineIterations,
+                refineRemaining: config.RefineTopN);
+
             progress?.Report(new OptimizationProgress(
                 "Coarse MC", i + 1, comboCount,
-                $"Coarse MC {i + 1}/{comboCount}"));
+                $"Coarse MC {i + 1}/{comboCount}",
+                remainingSeconds));
         }
 
         LogManager.Info(LogTag.Runner,
@@ -287,9 +313,17 @@ public sealed class OptimizationRunner
                 CurvesRetained = mcResult.CurvesRetained
             };
 
+            double? remainingSeconds = eta.Estimate(
+                remainingCombos: 0,
+                refineTopN: config.RefineTopN,
+                coarseIterations: config.CoarseIterations,
+                refineIterations: config.RefineIterations,
+                refineRemaining: survivors.Count - (j + 1));
+
             progress?.Report(new OptimizationProgress(
                 "Refine MC", j + 1, survivors.Count,
-                $"Refine {j + 1}/{survivors.Count}"));
+                $"Refine {j + 1}/{survivors.Count}",
+                remainingSeconds));
         }
 
         // --- 5. Persist ---
@@ -366,11 +400,6 @@ public sealed class OptimizationRunner
             NullIterations: nullIterations);
     }
 
-    /// <summary>
-    /// Picks the simulation whose terminal balance is closest to the median,
-    /// then downsamples its equity curve to <see cref="RepresentativeCurveLength"/>
-    /// points. Returns empty when the MC pass dropped curves.
-    /// </summary>
     private static double[] DownsampleCurve(MonteCarloResult r)
     {
         if (!r.CurvesRetained || r.EquityCurves.Length == 0 || r.TerminalBalances.Length == 0)

@@ -12,12 +12,16 @@ namespace backs2.Core.Optimizer;
 ///   "Refine MC"  — sequential MC at full iterations on the top-N survivors
 ///   "Save"       — writing the batch archive to disk
 ///   "Done"       — terminal event
+///
+/// EtaSeconds is null until the estimator has warmed up (first 5 versions)
+/// or when the remaining work is unknown.
 /// </summary>
 public sealed record OptimizationProgress(
     string Phase,
     int Completed,
     int Total,
-    string Message)
+    string Message,
+    double? EtaSeconds = null)
 {
     public double Fraction => Total > 0 ? (double)Completed / Total : 0;
 }

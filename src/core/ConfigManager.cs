@@ -29,19 +29,12 @@ public class AppSettings
     public int    Mt5TimeoutMs { get; set; } = 60000;
 
     // MT5 .tkc cache extraction (Extract from .tkc subtab).
-    // TerminalDataRoot is the per-installation GUID folder under
-    // %APPDATA%\MetaQuotes\Terminal\. Broker is the server-side folder
-    // name under bases\ (e.g. "OANDATMS-MT5"). Both are needed to
-    // resolve bases\{broker}\ticks\{symbol}\YYYYMM.tkc.
     public string Mt5TerminalDataRoot { get; set; } = "";
     public string Mt5TerminalBroker   { get; set; } = "";
 
     // ==================== Theme ====================
     // ARGB hex strings. Parsed by Avalonia.Media.Color.TryParse and
-    // written into Application.Current.Resources by ThemeApplier. The
-    // Config tab renders each of these as a ColorPicker because the
-    // name contains "Color" (see SettingItem.IsColor).
-    // Defaults match src/gui/Theme/Tokens.axaml.
+    // written into Application.Current.Resources by ThemeApplier.
     public string ThemeAppBgColor          { get; set; } = "#FF0D1117";
     public string ThemePanelBgColor        { get; set; } = "#FF161B22";
     public string ThemeElevatedColor       { get; set; } = "#FF21262D";
@@ -56,6 +49,24 @@ public class AppSettings
     public string ThemeSemanticSuccessColor { get; set; } = "#FF238636";
     public string ThemeSemanticWarnColor   { get; set; } = "#FFD29922";
     public string ThemeSemanticDangerColor { get; set; } = "#FFF85149";
+
+    // ==================== Optimizer ====================
+    // Bounded Cartesian grid cap. Above this, the optimizer samples the grid
+    // instead of running it in full. Default 500 per Phase 26 design.
+    public int OptimizerMaxCombinations { get; set; } = 500;
+
+    // Iterations used during the search phase (fast, rank-only).
+    public int OptimizerCoarseIterations { get; set; } = 100;
+
+    // Iterations used for the refine pass on the top survivors (full).
+    public int OptimizerRefineIterations { get; set; } = 1000;
+
+    // Number of survivors to carry into the refine pass.
+    public int OptimizerRefineTopN { get; set; } = 20;
+
+    // CPU=1.0. Future GPU MC path sets this to the expected speedup factor.
+    // Only the MC component of the ETA estimate is divided by this value.
+    public double OptimizerGpuFactor { get; set; } = 1.0;
 }
 
 public class ConfigManager
@@ -99,24 +110,12 @@ public class ConfigManager
 
             switch (key)
             {
-                case "MASSIVE_PROVIDER_API_KEY":
-                    MassiveApiKey = value;
-                    break;
-                case "YAHOO_PROVIDER_API_KEY":
-                    YahooApiKey = value;
-                    break;
-                case "TWELVEDATA_API_KEY":
-                    TwelveDataApiKey = value;
-                    break;
-                case "TIINGO_API_KEY":
-                    TiingoApiKey = value;
-                    break;
-                case "FINNHUB_API_KEY":
-                    FinnhubApiKey = value;
-                    break;
-                case "FCS_PUBLIC_API_KEY":
-                    FcsApiKey = value;
-                    break;
+                case "MASSIVE_PROVIDER_API_KEY": MassiveApiKey = value; break;
+                case "YAHOO_PROVIDER_API_KEY":   YahooApiKey = value; break;
+                case "TWELVEDATA_API_KEY":       TwelveDataApiKey = value; break;
+                case "TIINGO_API_KEY":           TiingoApiKey = value; break;
+                case "FINNHUB_API_KEY":          FinnhubApiKey = value; break;
+                case "FCS_PUBLIC_API_KEY":       FcsApiKey = value; break;
             }
         }
     }
@@ -183,6 +182,15 @@ public class ConfigManager
         Settings.ThemeSemanticSuccessColor ??= "#FF238636";
         Settings.ThemeSemanticWarnColor ??= "#FFD29922";
         Settings.ThemeSemanticDangerColor ??= "#FFF85149";
+
+        // Optimizer defaults. Value types default to 0 on deserialization of
+        // an older settings.json; bump zeros to the shipped defaults. Zero is
+        // never a valid value for any of these.
+        if (Settings.OptimizerMaxCombinations <= 0)   Settings.OptimizerMaxCombinations = 500;
+        if (Settings.OptimizerCoarseIterations <= 0)  Settings.OptimizerCoarseIterations = 100;
+        if (Settings.OptimizerRefineIterations <= 0)  Settings.OptimizerRefineIterations = 1000;
+        if (Settings.OptimizerRefineTopN <= 0)        Settings.OptimizerRefineTopN = 20;
+        if (Settings.OptimizerGpuFactor <= 0)         Settings.OptimizerGpuFactor = 1.0;
     }
 
     public void SaveConfig()
