@@ -7,7 +7,7 @@
 
     <Grid ColumnDefinitions="280,4,*,4,280" RowDefinitions="Auto,Auto,*,Auto">
 
-        <!-- Toolbar -->
+        <!-- ==================== Row 0: toolbar ==================== -->
         <StackPanel Grid.Row="0" Grid.ColumnSpan="5"
                     Spacing="6"
                     Margin="8">
@@ -16,7 +16,7 @@
                 <TextBlock Text="Run on:" VerticalAlignment="Center" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding QueueHint}"
                            VerticalAlignment="Center"
-                           Foreground="#4FC3F7" />
+                           Foreground="{DynamicResource AccentPrimary}" />
 
                 <Button Content="Refresh Catalog"
                         Command="{Binding RefreshCatalogCommand}"
@@ -40,8 +40,61 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- ==================== Row 1: Monte Carlo settings ==================== -->
+        <Expander Grid.Row="1" Grid.ColumnSpan="5"
+                  Header="Monte Carlo Settings"
+                  IsExpanded="{Binding IsMcPanelExpanded, Mode=TwoWay}"
+                  FontSize="12"
+                  HorizontalAlignment="Stretch"
+                  Margin="8,0,8,8">
+
+            <StackPanel Spacing="8" Margin="4,6,4,4">
+
+                <Grid ColumnDefinitions="Auto,110,20,Auto,90,20,Auto,90,*">
+                    <TextBlock Grid.Column="0" Text="Iterations"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"
+                               Opacity="0.75" />
+                    <NumericUpDown Grid.Column="1"
+                                   Value="{Binding McIterations, Mode=TwoWay}"
+                                   Minimum="10" Maximum="100000" Increment="100"
+                                   FormatString="0" ShowButtonSpinner="False" />
+
+                    <TextBlock Grid.Column="3" Text="Block Size"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"
+                               Opacity="0.75" />
+                    <NumericUpDown Grid.Column="4"
+                                   Value="{Binding McBlockSize, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" Increment="1"
+                                   FormatString="0" ShowButtonSpinner="False" />
+
+                    <TextBlock Grid.Column="6" Text="Ruin Threshold %"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"
+                               Opacity="0.75" />
+                    <NumericUpDown Grid.Column="7"
+                                   Value="{Binding McRuinThresholdPercent, Mode=TwoWay}"
+                                   Minimum="1" Maximum="99" Increment="1"
+                                   FormatString="0" ShowButtonSpinner="False" />
+
+                    <TextBlock Grid.Column="9"
+                               Text="{Binding ActiveAccountName}"
+                               Foreground="{DynamicResource AccentPrimary}"
+                               VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="These settings apply when Monte Carlo runs. Ruin threshold is derived from the funded phase's max-loss % of the active account and updates when the account changes."
+                           FontSize="10"
+                           Opacity="0.55"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Expander>
+
+        <!-- ==================== Row 2: three-column content ==================== -->
+
         <!-- Strategy list -->
-        <ListBox Grid.Row="1" Grid.Column="0"
+        <ListBox Grid.Row="2" Grid.Column="0"
                  ItemsSource="{Binding Strategies}"
                  SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}"
                  Margin="8,0,0,0">
@@ -60,15 +113,15 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <GridSplitter Grid.Row="1" Grid.Column="1"
+        <GridSplitter Grid.Row="2" Grid.Column="1"
                       Width="4"
                       Background="Transparent"
                       ResizeDirection="Columns" />
 
         <!-- Source preview -->
-        <Border Grid.Row="1" Grid.Column="2"
+        <Border Grid.Row="2" Grid.Column="2"
                 BorderThickness="1"
-                BorderBrush="#333">
+                BorderBrush="{DynamicResource BorderDefault}">
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Auto">
                 <TextBox Text="{Binding SourcePreview}"
@@ -82,17 +135,17 @@
             </ScrollViewer>
         </Border>
 
-        <GridSplitter Grid.Row="1" Grid.Column="3"
+        <GridSplitter Grid.Row="2" Grid.Column="3"
                       Width="4"
                       Background="Transparent"
                       ResizeDirection="Columns" />
 
         <!-- Parameter panel -->
-        <Border Grid.Row="1" Grid.Column="4"
+        <Border Grid.Row="2" Grid.Column="4"
                 Margin="0,0,8,0"
                 Padding="8"
                 BorderThickness="1"
-                BorderBrush="#333"
+                BorderBrush="{DynamicResource BorderDefault}"
                 IsVisible="{Binding HasParameters}">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
@@ -132,7 +185,7 @@
             </ScrollViewer>
         </Border>
 
-        <!-- Status line -->
+        <!-- ==================== Row 3: status line ==================== -->
         <TextBox Grid.Row="3" Grid.ColumnSpan="5"
                  Text="{Binding StatusText}"
                  IsReadOnly="True"

@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
+using backs2.Core.Accounts;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 
@@ -75,6 +76,7 @@ public partial class RunnerViewModel : ObservableObject
     private readonly PresetService _presets;
     private readonly LastRunStore _lastRun;
     private readonly SelectionQueue _queue;
+    private readonly AccountService _accounts;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<RunnerParameterViewModel> Parameters { get; } = new();
@@ -92,6 +94,15 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private bool _isProgressVisible;
     [ObservableProperty] private bool _isProgressIndeterminate;
 
+    // ==================== Monte Carlo settings (26D.1) ====================
+    // Lives on the Runner for now. The MC tab keeps its own transient values
+    // until 26E removes it. Persistence via AppSettings is 26D.2.
+    [ObservableProperty] private bool _isMcPanelExpanded = false;
+    [ObservableProperty] private int _mcIterations = 1000;
+    [ObservableProperty] private int _mcBlockSize = 5;
+    [ObservableProperty] private double _mcRuinThresholdPercent = 10.0;
+    [ObservableProperty] private string _activeAccountName = "(none)";
+
     public event EventHandler<StrategyRunResult>? RunCompleted;
 
     public RunnerViewModel(
@@ -100,7 +111,8 @@ public partial class RunnerViewModel : ObservableObject
         DataManager data,
         PresetService presets,
         LastRunStore lastRun,
-        SelectionQueue queue)
+        SelectionQueue queue,
+        AccountService accounts)
     {
         _catalog = catalog;
         _strat = strat;
@@ -108,13 +120,47 @@ public partial class RunnerViewModel : ObservableObject
         _presets = presets;
         _lastRun = lastRun;
         _queue = queue;
+        _accounts = accounts;
 
         _catalog.Changed += OnCatalogChanged;
         _queue.Changed += OnQueueChanged;
+        _accounts.ActiveChanged += OnActiveAccountChanged;
+
+        ApplyAccountDefaults();
 
         SyncCatalog(_catalog.Current);
         SyncQueue();
     }
+
+    // ------------------------------------------------------------------
+    // Monte Carlo settings wiring
+    // ------------------------------------------------------------------
+
+    private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
+    {
+        Dispatcher.UIThread.Post(ApplyAccountDefaults);
+    }
+
+    private void ApplyAccountDefaults()
+    {
+        var active = _accounts.Active;
+        ActiveAccountName = active == null
+            ? "(none)"
+            : $"{active.Firm} · {active.Plan} · {active.Size}";
+
+        if (active == null) return;
+
+        var planSize = _accounts.ResolvePlanSize(active);
+        if (planSize == null || planSize.Phases.Count == 0) return;
+
+        var funded = planSize.Phases[planSize.Phases.Count - 1];
+        if (funded.MaxLossPercent.HasValue)
+            McRuinThresholdPercent = funded.MaxLossPercent.Value;
+    }
+
+    // ------------------------------------------------------------------
+    // Catalog / queue
+    // ------------------------------------------------------------------
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
@@ -241,8 +287,6 @@ public partial class RunnerViewModel : ObservableObject
             return;
         }
 
-        // One-ticker constraint. Refuse outright — do not silently pick the
-        // first ticker. The user has to narrow the queue themselves.
         var distinctSymbols = queued
             .Select(q => q.Symbol)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -277,9 +321,6 @@ public partial class RunnerViewModel : ObservableObject
             foreach (var p in Parameters)
                 paramValues[p.Name] = p.EffectiveValue;
 
-            // Announce the effective timeframe list — the queue may be a
-            // subset of the ticker's available timeframes, and we run exactly
-            // what is queued.
             var effectiveTimeframes = queued
                 .Select(q => q.Timeframe)
                 .ToList();

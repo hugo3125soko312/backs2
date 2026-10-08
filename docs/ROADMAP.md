@@ -138,7 +138,7 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 26A).
 - [ ] `gpuAccelerationFactor` reads from a new `AppSettings.OptimizerGpuFactor` setting (default 1.0). Not exposed in the UI yet; the setting exists so the future GPU path is a value change, not a schema change.
 
 ### Phase 26D -- Runner UI rework
-- [ ] **26D.1 (ship first):** Move MC settings (Iterations, Block Size, Ruin Threshold %, Best Day Rule %) from the MC tab into the Runner's parameter panel area. Runner stays fully functional; MC tab untouched in this step. This is the pause point that keeps MC available while the Runner rebuild happens.
+- [x] **26D.1 -- Ship MC settings first [COMPLETED]:** MC settings panel added to Runner, backed by `RunnerViewModel` fields; active account banner and ruin threshold auto-update on `AccountService.ActiveChanged`. MC tab untouched.
 - [ ] **26D.2:** Delete the source-preview `TextBox` from `RunnerView.axaml`. The middle column becomes the strategy chooser — a searchable `DataGrid` (Name, Path, Modified, Parameter count) replacing the current `ListBox`.
 - [ ] `RunnerParameterViewModel` gains min / max / increment fields per numeric parameter. Derived `ValueCount` per parameter, `TotalCombinations` across all parameters. UI blocks `Optimize` when `TotalCombinations` exceeds the cap and offers a random-sample mode.
 - [ ] Add an `Optimize` button next to `Run`. `Run` keeps single-configuration behavior. `Optimize` runs the grid.
