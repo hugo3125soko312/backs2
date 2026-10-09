@@ -1,107 +1,107 @@
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 
 namespace backs2.Core.Optimizer;
 
 /// <summary>
-/// Estimates the wall-time remaining for an optimization run. Calibrates
-/// against the first N samples it receives (default 5), then extrapolates
-/// from a moving average of backtest and MC durations.
+/// Dead-simple countdown timer for an optimization run.
 ///
-/// Design notes:
-/// - Backtests are reported once per version (after the parallel phase).
-/// - MC durations include both the coarse and the refine pass, but the
-///   refine pass runs on only RefineTopN survivors, so it does not scale
-///   with combo count. The estimator takes MC samples from the coarse
-///   phase and uses a fixed multiplier for the refine tail.
-/// - GpuFactor is 1.0 on CPU; the future GPU path sets it to a factor of
-///   the expected MC speedup (e.g. 10-100), and the MC component of the
-///   ETA divides by it. The backtest component is never divided — backtests
-///   are CPU-bound script execution, not MC.
-/// - Returns null when fewer than BlindWindow samples have been observed.
+/// There is no sampling, no blending, no adaptive anything. One estimate
+/// is computed once from the run's shape (combination count, refine-top-N,
+/// iteration counts) using the tunable per-unit constants below, then the
+/// number counts down monotonically as wall time elapses. It only ever
+/// decreases. When the estimate is exhausted it floors at
+/// <see cref="FloorSeconds"/> and stays there for the rest of the run.
+///
+/// The whole estimate is derived from these five public constants. If the
+/// countdown is consistently wrong — too fast, too slow — tune the constant
+/// and rerun. Every constant is in wall seconds per unit of work, already
+/// divided by whatever parallelism the optimizer applies (so
+/// <see cref="WallSecPerBacktest"/> is the per-combination wall-time when
+/// the backtest phase is running across all cores).
+///
+/// The breakdown of the initial estimate is exposed via <see cref="Breakdown"/>
+/// and logged once at Start.
 /// </summary>
 public sealed class EtaEstimator
 {
-    public const int BlindWindow = 5;
-    private const int MaxSamples = 30;
+    // ---- Tunables. Wall seconds per unit of work, post-parallel. --------
 
-    private readonly Queue<double> _backtestSamples = new(MaxSamples);
-    private readonly Queue<double> _mcSamples = new(MaxSamples);
+    /// <summary>Wall seconds per combination in the backtest phase.</summary>
+    public double WallSecPerBacktest { get; init; } = 0.0005;
+
+    /// <summary>Wall seconds per combination in the coarse-MC phase (at the configured coarse iterations).</summary>
+    public double WallSecPerCoarseMc { get; init; } = 0.008;
+
+    /// <summary>Wall seconds per survivor in the refine-MC phase, scaled by refineIterations / 1000.</summary>
+    public double WallSecPerRefineMc { get; init; } = 0.046;
+
+    /// <summary>Wall seconds per survivor in the null-model pass, scaled by refineIterations / 1000.</summary>
+    public double WallSecPerNullMc { get; init; } = 0.046;
+
+    /// <summary>Floor for the reported value. Never returns below this.</summary>
+    public double FloorSeconds { get; init; } = 0.5;
+
+    private const double RefineScaleBaselineIterations = 1000.0;
+
+    private Stopwatch? _clock;
+    private double _totalSeconds;
+
+    public bool IsRunning => _clock != null;
+    public double TotalEstimateSeconds => _totalSeconds;
+    public double ElapsedSeconds => _clock?.Elapsed.TotalSeconds ?? 0.0;
+
+    /// <summary>One-line breakdown of how the frozen estimate was assembled.</summary>
+    public string Breakdown { get; private set; } = "";
 
     /// <summary>
-    /// CPU acceleration factor. 1.0 = CPU-only. Future GPU MC path sets this
-    /// to the expected MC speedup (e.g. 50.0). Only the MC component of the
-    /// estimate is divided by this factor.
+    /// Freezes the estimate and starts the countdown clock. Call once at the
+    /// start of the run, after the grid is built.
     /// </summary>
-    public double GpuFactor { get; set; } = 1.0;
-
-    public int SampleCount => Math.Min(_backtestSamples.Count, _mcSamples.Count);
-
-    public bool IsWarmedUp => SampleCount >= BlindWindow;
-
-    public void ReportBacktest(long durationMs)
-    {
-        Push(_backtestSamples, durationMs);
-    }
-
-    public void ReportMc(long durationMs)
-    {
-        Push(_mcSamples, Math.Max(0, durationMs));
-    }
-
-    /// <summary>
-    /// Returns the estimated remaining seconds for the given combination
-    /// counts, or null when the estimator is not warmed up yet.
-    ///
-    ///   remainingBacktests = remainingCombos
-    ///   remainingCoarseMc  = remainingCombos
-    ///   refineTail         = RefineTopN x (RefineIterations / CoarseIterations) x AvgMcPerCoarse
-    ///
-    /// The refine tail is estimated as a fixed cost — it does not scale with
-    /// remainingCombos. When the refine phase has already started, the caller
-    /// passes refineRemaining instead of refineTotal.
-    /// </summary>
-    public double? Estimate(
-        int remainingCombos,
+    public void Start(
+        int combinationCount,
         int refineTopN,
         int coarseIterations,
-        int refineIterations,
-        int refineRemaining)
+        int refineIterations)
     {
-        if (!IsWarmedUp) return null;
-        if (remainingCombos < 0) remainingCombos = 0;
-        if (refineRemaining < 0) refineRemaining = 0;
+        _clock = Stopwatch.StartNew();
 
-        double avgBacktestMs = Average(_backtestSamples);
-        double avgCoarseMcMs = Average(_mcSamples);
+        double refineScale = coarseIterations > 0
+            ? refineIterations / RefineScaleBaselineIterations
+            : 1.0;
 
-        double refinePerVersion = coarseIterations > 0
-            ? avgCoarseMcMs * (refineIterations / (double)coarseIterations)
-            : avgCoarseMcMs;
+        double backtestSec = combinationCount * WallSecPerBacktest;
+        double coarseSec   = combinationCount * WallSecPerCoarseMc;
+        double refineSec   = refineTopN * WallSecPerRefineMc * refineScale;
+        double nullSec     = refineTopN * WallSecPerNullMc * refineScale;
 
-        double backtestPortion = remainingCombos * avgBacktestMs;
-        double coarsePortion = remainingCombos * avgCoarseMcMs;
-        double refinePortion = refineRemaining * refinePerVersion;
+        _totalSeconds = backtestSec + coarseSec + refineSec + nullSec;
 
-        double mcTotal = coarsePortion + refinePortion;
-        if (GpuFactor > 0) mcTotal /= GpuFactor;
-
-        double totalMs = backtestPortion + mcTotal;
-        return totalMs / 1000.0;
+        Breakdown = string.Format(
+            CultureInfo.InvariantCulture,
+            "backtest={0:F1}s ({1}x{2:F2}) | coarse={3:F1}s ({1}x{4:F2}) | " +
+            "refine={5:F1}s ({6}x{7:F2}x{8:F2}) | null={9:F1}s ({6}x{10:F2}x{8:F2}) | total={11:F1}s",
+            backtestSec, combinationCount, WallSecPerBacktest,
+            coarseSec, WallSecPerCoarseMc,
+            refineSec, refineTopN, WallSecPerRefineMc, refineScale,
+            nullSec, WallSecPerNullMc,
+            _totalSeconds);
     }
 
-    private static void Push(Queue<double> q, double sample)
+    /// <summary>
+    /// Seconds remaining. Monotonically decreasing. Never below
+    /// <see cref="FloorSeconds"/>. Returns the floor when Start was never
+    /// called.
+    /// </summary>
+    public double Remaining()
     {
-        if (sample < 0) sample = 0;
-        q.Enqueue(sample);
-        while (q.Count > MaxSamples) q.Dequeue();
-    }
+        if (_clock == null) return FloorSeconds;
 
-    private static double Average(Queue<double> q)
-    {
-        if (q.Count == 0) return 0;
-        double sum = 0;
-        foreach (var s in q) sum += s;
-        return sum / q.Count;
+        double r = _totalSeconds - _clock.Elapsed.TotalSeconds;
+        if (double.IsNaN(r) || double.IsInfinity(r) || r < FloorSeconds)
+            return FloorSeconds;
+
+        return r;
     }
 }

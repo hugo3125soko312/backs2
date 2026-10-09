@@ -61,7 +61,7 @@ public sealed class OptimizationRunner
 
         double dataSpanYears = ComputeDataSpanYears(data);
 
-        var eta = new EtaEstimator { GpuFactor = config.GpuFactor <= 0 ? 1.0 : config.GpuFactor };
+        var eta = new EtaEstimator();
 
         progress?.Report(new OptimizationProgress("Grid", 0, 1, "Generating parameter grid..."));
         var gridResult = ParameterGridBuilder.Build(grid, config.MaxCombinations);
@@ -78,6 +78,33 @@ public sealed class OptimizationRunner
             $"{gridResult.Combinations.Count} combination(s){sampleNote}"));
 
         int comboCount = gridResult.Combinations.Count;
+
+        // ------------------------------------------------------------------
+        // Topology precompute. Outer degree = min(items, cores); inner degree
+        // = cores / outer. Same values used to gate curve retention later.
+        // ------------------------------------------------------------------
+
+        int backtestOuter = Math.Min(comboCount, Environment.ProcessorCount);
+        int coarseOuter   = Math.Min(comboCount, Environment.ProcessorCount);
+        int refineOuter   = Math.Min(config.RefineTopN, Environment.ProcessorCount);
+
+        int coarseInner   = Math.Max(1, Environment.ProcessorCount / Math.Max(1, coarseOuter));
+        int refineInner   = Math.Max(1, Environment.ProcessorCount / Math.Max(1, refineOuter));
+
+        LogManager.Debug(LogTag.Runner,
+            $"optimization {batchId}: topology backtest={backtestOuter}, " +
+            $"coarse={coarseOuter}(inner {coarseInner}), refine={refineOuter}(inner {refineInner})");
+
+        // Freeze the estimate. Counts down from here; only ever decreases.
+        eta.Start(
+            combinationCount: comboCount,
+            refineTopN: config.RefineTopN,
+            coarseIterations: config.CoarseIterations,
+            refineIterations: config.RefineIterations);
+
+        LogManager.Info(LogTag.Runner,
+            $"optimization {batchId}: ETA estimate {eta.TotalEstimateSeconds:F1}s - {eta.Breakdown}");
+
         var versions = new OptimizationVersion[comboCount];
         var tradesByVersion = new IReadOnlyList<Trade>[comboCount];
 
@@ -89,7 +116,7 @@ public sealed class OptimizationRunner
             int completedBacktests = 0;
             var parallelOptions = new ParallelOptions
             {
-                MaxDegreeOfParallelism = Environment.ProcessorCount,
+                MaxDegreeOfParallelism = backtestOuter,
                 CancellationToken = ct
             };
 
@@ -126,20 +153,12 @@ public sealed class OptimizationRunner
                         RepresentativeCurve: Array.Empty<double>(),
                         CurvesRetained: false);
 
-                    eta.ReportBacktest((long)result.Duration.TotalMilliseconds);
-
                     int done = Interlocked.Increment(ref completedBacktests);
-                    double? remaining = eta.Estimate(
-                        remainingCombos: comboCount - done,
-                        refineTopN: config.RefineTopN,
-                        coarseIterations: config.CoarseIterations,
-                        refineIterations: config.RefineIterations,
-                        refineRemaining: config.RefineTopN);
 
                     progress?.Report(new OptimizationProgress(
                         "Backtest", done, comboCount,
                         $"Backtest {done}/{comboCount}",
-                        remaining));
+                        eta.Remaining()));
                 }).ConfigureAwait(false);
         }
         finally
@@ -152,7 +171,19 @@ public sealed class OptimizationRunner
 
         int targetSlices = ComputeTargetSlices(data, config.TradingPeriodDays);
 
-        for (int i = 0; i < comboCount; i++)
+        // ------------------------------------------------------------------
+        // Phase 2 - coarse MC, outer-parallel with adaptive inner degree.
+        // Coarse curves are never consumed, so retainCurves is false here.
+        // ------------------------------------------------------------------
+
+        int coarseDone = 0;
+        var coarseOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = coarseOuter,
+            CancellationToken = ct
+        };
+
+        Parallel.For(0, comboCount, coarseOptions, i =>
         {
             ct.ThrowIfCancellationRequested();
 
@@ -161,22 +192,25 @@ public sealed class OptimizationRunner
 
             if (!v.BacktestSuccess || trades.Count < 2)
             {
+                int d = Interlocked.Increment(ref coarseDone);
                 progress?.Report(new OptimizationProgress(
-                    "Coarse MC", i + 1, comboCount,
-                    $"Skipping version {i + 1}/{comboCount} - {trades.Count} trade(s)"));
-                continue;
+                    "Coarse MC", d, comboCount,
+                    $"Coarse MC {d}/{comboCount} (skipped)",
+                    eta.Remaining()));
+                return;
             }
 
             var slices = TimeSliceBuilder.Build(trades, data);
             if (slices.Length == 0)
             {
+                int d = Interlocked.Increment(ref coarseDone);
                 progress?.Report(new OptimizationProgress(
-                    "Coarse MC", i + 1, comboCount,
-                    $"Skipping version {i + 1}/{comboCount} - no time slices"));
-                continue;
+                    "Coarse MC", d, comboCount,
+                    $"Coarse MC {d}/{comboCount} (no slices)",
+                    eta.Remaining()));
+                return;
             }
 
-            var mcSw = Stopwatch.StartNew();
             var mcResult = _mc.Run(
                 slices,
                 targetSlices,
@@ -190,32 +224,26 @@ public sealed class OptimizationRunner
                 bestDayRulePercent: config.BestDayRulePercent,
                 seed: null,
                 progress: null,
-                cancellationToken: ct);
-            mcSw.Stop();
-            eta.ReportMc(mcSw.ElapsedMilliseconds);
+                cancellationToken: ct,
+                maxDegreeOfParallelism: coarseInner,
+                retainCurves: false);
 
             versions[i] = v with
             {
                 McRan = true,
                 Mc = BuildMcSummary(mcResult, edgePercent: double.NaN, nullMean: double.NaN, nullIterations: 0),
                 TerminalBalances = SanitizeArray(mcResult.TerminalBalances),
-                RepresentativeCurve = DownsampleCurve(mcResult),
-                CurvesRetained = mcResult.CurvesRetained
+                RepresentativeCurve = Array.Empty<double>(),
+                CurvesRetained = false
             };
 
-            int coarseRemaining = comboCount - (i + 1);
-            double? remainingSeconds = eta.Estimate(
-                remainingCombos: coarseRemaining,
-                refineTopN: config.RefineTopN,
-                coarseIterations: config.CoarseIterations,
-                refineIterations: config.RefineIterations,
-                refineRemaining: config.RefineTopN);
+            int done = Interlocked.Increment(ref coarseDone);
 
             progress?.Report(new OptimizationProgress(
-                "Coarse MC", i + 1, comboCount,
-                $"Coarse MC {i + 1}/{comboCount}",
-                remainingSeconds));
-        }
+                "Coarse MC", done, comboCount,
+                $"Coarse MC {done}/{comboCount}",
+                eta.Remaining()));
+        });
 
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: coarse MC complete at {wall.ElapsedMilliseconds} ms");
@@ -231,14 +259,42 @@ public sealed class OptimizationRunner
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: refining top {survivors.Count} survivor(s) at {config.RefineIterations} iterations");
 
-        for (int j = 0; j < survivors.Count; j++)
+        // ------------------------------------------------------------------
+        // Phase 3 - refine MC, outer-parallel with adaptive inner degree.
+        // Curve retention gated on the actual outer degree, not the CPU count.
+        // ------------------------------------------------------------------
+
+        long refineCellsPerCall = (long)config.RefineIterations * targetSlices;
+        bool refineRetainCurves = refineOuter <= 1
+            || refineCellsPerCall * refineOuter <= MonteCarloEngine.MaxCurveCells;
+
+        if (!refineRetainCurves)
+        {
+            LogManager.Warn(LogTag.Runner,
+                $"optimization {batchId}: refine curves disabled - " +
+                $"{refineCellsPerCall * refineOuter:N0} cells across {refineOuter} worker(s) " +
+                $"would exceed MaxCurveCells ({MonteCarloEngine.MaxCurveCells:N0})");
+        }
+
+        int refineDone = 0;
+        var refineOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = refineOuter,
+            CancellationToken = ct
+        };
+
+        Parallel.For(0, survivors.Count, refineOptions, j =>
         {
             ct.ThrowIfCancellationRequested();
 
             var (v, i) = survivors[j];
             var trades = tradesByVersion[i] ?? Array.Empty<Trade>();
             var slices = TimeSliceBuilder.Build(trades, data);
-            if (slices.Length == 0) continue;
+            if (slices.Length == 0)
+            {
+                Interlocked.Increment(ref refineDone);
+                return;
+            }
 
             var mcResult = _mc.Run(
                 slices,
@@ -253,7 +309,9 @@ public sealed class OptimizationRunner
                 bestDayRulePercent: config.BestDayRulePercent,
                 seed: null,
                 progress: null,
-                cancellationToken: ct);
+                cancellationToken: ct,
+                maxDegreeOfParallelism: refineInner,
+                retainCurves: refineRetainCurves);
 
             double edgePct = double.NaN;
             double nullMean = double.NaN;
@@ -277,7 +335,9 @@ public sealed class OptimizationRunner
                     bestDayRulePercent: config.BestDayRulePercent,
                     seed: EdgeNullSeed,
                     progress: null,
-                    cancellationToken: ct);
+                    cancellationToken: ct,
+                    maxDegreeOfParallelism: refineInner,
+                    retainCurves: false);
 
                 edgePct = (mcResult.TerminalBalanceMean - nullResult.TerminalBalanceMean)
                           / config.StartingCapital * 100.0;
@@ -293,20 +353,15 @@ public sealed class OptimizationRunner
                 CurvesRetained = mcResult.CurvesRetained
             };
 
-            double? remainingSeconds = eta.Estimate(
-                remainingCombos: 0,
-                refineTopN: config.RefineTopN,
-                coarseIterations: config.CoarseIterations,
-                refineIterations: config.RefineIterations,
-                refineRemaining: survivors.Count - (j + 1));
+            int done = Interlocked.Increment(ref refineDone);
 
             progress?.Report(new OptimizationProgress(
-                "Refine MC", j + 1, survivors.Count,
-                $"Refine {j + 1}/{survivors.Count}",
-                remainingSeconds));
-        }
+                "Refine MC", done, survivors.Count,
+                $"Refine {done}/{survivors.Count}",
+                eta.Remaining()));
+        });
 
-        progress?.Report(new OptimizationProgress("Save", 0, 1, "Saving batch..."));
+        progress?.Report(new OptimizationProgress("Save", 0, 1, "Saving batch...", eta.Remaining()));
 
         var batch = new OptimizationBatch(
             Id: batchId,
@@ -331,12 +386,15 @@ public sealed class OptimizationRunner
         await _store.SaveAsync(batch, ct).ConfigureAwait(false);
 
         wall.Stop();
-        progress?.Report(new OptimizationProgress(
-            "Done", 1, 1,
-            $"Optimization complete - {comboCount} version(s) in {wall.Elapsed.TotalSeconds:F1}s"));
 
         LogManager.Info(LogTag.Runner,
-            $"optimization {batchId}: complete in {wall.ElapsedMilliseconds} ms");
+            $"optimization {batchId}: complete in {wall.ElapsedMilliseconds} ms " +
+            $"(estimate was {eta.TotalEstimateSeconds:F1}s)");
+
+        progress?.Report(new OptimizationProgress(
+            "Done", 1, 1,
+            $"Optimization complete - {comboCount} version(s) in {wall.Elapsed.TotalSeconds:F1}s",
+            eta.Remaining()));
 
         return batch;
     }
@@ -345,13 +403,6 @@ public sealed class OptimizationRunner
     // Helpers
     // ------------------------------------------------------------------
 
-    /// <summary>
-    /// Historical span of the backtest dataset, in years. Uses SpecifyKind
-    /// to treat Unspecified timestamps as UTC — mirrors EasternTime, avoids
-    /// the DateTimeOffset(DateTime) local-time pitfall. Returns 0 when the
-    /// dataset spans less than a day, which suppresses CAGR rather than
-    /// producing a meaningless blow-up.
-    /// </summary>
     private static double ComputeDataSpanYears(List<Kline> data)
     {
         if (data == null || data.Count < 2) return 0.0;
@@ -363,13 +414,6 @@ public sealed class OptimizationRunner
         return days > 1.0 ? days / 365.25 : 0.0;
     }
 
-    /// <summary>
-    /// System.Text.Json rejects NaN and Infinity. Every double that reaches
-    /// the batch archive passes through here first. NaN is "not computed"
-    /// (no null pass run, degenerate distribution) so 0 is the correct
-    /// substitution - readers can tell from NullIterations = 0 that the
-    /// Edge % null model did not run.
-    /// </summary>
     private static double Safe(double v)
         => double.IsNaN(v) || double.IsInfinity(v) ? 0.0 : v;
 
