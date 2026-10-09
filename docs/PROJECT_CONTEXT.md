@@ -18,7 +18,7 @@
     - Microsoft.ML.OnnxRuntime.Gpu 1.30.0
     - SkiaSharp
 - Architecture:
-    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation, MT5, Writers, Compute, Analysis.
+    - src/core/: Managers, Metrics, Models, Providers, Runner, Accounts, Overview, SelectionQueue, DataAutomation, MT5, Writers, Compute, Analysis, Utils.
     - src/core/Runner/: Trade, TradeRecorder, StrategyParameter, StrategyParameterParser, PresetService, RunnerScriptGlobals.
     - src/core/Accounts/: AccountPhase, FirmConfig, AccountJsonContext, AccountService.
     - src/core/Overview/: OverviewData, LastRunStore, MonteCarloResult, MonteCarloEngine, TimeSlice, TimeSliceBuilder. See ARCHITECTURE §17 (engine) and §14 (tab).
@@ -28,6 +28,7 @@
     - src/core/MT5/tck/: TckModels (TkcTick, TkcInfo, TkcException), TkcDecoder (static; `.tkc` → `(TkcInfo, IReadOnlyList<TkcTick>)`), TkcFile (lazy wrapper + TkcRepository.ListSymbolFiles). Decoder for MetaTrader's local monthly tick-cache files. See ARCHITECTURE §20.
     - src/core/MT5/Mt5TickViewModel.Requester.cs: partial-class file holding `RequestSyncCommand`, `ReqSymbol`, `ReqLookbackDays`, `ReqProgress`, `ReqStatusText`. The Requester subtab drives `Mt5TickService.SyncTicksRangeAsync`. Known inconsistency: file lives under `src/core/MT5/` even though its namespace is `backs2.ViewModels`; it belongs with the other `Mt5TickViewModel` partials under `src/gui/MT5/`.
     - src/core/Writers/: Mt5TickWriter.cs (contains Mt5TickWriter + Mt5TickStreamWriter). The folder exists for writers that do not fit the standard CacheEnvelope<KlineCompact[]> shape used by every provider. CacheManager remains the writer for all Kline data.
+    - src/core/Utils/: small stateless helpers that do not justify their own feature folder. Criteria: pure functions, no DI, no logging, no state, cross-cutting. Currently EasternTime (DST-aware Eastern Time conversion for Unix-ms UTC timestamps). See src/core/Utils/README.md for the inclusion rule.
     - src/core/DataAutomation/ExtractionCore.cs: window detection, SendInput simulation, PrintWindow capture, per-field calibration persistence, `DataAutomationService` orchestrator (full-extract + filtered re-extract overloads).
     - src/core/DataAutomation/ParsingCore.cs: OCR parsing pipeline. `ShotParsingService.ParseAsync` reads shots, applies field parsing / timestamp derivation / rejects, writes `data/parsed/{n}.json` and `_misses.txt`.
     - src/core/DataAutomation/BatchedOcrRecognizer.cs: ONNX Runtime wrapper around the PP-OCRv5 Latin recognizer (`models/v5/latin_PP-OCRv5_rec_mobile_infer.onnx`).

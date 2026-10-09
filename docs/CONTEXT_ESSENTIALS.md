@@ -174,6 +174,7 @@ Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cro
 - `docs/` — documentation plus the MQL5 bridge source (`Backs2TickBridge.mq5`) and range verifier (`VerifyTickRangeExact.mq5`).
 - `logs/` and `.env` — git-ignored. Never commit secrets or log output.
 - `src/core/Writers/` — writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape (currently `Mt5TickWriter.cs`). Do not move `CacheManager` there.
+- `src/core/Utils/` — small stateless helpers that do not justify their own feature folder. Criteria: pure functions, no DI, no logging, no state, cross-cutting. Currently `EasternTime.cs` (DST-aware Eastern Time conversion for Unix-ms UTC timestamps). See the folder's `README.md` for the inclusion rule.
 
 ## 18. Build protocol
 
