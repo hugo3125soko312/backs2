@@ -201,6 +201,45 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 22A).
 
 ---
 
+### Phase 22E -- Runtime diagnostic baseline [IN PROGRESS]
+
+Captures CPU / GC / allocation numbers on the current build so Phase 23's impact on runtime is provable, not just its impact on build time. No code changes -- measurements only.
+
+Tooling: `dotnet-counters` and `dotnet-trace` (free; no dotTrace / PerfView dependency).
+
+- [ ] Install: `dotnet tool install -g dotnet-counters` and `dotnet tool install -g dotnet-trace`.
+- [ ] Cold-start baseline: capture `[startup]` Stopwatch markers from the freshest `logs/runtime-*.log`.
+- [ ] Cache-load baseline: 600k-bar read time from `Cache: loaded ...` log line.
+- [ ] MC baseline: `dotnet-counters monitor -n backs2 --counters System.Runtime` during a single Optimize run at default settings.
+- [ ] Trace baseline: `dotnet-trace collect -n backs2 --duration 00:00:30` during the same run, then `dotnet-trace report <trace> topN -n 20`.
+- [ ] Record the outputs below. These are the numbers Phase 23 is compared against.
+
+**Baseline (2026-10-09):**
+
+Startup path (from `logs/runtime-*.log`, Phase 17 markers):
+- DI container: 25 ms
+- ConfigManager: 48 ms
+- MT5 server: 6 ms
+- MainViewModel: 22 ms
+- MainWindow constructed: 230 ms
+- **OnFrameworkInitializationCompleted total: 348 ms**
+
+Runtime footprint (from `dotnet-counters collect --counters System.Runtime`, `logs/counters.csv`):
+
+| Scenario | Working Set | CPU |
+|---|---|---|
+| Idle, post-startup (all 12 tab views pre-warmed) | ~1500 MB | <1% |
+| **During Optimize** | min 472 MB / max 2987 MB / avg 1338 MB | **max 76.5% / avg 22.4%** |
+
+**Key finding — Optimize is not CPU-bound.** On a 20-core machine, a saturated `Parallel.ForEachAsync` would pin CPU near 100%. The capture shows 22% average and 76% peak. The optimizer is spending most of its wall time waiting — on disk I/O, on `StrategyManager`'s compile cache, on MC curve allocation, or on a serialized stage. Phase 23 is the wrong tool for this; it needs its own investigation.
+
+**Follow-up:**
+- [ ] Locate the serialized stage in `OptimizationRunner.RunAsync` — the coarse MC loop and the refine loop are both sequential; only the per-combination backtest is parallel. That's likely where the wall time goes.
+- [ ] Capture during a 100+ version grid where the parallel phase dominates.
+- [ ] Compare CPU during the backtest phase vs. the MC phase, at least two separate captures with a marker in the log.
+- [ ] 600k-bar cache load timing: still not captured — trigger explicitly via a Chart tab load during a counters session.
+
+Captured via: `dotnet-counters collect -p <pid> --counters System.Runtime --output logs/counters.csv --format csv`. Raw CSV in `logs/` (git-ignored).
 ## Phase 23: Avalonia 11.3 Upgrade [PLANNED]
 
 Root cause of the 7.14s incremental build. Avalonia PR #17539 (merged Nov 2024) reworked `AvaloniaBuildTasks.targets` so the XAML compiler runs as part of `CoreCompile` via `TargetsTriggeredByCompilation`, restoring incremental build correctness. The PR description states the previous behavior "made MSBuild think that the output was always changed between builds, effectively killing incremental builds." That fix shipped in the 11.3.x line; 11.0.11 predates it.
