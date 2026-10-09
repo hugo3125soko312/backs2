@@ -5,6 +5,7 @@ using backs2.Core;
 using backs2.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 
 namespace backs2.ViewModels;
@@ -14,11 +15,22 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     [ObservableProperty]
     private string _statusText = "Ready";
 
-    // Bound to TabControl.SelectedIndex in MainWindow.axaml.
-    // 0=Overview, 1=Runner, 2=Monte Carlo, 3=Metrics, 4=Accounts, 5=Data,
-    // 6=Data Automation, 7=MT5 Ticks, 8=Providers, 9=Chart, 10=Logs, 11=Config.
+    /// <summary>
+    /// The single ViewModel currently hosted by MainWindow's ContentControl.
+    /// Set by OnSelectedNodeChanged — never bound to an index.
+    /// </summary>
     [ObservableProperty]
-    private int _activeTabIndex;
+    private object? _currentVm;
+
+    /// <summary>
+    /// Two-way bound to the TreeView's SelectedItem. Drives CurrentVm and
+    /// (for child nodes) the parent VM's SelectedSubtabIndex.
+    /// </summary>
+    [ObservableProperty]
+    private NavigationNode? _selectedNode;
+
+    /// <summary>Root of the navigation tree. Children live on each node.</summary>
+    public ObservableCollection<NavigationNode> NavigationNodes { get; } = new();
 
     private readonly IServiceProvider _sp;
     private readonly DataManager _data;
@@ -26,7 +38,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private readonly ConfigManager _cfg;
 
     // Lazily-resolved tab ViewModels. Each getter resolves once on first
-    // access, which only happens when CurrentVm selects it.
+    // access — preserves the Phase 17 pattern exactly.
     private OverviewViewModel? _overviewVm;
     private RunnerViewModel? _runnerVm;
     private MonteCarloViewModel? _monteCarloVm;
@@ -53,32 +65,19 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     public LogsViewModel LogsVm => _logsVm ??= _sp.GetRequiredService<LogsViewModel>();
     public ConfigViewModel ConfigVm => _configVm ??= _sp.GetRequiredService<ConfigViewModel>();
 
-    /// <summary>
-    /// The single ViewModel currently hosted by MainWindow's ContentControl.
-    /// Only the selected tab's ViewModel is ever constructed — this is the
-    /// sole binding that touches the per-tab properties above.
-    /// </summary>
-    public object? CurrentVm => ActiveTabIndex switch
-    {
-        0  => OverviewVm,
-        1  => RunnerVm,
-        2  => MonteCarloVm,
-        3  => MetricsVm,
-        4  => AccountVm,
-        5  => DataVm,
-        6  => DataAutomationVm,
-        7  => Mt5TickVm,
-        8  => ProvidersVm,
-        9  => ChartVm,
-        10 => LogsVm,
-        11 => ConfigVm,
-        _  => null
-    };
-
-    partial void OnActiveTabIndexChanged(int value)
-    {
-        OnPropertyChanged(nameof(CurrentVm));
-    }
+    // Node references used by menu commands and the NavigateToTradeMessage handler.
+    private NavigationNode _overviewNode       = null!;
+    private NavigationNode _runnerNode         = null!;
+    private NavigationNode _monteCarloNode     = null!;
+    private NavigationNode _metricsNode        = null!;
+    private NavigationNode _accountsNode       = null!;
+    private NavigationNode _dataNode           = null!;
+    private NavigationNode _dataAutomationNode = null!;
+    private NavigationNode _mt5TicksNode       = null!;
+    private NavigationNode _providersNode      = null!;
+    private NavigationNode _chartNode          = null!;
+    private NavigationNode _logsNode           = null!;
+    private NavigationNode _configNode         = null!;
 
     public MainViewModel(IServiceProvider sp, ConfigManager cfg, DataManager dat, StrategyManager str)
     {
@@ -87,7 +86,98 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         _data = dat;
         _strat = str;
 
+        BuildNavigationTree();
+
         WeakReferenceMessenger.Default.Register(this);
+
+        // Default selection. Fires OnSelectedNodeChanged → resolves Overview VM.
+        SelectedNode = _overviewNode;
+    }
+
+    private void BuildNavigationTree()
+    {
+        _overviewNode       = new NavigationNode { Header = "Overview",        Factory = () => OverviewVm };
+        _runnerNode         = new NavigationNode { Header = "Runner",          SubtabIndex = 0, Factory = () => RunnerVm };
+        _monteCarloNode     = new NavigationNode { Header = "Monte Carlo",     Factory = () => MonteCarloVm };
+        _metricsNode        = new NavigationNode { Header = "Metrics",         Factory = () => MetricsVm };
+        _accountsNode       = new NavigationNode { Header = "Accounts",        Factory = () => AccountVm };
+        _dataNode           = new NavigationNode { Header = "Data",            Factory = () => DataVm };
+        _dataAutomationNode = new NavigationNode { Header = "Data Automation", Factory = () => DataAutomationVm };
+        _mt5TicksNode       = new NavigationNode { Header = "MT5 Ticks",       Factory = () => Mt5TickVm };
+        _providersNode      = new NavigationNode { Header = "Providers",       Factory = () => ProvidersVm };
+        _chartNode          = new NavigationNode { Header = "Chart",           Factory = () => ChartVm };
+        _logsNode           = new NavigationNode { Header = "Logs",            Factory = () => LogsVm };
+        _configNode         = new NavigationNode { Header = "Config",          Factory = () => ConfigVm };
+
+        // Runner subtabs — same VM, different SubtabIndex.
+        _runnerNode.Children.Add(new NavigationNode
+        {
+            Header = "Runner",
+            SubtabIndex = 0,
+            Factory = () => RunnerVm
+        });
+        _runnerNode.Children.Add(new NavigationNode
+        {
+            Header = "Optimization Results",
+            SubtabIndex = 1,
+            Factory = () => RunnerVm
+        });
+
+        NavigationNodes.Add(_overviewNode);
+        NavigationNodes.Add(_runnerNode);
+        NavigationNodes.Add(_monteCarloNode);
+        NavigationNodes.Add(_metricsNode);
+        NavigationNodes.Add(_accountsNode);
+        NavigationNodes.Add(_dataNode);
+        NavigationNodes.Add(_dataAutomationNode);
+        NavigationNodes.Add(_mt5TicksNode);
+        NavigationNodes.Add(_providersNode);
+        NavigationNodes.Add(_chartNode);
+        NavigationNodes.Add(_logsNode);
+        NavigationNodes.Add(_configNode);
+    }
+
+    partial void OnSelectedNodeChanged(NavigationNode? value)
+    {
+        if (value?.Factory is null) return;
+
+        var vm = value.Factory();
+        CurrentVm = vm;
+
+        if (value.SubtabIndex >= 0 && vm is INavigationTarget target)
+            target.Navigate(value.SubtabIndex);
+
+        ApplyAccordion(value);
+    }
+
+    /// <summary>
+    /// Expands the root that owns <paramref name="selected"/> and collapses
+    /// every other root. Clicking a leaf or a child both keep exactly one
+    /// root open; clicking an unrelated root collapses the previous one.
+    /// </summary>
+    private void ApplyAccordion(NavigationNode selected)
+    {
+        NavigationNode? owningRoot = null;
+        foreach (var root in NavigationNodes)
+        {
+            if (ReferenceEquals(root, selected) || root.Children.Contains(selected))
+            {
+                owningRoot = root;
+                break;
+            }
+        }
+
+        foreach (var root in NavigationNodes)
+        {
+            if (root.Children.Count == 0)
+            {
+                // Leaf roots are never expandable — no chevron, no state.
+                if (root.IsExpanded) root.IsExpanded = false;
+                continue;
+            }
+
+            root.IsExpanded = ReferenceEquals(root, owningRoot);
+        }
     }
 
     /// <summary>
@@ -97,8 +187,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     /// </summary>
     public void Receive(NavigateToTradeMessage message)
     {
-        // 9 is Chart in MainWindow's TabControl order.
-        ActiveTabIndex = 9;
+        SelectedNode = _chartNode;
     }
 
     [RelayCommand]

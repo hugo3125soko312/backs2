@@ -124,10 +124,7 @@ Registered: VWAP, CVD, RSI(14), ATR(14), SessionHigh, ZScore, VP-POC, VP-VAH, VP
 
 ## 12. Tabs
 
-In `MainWindow.axaml` order: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation, MT5 Ticks, Providers, Chart, Logs, Config.
-
-Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cross-tab navigation.
-
+Shell navigation is a VS Code-style tree on the left (`TreeView`, `MainViewModel.NavigationNodes`, selected via `MainViewModel.SelectedNode`). Root nodes: Overview, Runner, Monte Carlo, Metrics, Accounts, Data, Data Automation, MT5 Ticks, Providers, Chart, Logs, Config. Runner, Data Automation, and MT5 Ticks are expandable - their subtabs appear as children. Selecting a node resolves its ViewModel via the node's `Func<object>` factory (lazy, cached - same Phase 17 behavior). Selecting a child additionally calls `INavigationTarget.Navigate(subtabIndex)` on the parent ViewModel to drive its internal (strip-hidden) `TabControl`. Cross-tab navigation and menu commands target nodes by reference - there is no index arithmetic.
 ## 13. Providers
 
 - Contract: `Name`, `FetchAsync(symbol)`, `FetchAsync(symbol, timeframe)`. Return an empty `List<Kline>` on failure — **never throw**.

@@ -28,24 +28,17 @@
             <Setter Property="Background" Value="{DynamicResource SurfaceElevated}"/>
         </Style>
 
-        <!-- ============ Nav rail ============ -->
-        <Style Selector="ListBox.nav-rail">
+        <!-- ============ Navigation tree ============ -->
+        <Style Selector="TreeView">
             <Setter Property="Background" Value="{DynamicResource SurfaceApp}"/>
-            <Setter Property="Padding" Value="0"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0,4"/>
         </Style>
-        <Style Selector="ListBox.nav-rail ListBoxItem">
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="MinHeight" Value="30"/>
+        <Style Selector="TreeViewItem">
+            <Setter Property="MinHeight" Value="26"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
-            <Setter Property="Background" Value="Transparent"/>
-        </Style>
-        <Style Selector="ListBox.nav-rail ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource SurfacePanel}"/>
-        </Style>
-        <Style Selector="ListBox.nav-rail ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="{DynamicResource SurfacePanel}"/>
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
         </Style>
 
         <!-- ============ Title bar icon buttons ============ -->
@@ -80,7 +73,6 @@
                 BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="Auto,*,Auto">
 
-                <!-- Left: brand + menu -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="backs2"
                                FontWeight="SemiBold"
@@ -150,7 +142,6 @@
                     </Menu>
                 </StackPanel>
 
-                <!-- Right: window controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
                     <Button Classes="titlebar-btn"
                             Content="—"
@@ -184,105 +175,29 @@
             </Grid>
         </Border>
 
-        <!-- ==================== Main content: nav rail + content host ==================== -->
-        <Grid ColumnDefinitions="180,*">
+        <!-- ==================== Main content: navigation tree + content host ==================== -->
+        <Grid ColumnDefinitions="220,4,*">
 
-            <!-- Left nav rail -->
             <Border Grid.Column="0"
                     Background="{DynamicResource SurfaceApp}"
                     BorderBrush="{DynamicResource BorderDefault}"
                     BorderThickness="0,0,1,0">
-                <ListBox Classes="nav-rail"
-                         SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Overview" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Runner" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Monte Carlo" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Metrics" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Accounts" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Data" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Data Automation" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="MT5 Ticks" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Providers" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Chart" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Logs" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                    <ListBoxItem>
-                        <Grid ColumnDefinitions="3,*">
-                            <Border Grid.Column="0" Background="{DynamicResource AccentPrimary}"
-                                    IsVisible="{Binding $parent[ListBoxItem].IsSelected}"/>
-                            <TextBlock Grid.Column="1" Text="Config" Padding="12,0" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListBoxItem>
-                </ListBox>
+                <TreeView ItemsSource="{Binding NavigationNodes}"
+                          SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
+                    <TreeView.ItemTemplate>
+                        <TreeDataTemplate ItemsSource="{Binding Children}">
+                            <TextBlock Text="{Binding Header}" Padding="4,2" VerticalAlignment="Center"/>
+                        </TreeDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
             </Border>
 
-            <!-- Content host -->
-            <ContentControl Grid.Column="1"
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          Background="Transparent"
+                          ResizeDirection="Columns"/>
+
+            <ContentControl Grid.Column="2"
                             x:CompileBindings="False"
                             Content="{Binding CurrentVm}"/>
         </Grid>
