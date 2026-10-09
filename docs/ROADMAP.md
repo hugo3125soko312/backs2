@@ -131,6 +131,13 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 26A).
 - [ ] Cancellation: single global `CancellationTokenSource` for the whole run, flowing into every backtest and MC call.
 
 ### Phase 26C -- ETA estimator
+
+**Parallel-topology fix (2026-10-10).** The optimizer now runs coarse and refine MC under an outer-parallel loop with `outer = min(combos, cores)` and `inner = cores / outer`. The current `EtaEstimator.Estimate` multiplies `remainingCombos` by an average per-version time as if the loop were sequential - every estimate is over-reported by the outer degree (~20x on a 20-core box).
+
+- [ ] Rewrite `EtaEstimator.Estimate` so each phase's contribution is divided by its outer degree: `(remainingBacktests / W_backtest) * avgBacktest + (remainingCoarse / W_coarse) * avgCoarse + (remainingRefine / W_refine) * avgRefine / gpuFactor`.
+- [ ] Thread phase-specific outer degrees through from `OptimizationRunner` to `EtaEstimator`. Each phase currently computes its own `outer` locally - pass it in.
+- [ ] Expose a single `EstimateTotal()` that returns one wall-time number covering the **whole** run (backtest + coarse MC + refine MC + save) from the moment the grid starts building. The Runner's ETA display should read one number, not stitch per-phase pieces together at call sites.
+- [ ] Normalize the moving-average sample per unit of work (ms per version, ms per simulation) rather than ms per wall-clock, so the average stays valid across topology changes.
 - [ ] `src/core/Optimizer/EtaEstimator.cs` — moving average of backtest and MC times, updated after each version. Blind for the first 5 versions, then extrapolates.
 - [ ] Formula: `ETA = remainingCombos * (AvgBacktestTime + AvgMCTime / gpuAccelerationFactor)`.
 - [ ] UI: `TextBlock` in the Runner, updated every ~5 seconds via a throttled timer to avoid UI thread jitter.
@@ -240,6 +247,8 @@ Runtime footprint (from `dotnet-counters collect --counters System.Runtime`, `lo
 - [ ] 600k-bar cache load timing: still not captured — trigger explicitly via a Chart tab load during a counters session.
 
 Captured via: `dotnet-counters collect -p <pid> --counters System.Runtime --output logs/counters.csv --format csv`. Raw CSV in `logs/` (git-ignored).
+
+**Warning - Metreja profiler overhead is not neutral.** Running the optimizer under Metreja v1.0.23 slows the run by roughly 10x (measured 2026-10-10: 30 s baseline Optimize to ~5 min under profiler). The parallel MC topology is the cause: 20 concurrent worker threads each push enter/leave or method_stats events into the profiler's shared writer, which serializes on a buffer lock. Consequences: (a) wall-time and CPU% under the profiler are not comparable to unprofiled numbers; (b) Metreja is a hotspot *attribution* tool, not a perf-measurement tool. For perf measurement, use `dotnet-counters` or the in-app `[startup]` Stopwatch markers. Narrow the include to one namespace and use `method_stats` (not `enter leave`) to keep the trace under MB scale and the overhead under 2x.
 ## Phase 23: Avalonia 11.3 Upgrade [PLANNED]
 
 Root cause of the 7.14s incremental build. Avalonia PR #17539 (merged Nov 2024) reworked `AvaloniaBuildTasks.targets` so the XAML compiler runs as part of `CoreCompile` via `TargetsTriggeredByCompilation`, restoring incremental build correctness. The PR description states the previous behavior "made MSBuild think that the output was always changed between builds, effectively killing incremental builds." That fix shipped in the 11.3.x line; 11.0.11 predates it.
