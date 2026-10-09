@@ -245,6 +245,7 @@ Runtime footprint (from `dotnet-counters collect --counters System.Runtime`, `lo
 - [ ] Capture during a 100+ version grid where the parallel phase dominates.
 - [ ] Compare CPU during the backtest phase vs. the MC phase, at least two separate captures with a marker in the log.
 - [ ] 600k-bar cache load timing: still not captured — trigger explicitly via a Chart tab load during a counters session.
+- [ ] **GUI lag during optimization runs** (reported 2026-10-10). The main UI thread stutters while Optimize runs. Suspects, in order: (a) `Progress<OptimizationProgress>` fires 2000+ times per run and marshals each report through `SynchronizationContext` to the UI dispatcher, saturating it; (b) the status-text binding on every tick triggers a layout pass; (c) `IProgress` closures allocate per call. Fix direction: coalesce progress to ~10 Hz at the runner (not at the UI), and rate-limit the dispatcher post for status updates.
 
 Captured via: `dotnet-counters collect -p <pid> --counters System.Runtime --output logs/counters.csv --format csv`. Raw CSV in `logs/` (git-ignored).
 
