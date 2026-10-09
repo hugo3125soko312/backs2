@@ -181,9 +181,63 @@ See `docs/ARCHITECTURE.md` "Future: GPU acceleration" note (added with Phase 26'
 ---
 
 ## Phase 27: GPU-Accelerated Monte Carlo [PLANNED]
-Placeholder for the eventual GPU path described in `docs/ARCHITECTURE.md` "Future: GPU acceleration". Target the hot `SimulateOnce` loop in `MonteCarloEngine`. Expected shape: `MonteCarloEngine.Run` gains an `IComputeBackend` parameter or splits into CPU/GPU variants. Precondition: `AppSettings.OptimizerGpuFactor` and the ETA model in Phase 26C must already be shipped so the projection machinery is in place. Do not start until Phase 26 is fully closed.
 
----
+Extends the optimizer and MC engine with a GPU compute path. Scope is deliberately narrow: only `MonteCarloEngine.SimulateOnce` is a target. Every other compute surface -- `BuildResult` sort/percentile, `IMetric.Calculate`, `KMeansClusterer`, `TimeSliceBuilder`, per-combination backtests -- is explicitly rejected (see Rejection list below). Rationale: `SimulateOnce` is the only workload with enough scale (100k iterations x ~60k slices) to amortize GPU dispatch overhead.
+
+**Preconditions.** Phase 26 must be fully closed (`AppSettings.OptimizerGpuFactor`, the ETA model, and the optimizer UI all shipped). Compute Worker Phase 3 must be complete -- `MonteCarloEngine` must already run in the separate `backs2.exe --worker` process before this phase begins. The worker holds the GPU. If the parent UI process held the GPU, IPC would need to carry raw simulation state across the 64 MB anonymous-pipe frame cap; worker-holds-GPU keeps the parent-to-worker payload to a small `JobConfig` JSON and the worker-to-parent response to aggregated scalars.
+
+**Framework.** ComputeSharp. DirectX 12 backend -- NVIDIA, AMD, and Intel GPUs without CUDA lock-in. .NET 8 native, source-generator based, no external C++ build step, available on public NuGet. ILGPU was the alternative; ComputeSharp wins on the worker-process constraint (source generators compile kernels into the assembly the worker already loads -- no separate runtime compilation step or shader bundle to ship).
+
+**Interface shape.** `IComputeBackend` injected into `MonteCarloEngine` via constructor injection. Not a CPU/GPU split, not two engine classes -- one interface with one method, two implementations behind it. Fallback to CPU is a runtime decision (`GpuComputeBackend` probes for a device; on failure it delegates to a `CpuComputeBackend` instance). Sketch:
+
+    public interface IComputeBackend
+    {
+        Task<double[]> RunSimulationsAsync(
+            TimeSlice[] slices,
+            int targetDurationSlices,
+            int iterations,
+            CancellationToken ct);
+    }
+
+Boundary is `TimeSlice[]` in, `double[]` terminal balances out. `BuildResult` (sort, percentile, streak distributions) stays on the CPU. `CancellationToken` is checked between kernel dispatches; large iteration counts are chunked to avoid Windows TDR (Timeout Detection and Recovery).
+
+### Phase 27A -- Backend abstraction & CPU parity
+- **Size:** S · **Depends on:** Phase 26 closed; Compute Worker Phase 3 complete · **Succeeds when:** `MonteCarloEngine` runs through `IComputeBackend` with no measurable regression on the CPU path.
+- [ ] Extract `IComputeBackend` interface with the `RunSimulationsAsync` signature above.
+- [ ] Implement `CpuComputeBackend` wrapping the existing `Parallel.For` + `SimulateOnce` logic.
+- [ ] Register `IComputeBackend` in `App.axaml.cs` -> `ConfigureServices` (singleton, `CpuComputeBackend` initially).
+- [ ] Update `MonteCarloEngine` constructor to accept `IComputeBackend` via DI.
+- [ ] Verify every existing caller (`OptimizationRunner`, `MonteCarloViewModel`, any test harness) still resolves the engine through DI with no caller-side change.
+- [ ] Baseline: CPU wall time for a known grid unchanged within +/- 5%.
+
+### Phase 27B -- GPU kernel implementation
+- **Size:** L · **Depends on:** 27A · **Succeeds when:** `GpuComputeBackend` produces statistically identical results to `CpuComputeBackend` on the same input (P(ruin), P(funded), terminal-balance percentiles match to 3 sig figs at 10k iterations).
+- [ ] Add `ComputeSharp` PackageReference to `backs2.csproj`.
+- [ ] Implement `GpuComputeBackend` in `src/core/Overview/GpuComputeBackend.cs`.
+- [ ] Port `SimulateOnce` to a `[Shader]`-attributed compute kernel reproducing the exact state machine: MTM-low vs daily-floor / max-DD floor check, then realized PnL, then HWM update, then EOD reset.
+- [ ] Per-iteration RNG must be seed-split the same way the CPU path does it (`new Random(seed + i)`) so determinism is preserved when `seed` is supplied.
+- [ ] Chunk iterations under TDR limits: default batch of ~10k iterations per dispatch, configurable via `JobConfig`.
+- [ ] Respect `MaxIterations` (100,000) and `MaxCurveCells` (100,000,000) at the backend boundary -- the ceilings apply regardless of backend.
+- [ ] Fallback: `GpuComputeBackend` constructor probes for a working device; on failure it stores a `CpuComputeBackend` fallback and logs a Warn. `RunSimulationsAsync` delegates rather than throwing.
+- [ ] Invariants baked into the kernel: Monte Carlo operates in the time domain only. Never percentage-compound. Never scramble trades.
+
+### Phase 27C -- Worker IPC integration
+- **Size:** M · **Depends on:** 27B · **Succeeds when:** the Avalonia UI parent can request a GPU-accelerated MC run and receive aggregated stats back; the worker holds the GPU; the parent-to-worker payload stays under the 64 MB `WorkerIpc` frame cap.
+- [ ] Extend `WorkerEnvelope` with a `bool RequiresGpu` field.
+- [ ] Extend `JobConfig` with `int GpuDeviceIndex` (default -1 = any available) and `int GpuIterationBatch` (default 10,000).
+- [ ] Update `WorkerHost` to resolve `IComputeBackend` from the job config: `RequiresGpu = true` -> try `GpuComputeBackend`, fall back to `CpuComputeBackend` on any initialization failure.
+- [ ] Worker logs the chosen backend and (on GPU) the adapter name at Debug level.
+- [ ] Parent (`ComputeWorkerManager`) surfaces the backend choice in the progress stream so the UI status line can show "GPU: <adapter>" or "CPU (GPU unavailable)".
+- [ ] Do NOT ship raw per-iteration data across IPC. The worker runs the full MC internally and returns aggregated `MonteCarloResult` scalars plus optional `TerminalBalances[]` (100k doubles = 800 KB, well under the cap).
+
+### Rejection list
+Explicitly out of scope for Phase 27. A future contributor should not add a GPU variant of any of these without a new ROADMAP entry that argues the workload shape:
+- **`MonteCarloEngine.BuildResult`** -- sort and percentile on 100k arrays. CPU radix sort handles this in milliseconds; GPU round-trip is pure overhead.
+- **`IMetric.Calculate`** (VWAP, CVD, RSI, ATR, SessionHigh, ZScore, VP-POC/VAH/VAL) -- sequential time-series dependency chains (EMA in RSI/ATR especially). GPU cores would starve.
+- **`KMeansClusterer.Cluster`** -- N = 20-500 trades, K = 3-8 clusters. Dispatch overhead exceeds compute time. Also constrained to seed 42; determinism across GPU wavefronts is not worth the risk.
+- **`TimeSliceBuilder.Build`** -- allocation-free, few thousand items, memory-bound not compute-bound. GPU marshalling defeats the allocation-free design.
+- **`OptimizationRunner` per-combination backtests** -- would require rewriting strategies as stateless vectorized kernels; a full paradigm shift, not an optimization. Only worth revisiting if parameter grids exceed ~100k combinations.
+
 ## Phase 22: Build Performance [PLANNED]
 
 Reduces the dev-loop build time. Baseline (measured 2026-10-07): incremental `dotnet build` = 7.14s, `dotnet build --no-incremental` = 15.56s. Phase 22 addresses the incremental loop via csproj hygiene and protocol changes. The dominant root cause -- the Avalonia 11.0.11 XAML compiler defeating incremental builds -- is tracked separately as Phase 23.
