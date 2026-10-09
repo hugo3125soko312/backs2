@@ -59,6 +59,8 @@ public sealed class OptimizationRunner
         var wall = Stopwatch.StartNew();
         var batchId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 
+        double dataSpanYears = ComputeDataSpanYears(data);
+
         var eta = new EtaEstimator { GpuFactor = config.GpuFactor <= 0 ? 1.0 : config.GpuFactor };
 
         progress?.Report(new OptimizationProgress("Grid", 0, 1, "Generating parameter grid..."));
@@ -106,6 +108,10 @@ public sealed class OptimizationRunner
 
                     tradesByVersion[i] = result.Trades;
 
+                    double netPnl = 0.0;
+                    for (int t = 0; t < result.Trades.Count; t++)
+                        netPnl += result.Trades[t].PnL;
+
                     versions[i] = new OptimizationVersion(
                         Index: i,
                         Parameters: paramSet,
@@ -113,6 +119,7 @@ public sealed class OptimizationRunner
                         BacktestError: result.Error,
                         BacktestDurationMs: (long)result.Duration.TotalMilliseconds,
                         TradeCount: result.Trades.Count,
+                        NetPnl: netPnl,
                         McRan: false,
                         Mc: null,
                         TerminalBalances: Array.Empty<double>(),
@@ -318,6 +325,7 @@ public sealed class OptimizationRunner
             ProfitTargetPercent: config.ProfitTargetPercent,
             BestDayRulePercent: config.BestDayRulePercent,
             CombinationCount: comboCount,
+            DataSpanYears: dataSpanYears,
             Versions: versions);
 
         await _store.SaveAsync(batch, ct).ConfigureAwait(false);
@@ -336,6 +344,24 @@ public sealed class OptimizationRunner
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Historical span of the backtest dataset, in years. Uses SpecifyKind
+    /// to treat Unspecified timestamps as UTC — mirrors EasternTime, avoids
+    /// the DateTimeOffset(DateTime) local-time pitfall. Returns 0 when the
+    /// dataset spans less than a day, which suppresses CAGR rather than
+    /// producing a meaningless blow-up.
+    /// </summary>
+    private static double ComputeDataSpanYears(List<Kline> data)
+    {
+        if (data == null || data.Count < 2) return 0.0;
+
+        var first = DateTime.SpecifyKind(data[0].Timestamp, DateTimeKind.Utc);
+        var last  = DateTime.SpecifyKind(data[data.Count - 1].Timestamp, DateTimeKind.Utc);
+        double days = (last - first).TotalDays;
+
+        return days > 1.0 ? days / 365.25 : 0.0;
+    }
 
     /// <summary>
     /// System.Text.Json rejects NaN and Infinity. Every double that reaches

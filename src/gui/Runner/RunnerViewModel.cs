@@ -31,6 +31,7 @@ public partial class RunnerViewModel : ObservableObject
     private readonly AccountService _accounts;
     private readonly ConfigManager _config;
     private readonly OptimizationRunner _optimizer;
+    private readonly OptimizationStore _optStore;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -76,7 +77,8 @@ public partial class RunnerViewModel : ObservableObject
         SelectionQueue queue,
         AccountService accounts,
         ConfigManager config,
-        OptimizationRunner optimizer)
+        OptimizationRunner optimizer,
+        OptimizationStore optStore)
     {
         _catalog = catalog;
         _strat = strat;
@@ -87,6 +89,7 @@ public partial class RunnerViewModel : ObservableObject
         _accounts = accounts;
         _config = config;
         _optimizer = optimizer;
+        _optStore = optStore;
 
         _catalog.Changed += OnCatalogChanged;
         _queue.Changed += OnQueueChanged;
@@ -98,6 +101,8 @@ public partial class RunnerViewModel : ObservableObject
 
         SyncCatalog(_catalog.Current);
         SyncQueue();
+
+        _ = RefreshResultsAsync();
     }
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
@@ -243,7 +248,6 @@ public partial class RunnerViewModel : ObservableObject
             foreach (var p in StrategyParameterParser.Parse(text))
                 Parameters.Add(new RunnerParameterViewModel(p));
 
-            // Restore any previously-saved grid ranges for this strategy.
             foreach (var p in Parameters)
             {
                 var key = GridKey(descriptor.Name, p.Name);
