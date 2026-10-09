@@ -129,7 +129,7 @@
 - ColorPicker use: Avalonia.Controls.ColorPicker 11.0.11 with `ColorSpectrumShape="Ring"`.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 - RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
-- ViewModel partial-class convention: where a tab's ViewModel grows past ~600 lines it is split into partial-class files alongside the core file. Precedent: `Mt5TickViewModel` (core + `.Extraction.cs` + `.Requester.cs` + `.Parsing.cs` + `.Tkc.cs`) and `MonteCarloViewModel` (core + `.Plots.cs` + `.Stats.cs` + `.Cluster.cs`). Each partial owns a disjoint set of private fields; cross-partial invalidation happens through a coordinator method on the core partial (e.g. `InvalidateAll`).
+- ViewModel partial-class convention: where a tab's ViewModel grows past ~600 lines it is split into partial-class files alongside the core file. Precedent: `Mt5TickViewModel` (core + `.Extraction.cs` + `.Requester.cs` + `.Parsing.cs` + `.Tkc.cs`), `MonteCarloViewModel` (core + `.Plots.cs` + `.Stats.cs` + `.Cluster.cs`), and `RunnerViewModel` (core + `.Run.cs` + `.Optimize.cs` + `.Grid.cs` + `.Presets.cs`, plus `RunnerParameterViewModel.cs` extracted to its own file). Each partial owns a disjoint set of private fields; cross-partial invalidation happens through a coordinator method on the core partial (e.g. `InvalidateAll` for Monte Carlo, `RecomputeCombinations` for the Runner).
 
 ## 8a. GUI Shell & Design Tokens
 
@@ -181,7 +181,13 @@
 - Call-site convention: `LogManager.Info(LogTag.X, "message")`, `LogManager.Warn(...)`, `LogManager.Debug(...)`, `LogManager.Error(LogTag.X, "message", ex)`. No instance is ever passed. No service receives `LogManager` in its constructor.
 
 ## 11. Runner & Presets
-- RunnerViewModel (src/gui/Runner/RunnerViewModel.cs):
+- RunnerViewModel — split into partial-class files under `src/gui/Runner/` per the §8 partial-class convention:
+  - `RunnerViewModel.cs` — core: DI fields, observable collections, `[ObservableProperty]` fields, `_optimizeCts`, `_suppressGridPersist`, `RunCompleted` / `ViewSourceRequested` events, constructor, lifecycle and selection handlers (`OnActiveAccountChanged`, `ApplyAccountDefaults`, `OnCatalogChanged`, `SyncCatalog`, `OnStrategyFilterChanged`, `ApplyFilter`, `OnQueueChanged`, `SyncQueue`, `OnSelectedStrategyChanged`, `OnIsBusyChanged`, `LoadStrategyAsync`, `RefreshCatalog`, `ViewSourceAsync`), and shared UI helpers (`ConfirmAsync`, `GetMainWindow`).
+  - `RunnerViewModel.Run.cs` — `RunAsync` and the per-dataset batch loop.
+  - `RunnerViewModel.Optimize.cs` — `OptimizeAsync`, `CancelOptimize`, `BuildGridParameters`, `FormatEta`.
+  - `RunnerViewModel.Grid.cs` — `OnParametersCollectionChanged`, `OnParameterPropertyChanged`, `GridKey`, `PersistGridRange`, `PersistAllGridRanges`, `RecomputeCombinations`, `Cap`.
+  - `RunnerViewModel.Presets.cs` — `OpenPresetsAsync`, `SavePresetAsync`, `ApplyPreset`, `PromptForNameAsync`.
+  - `RunnerParameterViewModel.cs` — the `RunnerParameterViewModel` class (previously co-located in `RunnerViewModel.cs`).
   - Left column: strategy list (from StrategyCatalogService.Current, live-updated via Changed event).
   - Middle column: source preview (lazy-loaded via ReadSourceAsync on strategy selection).
   - Right column: parameter panel, populated by StrategyParameterParser.Parse(source). Scrollable vertically when overflowing.

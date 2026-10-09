@@ -145,7 +145,7 @@ Numeric indices matter: `MainViewModel.ActiveTabIndex = 9` is Chart, used by cro
 - `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}` inside templates. Never `$parent[UserControl].((vm:Type)DataContext).Prop`.
 - `TextBlock` for clickable rows. Read-only `TextBox` for source preview / log output / status.
 - DataGrid 11.0.11. ColorPicker 11.0.11 with `ColorSpectrumShape="Ring"`. ScottPlot.Avalonia 5.0.55.
-- Partial-class convention for large ViewModels: `Mt5TickViewModel` (core + `.Extraction`, `.Requester`, `.Parsing`, `.Tkc`), `MonteCarloViewModel` (core + `.Plots`, `.Stats`, `.Cluster`).
+- Partial-class convention for large ViewModels: `Mt5TickViewModel` (core + `.Extraction`, `.Requester`, `.Parsing`, `.Tkc`), `MonteCarloViewModel` (core + `.Plots`, `.Stats`, `.Cluster`), `RunnerViewModel` (core + `.Run`, `.Optimize`, `.Grid`, `.Presets`, plus `RunnerParameterViewModel.cs`). Cross-partial invalidation flows through a coordinator method on the core partial (`InvalidateAll` for MC, `RecomputeCombinations` for Runner).
 - Keep file paths shallow. Windows MAX_PATH is a real constraint.
 
 ## 15. Keyboard navigation (all plots)
