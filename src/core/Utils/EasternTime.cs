@@ -3,7 +3,7 @@ using System;
 namespace backs2.Core.Utils;
 
 /// <summary>
-/// DST-aware Eastern Time conversion for Unix-millisecond UTC timestamps.
+/// DST-aware Eastern Time conversion for UTC timestamps.
 ///
 /// Uses the IANA zone id "America/New_York", which .NET 8 resolves on every
 /// supported platform (Windows included — the CLR performs the IANA ↔ Windows
@@ -12,9 +12,10 @@ namespace backs2.Core.Utils;
 /// No branching on the calendar is needed at the call site.
 ///
 /// Why this exists: strategy scripts in data/strategies/*.cs operate on
-/// List&lt;Kline&gt; whose T fields are UTC Unix ms. Any strategy that targets a
-/// specific ET wall-clock hour needs this conversion, and hand-rolling it
-/// against a hardcoded UTC hour breaks across the DST transition.
+/// List&lt;Kline&gt; whose Timestamp fields are UTC DateTime values. Any strategy
+/// that targets a specific ET wall-clock hour needs this conversion, and
+/// hand-rolling it against a hardcoded UTC hour breaks across the DST
+/// transition.
 /// </summary>
 public static class EasternTime
 {
@@ -29,6 +30,22 @@ public static class EasternTime
         => TimeZoneInfo.ConvertTimeFromUtc(
             DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime,
             Eastern);
+
+    /// <summary>
+    /// Converts a UTC DateTime to Eastern Time wall-clock. Defensive against
+    /// Local and Unspecified kinds; Unspecified is treated as UTC.
+    /// </summary>
+    public static DateTime ToEastern(DateTime utc)
+    {
+        var u = utc.Kind switch
+        {
+            DateTimeKind.Utc         => utc,
+            DateTimeKind.Local       => utc.ToUniversalTime(),
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(utc, DateTimeKind.Utc),
+            _                        => utc
+        };
+        return TimeZoneInfo.ConvertTimeFromUtc(u, Eastern);
+    }
 
     /// <summary>Eastern Time hour-of-day (0-23) for a Unix-ms UTC timestamp.</summary>
     public static int HourOf(long unixMs) => ToEastern(unixMs).Hour;
