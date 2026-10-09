@@ -15,21 +15,9 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     [ObservableProperty]
     private string _statusText = "Ready";
 
-    /// <summary>
-    /// The single ViewModel currently hosted by MainWindow's ContentControl.
-    /// Set by OnSelectedNodeChanged - never bound to an index.
-    /// </summary>
-    [ObservableProperty]
-    private object? _currentVm;
-
-    /// <summary>
-    /// Two-way bound to the TreeView's SelectedItem. Drives CurrentVm and
-    /// (for child nodes) the parent VM's SelectedSubtabIndex.
-    /// </summary>
     [ObservableProperty]
     private NavigationNode? _selectedNode;
 
-    /// <summary>Root of the navigation tree. Children live on each node.</summary>
     public ObservableCollection<NavigationNode> NavigationNodes { get; } = new();
 
     private readonly IServiceProvider _sp;
@@ -37,8 +25,6 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private readonly StrategyManager _strat;
     private readonly ConfigManager _cfg;
 
-    // Lazily-resolved tab ViewModels. Each getter resolves once on first
-    // access - preserves the Phase 17 pattern exactly.
     private OverviewViewModel? _overviewVm;
     private RunnerViewModel? _runnerVm;
     private MonteCarloViewModel? _monteCarloVm;
@@ -65,7 +51,6 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     public LogsViewModel LogsVm => _logsVm ??= _sp.GetRequiredService<LogsViewModel>();
     public ConfigViewModel ConfigVm => _configVm ??= _sp.GetRequiredService<ConfigViewModel>();
 
-    // Node references used by menu commands and the NavigateToTradeMessage handler.
     private NavigationNode _overviewNode       = null!;
     private NavigationNode _runnerNode         = null!;
     private NavigationNode _monteCarloNode     = null!;
@@ -90,8 +75,11 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
         WeakReferenceMessenger.Default.Register(this);
 
-        // Default selection. Fires OnSelectedNodeChanged -> resolves Overview VM.
         SelectedNode = _overviewNode;
+
+        // Kick off tab pre-warming after the initial render settles. Runs in
+        // the background; cancelled by the first user selection.
+        StartPrewarm();
     }
 
     private void BuildNavigationTree()
@@ -109,65 +97,17 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         _logsNode           = new NavigationNode { Header = "Logs",            Factory = () => LogsVm };
         _configNode         = new NavigationNode { Header = "Config",          Factory = () => ConfigVm };
 
-        // Runner subtabs - same VM, different SubtabIndex.
-        _runnerNode.Children.Add(new NavigationNode
-        {
-            Header = "Runner",
-            SubtabIndex = 0,
-            Factory = () => RunnerVm
-        });
-        _runnerNode.Children.Add(new NavigationNode
-        {
-            Header = "Optimization Results",
-            SubtabIndex = 1,
-            Factory = () => RunnerVm
-        });
+        _runnerNode.Children.Add(new NavigationNode { Header = "Runner",               SubtabIndex = 0, Factory = () => RunnerVm });
+        _runnerNode.Children.Add(new NavigationNode { Header = "Optimization Results", SubtabIndex = 1, Factory = () => RunnerVm });
 
-        // Data Automation subtabs.
-        _dataAutomationNode.Children.Add(new NavigationNode
-        {
-            Header = "Extraction",
-            SubtabIndex = 0,
-            Factory = () => DataAutomationVm
-        });
-        _dataAutomationNode.Children.Add(new NavigationNode
-        {
-            Header = "Parsing",
-            SubtabIndex = 1,
-            Factory = () => DataAutomationVm
-        });
-        _dataAutomationNode.Children.Add(new NavigationNode
-        {
-            Header = "Analysis",
-            SubtabIndex = 2,
-            Factory = () => DataAutomationVm
-        });
+        _dataAutomationNode.Children.Add(new NavigationNode { Header = "Extraction", SubtabIndex = 0, Factory = () => DataAutomationVm });
+        _dataAutomationNode.Children.Add(new NavigationNode { Header = "Parsing",    SubtabIndex = 1, Factory = () => DataAutomationVm });
+        _dataAutomationNode.Children.Add(new NavigationNode { Header = "Analysis",   SubtabIndex = 2, Factory = () => DataAutomationVm });
 
-        // MT5 Ticks subtabs.
-        _mt5TicksNode.Children.Add(new NavigationNode
-        {
-            Header = "Extraction",
-            SubtabIndex = 0,
-            Factory = () => Mt5TickVm
-        });
-        _mt5TicksNode.Children.Add(new NavigationNode
-        {
-            Header = "Requester",
-            SubtabIndex = 1,
-            Factory = () => Mt5TickVm
-        });
-        _mt5TicksNode.Children.Add(new NavigationNode
-        {
-            Header = ".tkc Extract",
-            SubtabIndex = 2,
-            Factory = () => Mt5TickVm
-        });
-        _mt5TicksNode.Children.Add(new NavigationNode
-        {
-            Header = "Parsing",
-            SubtabIndex = 3,
-            Factory = () => Mt5TickVm
-        });
+        _mt5TicksNode.Children.Add(new NavigationNode { Header = "Extraction",   SubtabIndex = 0, Factory = () => Mt5TickVm });
+        _mt5TicksNode.Children.Add(new NavigationNode { Header = "Requester",    SubtabIndex = 1, Factory = () => Mt5TickVm });
+        _mt5TicksNode.Children.Add(new NavigationNode { Header = ".tkc Extract", SubtabIndex = 2, Factory = () => Mt5TickVm });
+        _mt5TicksNode.Children.Add(new NavigationNode { Header = "Parsing",      SubtabIndex = 3, Factory = () => Mt5TickVm });
 
         NavigationNodes.Add(_overviewNode);
         NavigationNodes.Add(_runnerNode);
@@ -185,33 +125,38 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
     partial void OnSelectedNodeChanged(NavigationNode? value)
     {
+        // Any user navigation cancels background warming — their click wins.
+        CancelPrewarmIfStarted();
+
         if (value?.Factory is null) return;
 
-        var vm = value.Factory();
-        CurrentVm = vm;
+        var owningRoot = FindOwningRoot(value);
+        if (owningRoot is null) return;
 
-        if (value.SubtabIndex >= 0 && vm is INavigationTarget target)
+        owningRoot.Content ??= owningRoot.Factory();
+
+        foreach (var root in NavigationNodes)
+            root.IsActive = ReferenceEquals(root, owningRoot);
+
+        if (value.SubtabIndex >= 0 && owningRoot.Content is INavigationTarget target)
             target.Navigate(value.SubtabIndex);
 
         ApplyAccordion(value);
     }
 
-    /// <summary>
-    /// Expands the root that owns <paramref name="selected"/> and collapses
-    /// every other root. Clicking a leaf or a child both keep exactly one
-    /// root open; clicking an unrelated root collapses the previous one.
-    /// </summary>
-    private void ApplyAccordion(NavigationNode selected)
+    private NavigationNode? FindOwningRoot(NavigationNode node)
     {
-        NavigationNode? owningRoot = null;
         foreach (var root in NavigationNodes)
         {
-            if (ReferenceEquals(root, selected) || root.Children.Contains(selected))
-            {
-                owningRoot = root;
-                break;
-            }
+            if (ReferenceEquals(root, node) || root.Children.Contains(node))
+                return root;
         }
+        return null;
+    }
+
+    private void ApplyAccordion(NavigationNode selected)
+    {
+        NavigationNode? owningRoot = FindOwningRoot(selected);
 
         foreach (var root in NavigationNodes)
         {
@@ -225,11 +170,6 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         }
     }
 
-    /// <summary>
-    /// Handles a click on the Monte Carlo cluster plot. Switches to the
-    /// Chart tab; ChartViewModel handles the dataset load and scroll via
-    /// its own subscription to the same message.
-    /// </summary>
     public void Receive(NavigateToTradeMessage message)
     {
         SelectedNode = _chartNode;
