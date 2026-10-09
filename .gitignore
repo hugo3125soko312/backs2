@@ -1,17 +1,27 @@
+# Build output
 /bin
 /obj
+
+# Secrets
 /.env
-data/cache
-data/optimizations
-logs/
-config/settings.json
-/data/ticks
+
+# Log output (repo root only — NOT src/gui/Logs/)
+/logs
+
+# Engine state
+/data/cache
+/data/optimizations
+/data/parsed
 /data/shots
 /data/shots - Copy
-config/data_automation.json
-src/gui/DataAutomation/DataAutomationView.axaml
-data/parsed/
-scratch/O_vs_H
-scratch/datetime/
-scratch
+/data/ticks
+
+# Config
+/config/data_automation.json
+/config/settings.json
+
+# Dev scratch
 /scratch
+
+# Profiler output
+/.metreja
