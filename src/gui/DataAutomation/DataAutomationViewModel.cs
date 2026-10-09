@@ -15,9 +15,22 @@ using System.Threading.Tasks;
 namespace backs2.ViewModels;
 
 [SupportedOSPlatform("windows")]
-public partial class DataAutomationViewModel : ObservableObject
+public partial class DataAutomationViewModel : ObservableObject, INavigationTarget
 {
-    // ── Extraction tab ───────────────────────────────────────────────
+    // -- Subtab selection (driven by the shell navigation tree) ------
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsExtractionPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsParsingPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsAnalysisPanelVisible))]
+    private int _selectedSubtabIndex;
+
+    public bool IsExtractionPanelVisible => SelectedSubtabIndex == 0;
+    public bool IsParsingPanelVisible    => SelectedSubtabIndex == 1;
+    public bool IsAnalysisPanelVisible   => SelectedSubtabIndex == 2;
+
+    public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
+
+    // -- Extraction panel --------------------------------------------
     [ObservableProperty] private string _statusText = "Idle";
     [ObservableProperty] private int _stepCount = 100;
     [ObservableProperty] private int _delayMs = 250;
@@ -55,10 +68,10 @@ public partial class DataAutomationViewModel : ObservableObject
     [ObservableProperty] private string _clickDisplay = "not set";
     [ObservableProperty] private double _extractionProgress;
 
-    [ObservableProperty] private string _elapsedDisplay = "—";
-    [ObservableProperty] private string _etaDisplay = "—";
-    [ObservableProperty] private string _delayDisplay = "—";
-    [ObservableProperty] private string _perStepDisplay = "—";
+    [ObservableProperty] private string _elapsedDisplay = "-";
+    [ObservableProperty] private string _etaDisplay = "-";
+    [ObservableProperty] private string _delayDisplay = "-";
+    [ObservableProperty] private string _perStepDisplay = "-";
 
     [ObservableProperty] private string _reExtractInput = "";
 
@@ -73,7 +86,7 @@ public partial class DataAutomationViewModel : ObservableObject
     public event EventHandler? CalibrateClickRequested;
     public event EventHandler? PreviewCalibrationRequested;
 
-    // ── Parsing tab ──────────────────────────────────────────────────
+    // -- Parsing panel -----------------------------------------------
     [ObservableProperty] private string _parseTicker = "XAUUSD";
     [ObservableProperty] private string _parseTimeframe = "1D";
     [ObservableProperty] private bool _useGpu;
@@ -85,11 +98,11 @@ public partial class DataAutomationViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StopParsingCommand))]
     private bool _isParsing;
 
-    [ObservableProperty] private string _parseElapsedDisplay = "—";
-    [ObservableProperty] private string _parseEtaDisplay = "—";
-    [ObservableProperty] private string _parseRateDisplay = "—";
+    [ObservableProperty] private string _parseElapsedDisplay = "-";
+    [ObservableProperty] private string _parseEtaDisplay = "-";
+    [ObservableProperty] private string _parseRateDisplay = "-";
 
-    // ── Analysis tab ─────────────────────────────────────────────────
+    // -- Analysis panel ----------------------------------------------
     [ObservableProperty] private string _analysisPath = "data/parsed/XAUUSD_1h_4.json";
     [ObservableProperty] private int _analysisTimezoneOffset = 2;
     [ObservableProperty] private string _analysisSessionClosedHours = "0,1";
@@ -200,7 +213,7 @@ public partial class DataAutomationViewModel : ObservableObject
         HasAllValueRegions = false;
         HasClickPoint = false;
         HasAnyCalibration = false;
-        ElapsedDisplay = EtaDisplay = DelayDisplay = PerStepDisplay = "—";
+        ElapsedDisplay = EtaDisplay = DelayDisplay = PerStepDisplay = "-";
         _service.ClearCalibration();
         StatusText = "Calibration cleared.";
     }
@@ -216,9 +229,9 @@ public partial class DataAutomationViewModel : ObservableObject
         IsRunning = true;
         ExtractionProgress = 0;
         ElapsedDisplay = "0s";
-        EtaDisplay = "—";
-        DelayDisplay = "—";
-        PerStepDisplay = "—";
+        EtaDisplay = "-";
+        DelayDisplay = "-";
+        PerStepDisplay = "-";
         _cts = new CancellationTokenSource();
 
         var progress = new Progress<ExtractionProgress>(ExtractionProgress_Update);
@@ -269,9 +282,9 @@ public partial class DataAutomationViewModel : ObservableObject
         IsRunning = true;
         ExtractionProgress = 0;
         ElapsedDisplay = "0s";
-        EtaDisplay = "—";
-        DelayDisplay = "—";
-        PerStepDisplay = "—";
+        EtaDisplay = "-";
+        DelayDisplay = "-";
+        PerStepDisplay = "-";
         _cts = new CancellationTokenSource();
 
         var progress = new Progress<ExtractionProgress>(ExtractionProgress_Update);
@@ -331,8 +344,8 @@ public partial class DataAutomationViewModel : ObservableObject
 
         if (p.Step > 0 && p.Total > 0)
         {
-            string perStep = p.PerStepMs > 0 ? $"{p.PerStepMs:F0} ms" : "—";
-            string delay   = p.CurrentDelayMs > 0 ? $"{p.CurrentDelayMs} ms" : "—";
+            string perStep = p.PerStepMs > 0 ? $"{p.PerStepMs:F0} ms" : "-";
+            string delay   = p.CurrentDelayMs > 0 ? $"{p.CurrentDelayMs} ms" : "-";
 
             PerStepDisplay = perStep;
             DelayDisplay = delay;
@@ -345,14 +358,14 @@ public partial class DataAutomationViewModel : ObservableObject
             else
             {
                 EtaDisplay = "done";
-                StatusText = $"{p.Phase} {p.Step}/{p.Total} — total {elapsed}";
+                StatusText = $"{p.Phase} {p.Step}/{p.Total} - total {elapsed}";
             }
         }
         else
         {
-            EtaDisplay = "—";
-            DelayDisplay = "—";
-            PerStepDisplay = "—";
+            EtaDisplay = "-";
+            DelayDisplay = "-";
+            PerStepDisplay = "-";
             StatusText = p.Phase;
         }
     }
@@ -365,7 +378,7 @@ public partial class DataAutomationViewModel : ObservableObject
         return $"{(int)t.TotalHours}h {t.Minutes}m";
     }
 
-    // ── Parsing commands ─────────────────────────────────────────────
+    // -- Parsing commands --------------------------------------------
     private bool CanStartParsing() => !IsParsing;
     private bool CanStopParsing()  => IsParsing;
 
@@ -376,8 +389,8 @@ public partial class DataAutomationViewModel : ObservableObject
         ParseProgress = 0;
         ParseStatus = "Starting OCR worker...";
         ParseElapsedDisplay = "0s";
-        ParseEtaDisplay = "—";
-        ParseRateDisplay = "—";
+        ParseEtaDisplay = "-";
+        ParseRateDisplay = "-";
 
         _parseCts = new CancellationTokenSource();
         var sw = Stopwatch.StartNew();
@@ -394,7 +407,7 @@ public partial class DataAutomationViewModel : ObservableObject
                 double perStepSec = elapsed.TotalSeconds / p.Current;
                 var eta = TimeSpan.FromSeconds(perStepSec * (p.Total - p.Current));
                 ParseEtaDisplay = FormatDuration(eta);
-                ParseRateDisplay = perStepSec > 0 ? $"{1.0 / perStepSec:F1}/s" : "—";
+                ParseRateDisplay = perStepSec > 0 ? $"{1.0 / perStepSec:F1}/s" : "-";
             }
             else if (p.Current >= p.Total && p.Total > 0)
             {
@@ -414,8 +427,8 @@ public partial class DataAutomationViewModel : ObservableObject
                 _parseCts.Token);
 
             ParseStatus =
-                $"Done — {result.ParsedShots}/{result.TotalShots} parsed, " +
-                $"{result.FailedShots} failed → {result.OutputPath}";
+                $"Done - {result.ParsedShots}/{result.TotalShots} parsed, " +
+                $"{result.FailedShots} failed -> {result.OutputPath}";
         }
         catch (OperationCanceledException)
         {
@@ -438,7 +451,7 @@ public partial class DataAutomationViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStopParsing))]
     private void StopParsing() => _parseCts?.Cancel();
 
-    // ── Analysis commands ────────────────────────────────────────────
+    // -- Analysis commands -------------------------------------------
     private bool CanAnalyze() => !IsAnalyzing;
 
     [RelayCommand(CanExecute = nameof(CanAnalyze))]

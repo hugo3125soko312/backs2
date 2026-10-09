@@ -17,7 +17,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
     /// <summary>
     /// The single ViewModel currently hosted by MainWindow's ContentControl.
-    /// Set by OnSelectedNodeChanged — never bound to an index.
+    /// Set by OnSelectedNodeChanged - never bound to an index.
     /// </summary>
     [ObservableProperty]
     private object? _currentVm;
@@ -38,7 +38,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private readonly ConfigManager _cfg;
 
     // Lazily-resolved tab ViewModels. Each getter resolves once on first
-    // access — preserves the Phase 17 pattern exactly.
+    // access - preserves the Phase 17 pattern exactly.
     private OverviewViewModel? _overviewVm;
     private RunnerViewModel? _runnerVm;
     private MonteCarloViewModel? _monteCarloVm;
@@ -90,7 +90,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
         WeakReferenceMessenger.Default.Register(this);
 
-        // Default selection. Fires OnSelectedNodeChanged → resolves Overview VM.
+        // Default selection. Fires OnSelectedNodeChanged -> resolves Overview VM.
         SelectedNode = _overviewNode;
     }
 
@@ -102,14 +102,14 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         _metricsNode        = new NavigationNode { Header = "Metrics",         Factory = () => MetricsVm };
         _accountsNode       = new NavigationNode { Header = "Accounts",        Factory = () => AccountVm };
         _dataNode           = new NavigationNode { Header = "Data",            Factory = () => DataVm };
-        _dataAutomationNode = new NavigationNode { Header = "Data Automation", Factory = () => DataAutomationVm };
-        _mt5TicksNode       = new NavigationNode { Header = "MT5 Ticks",       Factory = () => Mt5TickVm };
+        _dataAutomationNode = new NavigationNode { Header = "Data Automation", SubtabIndex = 0, Factory = () => DataAutomationVm };
+        _mt5TicksNode       = new NavigationNode { Header = "MT5 Ticks",       SubtabIndex = 0, Factory = () => Mt5TickVm };
         _providersNode      = new NavigationNode { Header = "Providers",       Factory = () => ProvidersVm };
         _chartNode          = new NavigationNode { Header = "Chart",           Factory = () => ChartVm };
         _logsNode           = new NavigationNode { Header = "Logs",            Factory = () => LogsVm };
         _configNode         = new NavigationNode { Header = "Config",          Factory = () => ConfigVm };
 
-        // Runner subtabs — same VM, different SubtabIndex.
+        // Runner subtabs - same VM, different SubtabIndex.
         _runnerNode.Children.Add(new NavigationNode
         {
             Header = "Runner",
@@ -121,6 +121,52 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
             Header = "Optimization Results",
             SubtabIndex = 1,
             Factory = () => RunnerVm
+        });
+
+        // Data Automation subtabs.
+        _dataAutomationNode.Children.Add(new NavigationNode
+        {
+            Header = "Extraction",
+            SubtabIndex = 0,
+            Factory = () => DataAutomationVm
+        });
+        _dataAutomationNode.Children.Add(new NavigationNode
+        {
+            Header = "Parsing",
+            SubtabIndex = 1,
+            Factory = () => DataAutomationVm
+        });
+        _dataAutomationNode.Children.Add(new NavigationNode
+        {
+            Header = "Analysis",
+            SubtabIndex = 2,
+            Factory = () => DataAutomationVm
+        });
+
+        // MT5 Ticks subtabs.
+        _mt5TicksNode.Children.Add(new NavigationNode
+        {
+            Header = "Extraction",
+            SubtabIndex = 0,
+            Factory = () => Mt5TickVm
+        });
+        _mt5TicksNode.Children.Add(new NavigationNode
+        {
+            Header = "Requester",
+            SubtabIndex = 1,
+            Factory = () => Mt5TickVm
+        });
+        _mt5TicksNode.Children.Add(new NavigationNode
+        {
+            Header = ".tkc Extract",
+            SubtabIndex = 2,
+            Factory = () => Mt5TickVm
+        });
+        _mt5TicksNode.Children.Add(new NavigationNode
+        {
+            Header = "Parsing",
+            SubtabIndex = 3,
+            Factory = () => Mt5TickVm
         });
 
         NavigationNodes.Add(_overviewNode);
@@ -171,7 +217,6 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         {
             if (root.Children.Count == 0)
             {
-                // Leaf roots are never expandable — no chevron, no state.
                 if (root.IsExpanded) root.IsExpanded = false;
                 continue;
             }

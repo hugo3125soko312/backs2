@@ -11,11 +11,11 @@ using System.Threading.Tasks;
 
 namespace backs2.ViewModels;
 
-public partial class Mt5TickViewModel : ObservableObject
+public partial class Mt5TickViewModel : ObservableObject, INavigationTarget
 {
     public const int MaxGridRows = 100_000;
 
-    // ── Common Services ──────────────────────────────────────────────
+    // -- Common Services ----------------------------------------------
     private readonly Mt5TickService _service;
     private readonly ConfigManager _config;
     private readonly CacheManager _cache;
@@ -25,7 +25,22 @@ public partial class Mt5TickViewModel : ObservableObject
 
     public RangeObservableCollection<Mt5Tick> Ticks { get; } = new();
 
-    // ── Global Busy State ────────────────────────────────────────────
+    // -- Subtab selection (driven by the shell navigation tree) ------
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsExtractionPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsRequesterPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsTkcPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsParsingPanelVisible))]
+    private int _selectedSubtabIndex;
+
+    public bool IsExtractionPanelVisible => SelectedSubtabIndex == 0;
+    public bool IsRequesterPanelVisible  => SelectedSubtabIndex == 1;
+    public bool IsTkcPanelVisible        => SelectedSubtabIndex == 2;
+    public bool IsParsingPanelVisible    => SelectedSubtabIndex == 3;
+
+    public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
+
+    // -- Global Busy State --------------------------------------------
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PingCommand))]
     [NotifyCanExecuteChangedFor(nameof(FetchTicksCommand))]
@@ -46,7 +61,7 @@ public partial class Mt5TickViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     private bool _isDecoding;
 
-    // ── Common Connection Display ───────────────────────────────────
+    // -- Common Connection Display -----------------------------------
     [ObservableProperty] private string _statusText = "Not connected.";
     [ObservableProperty] private bool   _isConnected;
     [ObservableProperty] private int    _latencyMs;
@@ -81,13 +96,13 @@ public partial class Mt5TickViewModel : ObservableObject
             {
                 IsConnected = true;
                 LatencyMs   = result.LatencyMs;
-                StatusText  = $"Connected — {result.LatencyMs} ms";
+                StatusText  = $"Connected - {result.LatencyMs} ms";
             }
             else
             {
                 IsConnected = false;
                 LatencyMs   = 0;
-                StatusText  = $"Disconnected — {result.Error}";
+                StatusText  = $"Disconnected - {result.Error}";
             }
         }
         finally { IsBusy = false; }

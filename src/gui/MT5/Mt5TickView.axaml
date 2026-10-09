@@ -8,7 +8,7 @@
              x:DataType="vm:Mt5TickViewModel">
 
     <Grid RowDefinitions="Auto, *">
-        <!-- Connection Header Bar -->
+        <!-- Connection Header Bar (shared by all subtabs) -->
         <Border Grid.Row="0"
                 Background="#2D2D30"
                 Padding="12,8"
@@ -35,198 +35,191 @@
             </Grid>
         </Border>
 
-        <!-- Main Content Area -->
-        <TabControl Grid.Row="1">
+        <!-- Stacked subtab panels (one cell, toggled by IsVisible) -->
+        <Grid Grid.Row="1">
 
-            <!-- 1. EXTRACTION TAB -->
-            <TabItem Header="Extraction">
-                <Grid RowDefinitions="Auto, Auto, *, Auto">
-                    <StackPanel Grid.Row="0" Spacing="12" Margin="8">
-                        <Grid ColumnDefinitions="110, *, 110, *" RowDefinitions="Auto, Auto">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Symbol}" Margin="0,0,12,8"/>
+            <!-- ============ 1. EXTRACTION ============ -->
+            <Grid RowDefinitions="Auto, Auto, *, Auto"
+                  IsVisible="{Binding IsExtractionPanelVisible}">
+                <StackPanel Grid.Row="0" Spacing="12" Margin="8">
+                    <Grid ColumnDefinitions="110, *, 110, *" RowDefinitions="Auto, Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Symbol}" Margin="0,0,12,8"/>
 
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Lookback (h):" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding LookbackHours}" Minimum="0" Margin="0,0,0,8"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="Lookback (h):" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding LookbackHours}" Minimum="0" Margin="0,0,0,8"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Target Ticks:" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TargetTicks}" Minimum="0" Margin="0,0,12,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Target Ticks:" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TargetTicks}" Minimum="0" Margin="0,0,12,0"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="Batch Size:" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding ChunkSize}" Minimum="100" Maximum="500000"/>
-                        </Grid>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="Batch Size:" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding ChunkSize}" Minimum="100" Maximum="500000"/>
+                    </Grid>
 
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <CheckBox Content="Populate Preview Grid" IsChecked="{Binding PopulateGrid}"/>
-                            <Button Content="Fetch Ticks (TCP Stream)" Command="{Binding FetchTicksCommand}" Padding="16,6"/>
-                            <Button Content="Stop" Command="{Binding StopCommand}" Padding="16,6"/>
-                            <Button Content="Save to CSV" Command="{Binding SaveCsvCommand}" Padding="16,6"/>
-                        </StackPanel>
-
-                        <ProgressBar Value="{Binding FetchProgress}" Maximum="100" Height="6"/>
-
-                        <Grid ColumnDefinitions="*, Auto, Auto">
-                            <TextBlock Grid.Column="0" Text="{Binding FetchProgressText}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding FetchSpeedText}" Margin="0,0,16,0"/>
-                            <TextBlock Grid.Column="2" Text="{Binding FetchEtaText}"/>
-                        </Grid>
-
-                        <TextBlock Text="{Binding GridCapText}" Foreground="Orange" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <CheckBox Content="Populate Preview Grid" IsChecked="{Binding PopulateGrid}"/>
+                        <Button Content="Fetch Ticks (TCP Stream)" Command="{Binding FetchTicksCommand}" Padding="16,6"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}" Padding="16,6"/>
+                        <Button Content="Save to CSV" Command="{Binding SaveCsvCommand}" Padding="16,6"/>
                     </StackPanel>
 
-                    <!-- Verify Range Collapsible Panel -->
-                    <Expander Grid.Row="1" Header="Verify Range Tool" IsExpanded="{Binding IsVerifyExpanded}" Margin="8,0,8,8">
-                        <StackPanel Spacing="12" Margin="8">
-                            <Grid ColumnDefinitions="120, *, 120, *" RowDefinitions="Auto, Auto, Auto">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Anchor Date:" VerticalAlignment="Center"/>
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding VerifyAnchorDate}" Margin="0,0,12,8"/>
+                    <ProgressBar Value="{Binding FetchProgress}" Maximum="100" Height="6"/>
 
-                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Span Value:" VerticalAlignment="Center"/>
-                                <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding VerifySpanValue}" Minimum="1" Margin="0,0,0,8"/>
+                    <Grid ColumnDefinitions="*, Auto, Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding FetchProgressText}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding FetchSpeedText}" Margin="0,0,16,0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding FetchEtaText}"/>
+                    </Grid>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Span Unit:" VerticalAlignment="Center"/>
-                                <ComboBox Grid.Row="1" Grid.Column="1"
-                                          ItemsSource="{Binding SpanUnits}"
-                                          SelectedItem="{Binding VerifySpanUnit}"
-                                          HorizontalAlignment="Stretch" Margin="0,0,12,8"/>
+                    <TextBlock Text="{Binding GridCapText}" Foreground="Orange" TextWrapping="Wrap"/>
+                </StackPanel>
 
-                                <TextBlock Grid.Row="1" Grid.Column="2" Text="UTC Offset (h):" VerticalAlignment="Center"/>
-                                <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding VerifyUtcOffsetHours}" Increment="0.5" Margin="0,0,0,8"/>
-                            </Grid>
+                <Expander Grid.Row="1" Header="Verify Range Tool" IsExpanded="{Binding IsVerifyExpanded}" Margin="8,0,8,8">
+                    <StackPanel Spacing="12" Margin="8">
+                        <Grid ColumnDefinitions="120, *, 120, *" RowDefinitions="Auto, Auto, Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Anchor Date:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding VerifyAnchorDate}" Margin="0,0,12,8"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Button Content="Verify Range" Command="{Binding VerifyRangeCommand}" Padding="12,6"/>
-                                <Button Content="Apply to Fetch" Command="{Binding ApplyToFetchCommand}" Padding="12,6"/>
-                                <Button Content="Load Last Fetch" Command="{Binding LoadLastFetchRangeCommand}" Padding="12,6"/>
-                            </StackPanel>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Span Value:" VerticalAlignment="Center"/>
+                            <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding VerifySpanValue}" Minimum="1" Margin="0,0,0,8"/>
 
-                            <TextBlock Text="{Binding VerifyResolvedText}" Foreground="LightGray" FontFamily="Consolas"/>
-                            <TextBlock Text="{Binding VerifyComparisonText}" Foreground="{Binding VerifyComparisonBrush}" FontFamily="Consolas"/>
-                            <TextBlock Text="{Binding VerifyStatusText}" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Expander>
-
-                    <!-- Preview DataGrid -->
-                    <DataGrid Grid.Row="2"
-                              ItemsSource="{Binding Ticks}"
-                              AutoGenerateColumns="False"
-                              IsReadOnly="True"
-                              GridLinesVisibility="All"
-                              Margin="8">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Time (msc)" Binding="{Binding TimeMsc}"/>
-                            <DataGridTextColumn Header="Bid" Binding="{Binding Bid}"/>
-                            <DataGridTextColumn Header="Ask" Binding="{Binding Ask}"/>
-                            <DataGridTextColumn Header="Last" Binding="{Binding Last}"/>
-                            <DataGridTextColumn Header="Volume" Binding="{Binding Volume}"/>
-                            <DataGridTextColumn Header="Flags" Binding="{Binding Flags}"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-
-                    <TextBlock Grid.Row="3" Text="{Binding TerminalInfoText}" Margin="8" FontFamily="Consolas"/>
-                </Grid>
-            </TabItem>
-
-            <!-- 2. REQUESTER TAB -->
-            <TabItem Header="Requester">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="16" Spacing="16">
-                        <TextBlock Text="MT5 History Cache Requester"
-                                   FontSize="18"
-                                   FontWeight="Bold"/>
-                        <TextBlock Text="Triggers MT5 via EA to download tick history from broker servers and build local .tkc files on disk without sending raw ticks over TCP."
-                                   TextWrapping="Wrap"
-                                   Foreground="Gray"/>
-
-                        <Grid ColumnDefinitions="120, *" RowDefinitions="Auto, Auto" Margin="0,8,0,0">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ReqSymbol}" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Lookback (Days):" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding ReqLookbackDays}" Minimum="1" Maximum="36520"/>
-                        </Grid>
-
-                        <Button Content="Request Sync in MT5"
-                                Command="{Binding RequestSyncCommand}"
-                                HorizontalAlignment="Left"
-                                Padding="16,8"/>
-
-                        <ProgressBar Value="{Binding ReqProgress}" Maximum="100" Height="6"/>
-                        <TextBlock Text="{Binding ReqStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- 3. .TKC EXTRACT TAB -->
-            <TabItem Header=".tkc Extract">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="16" Spacing="16">
-                        <TextBlock Text="Direct .tkc File Extraction" FontSize="18" FontWeight="Bold"/>
-                        <TextBlock Text="Reads local MetaTrader .tkc tick cache files directly from disk at SSD speed into Kline candles."
-                                   TextWrapping="Wrap" Foreground="Gray"/>
-
-                        <Grid ColumnDefinitions="160, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,8,0,0">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Terminal Data Root:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TerminalDataRoot}" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Broker Folder:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TerminalBroker}" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TkcSymbol}" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Timeframe:" VerticalAlignment="Center"/>
-                            <ComboBox Grid.Row="3" Grid.Column="1"
-                                      ItemsSource="{Binding Timeframes}"
-                                      SelectedItem="{Binding TkcTimeframe}"
-                                      HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Lookback (Days):" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TkcLookbackDays}" Minimum="0" Margin="0,0,0,8"/>
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Max Ticks (0=All):" VerticalAlignment="Center"/>
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding TkcMaxTicks}" Minimum="0"/>
-                        </Grid>
-
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button Content="Extract to Cache" Command="{Binding ExtractToCacheCommand}" Padding="16,8"/>
-                            <Button Content="Stop" Command="{Binding StopCommand}" Padding="16,8"/>
-                        </StackPanel>
-
-                        <ProgressBar Value="{Binding TkcProgress}" Maximum="100" Height="6"/>
-                        <TextBlock Text="{Binding TkcProgressText}"/>
-                        <TextBlock Text="{Binding TkcStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- 4. PARSING TAB -->
-            <TabItem Header="Parsing">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="16" Spacing="16">
-                        <TextBlock Text="Parse CSV Ticks to Klines" FontSize="18" FontWeight="Bold"/>
-                        <TextBlock Text="Converts raw tick CSV exports into aggregated Kline candle caches."
-                                   TextWrapping="Wrap" Foreground="Gray"/>
-
-                        <Grid ColumnDefinitions="120, *, Auto" RowDefinitions="Auto, Auto" Margin="0,8,0,0">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="CSV File Path:" VerticalAlignment="Center"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ParseFilePath}" Margin="0,0,8,8"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Timeframe:" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Span Unit:" VerticalAlignment="Center"/>
                             <ComboBox Grid.Row="1" Grid.Column="1"
-                                      ItemsSource="{Binding Timeframes}"
-                                      SelectedItem="{Binding ParseTimeframe}"
-                                      HorizontalAlignment="Stretch" Margin="0,0,8,0"/>
+                                      ItemsSource="{Binding SpanUnits}"
+                                      SelectedItem="{Binding VerifySpanUnit}"
+                                      HorizontalAlignment="Stretch" Margin="0,0,12,8"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="UTC Offset (h):" VerticalAlignment="Center"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding VerifyUtcOffsetHours}" Increment="0.5" Margin="0,0,0,8"/>
                         </Grid>
 
-                        <Button Content="Parse CSV" Command="{Binding ParseCsvCommand}" HorizontalAlignment="Left" Padding="16,8"/>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Content="Verify Range" Command="{Binding VerifyRangeCommand}" Padding="12,6"/>
+                            <Button Content="Apply to Fetch" Command="{Binding ApplyToFetchCommand}" Padding="12,6"/>
+                            <Button Content="Load Last Fetch" Command="{Binding LoadLastFetchRangeCommand}" Padding="12,6"/>
+                        </StackPanel>
 
-                        <ProgressBar Value="{Binding ParseProgress}" Maximum="100" Height="6"/>
-                        <TextBlock Text="{Binding ParseStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding VerifyResolvedText}" Foreground="LightGray" FontFamily="Consolas"/>
+                        <TextBlock Text="{Binding VerifyComparisonText}" Foreground="{Binding VerifyComparisonBrush}" FontFamily="Consolas"/>
+                        <TextBlock Text="{Binding VerifyStatusText}" FontWeight="SemiBold"/>
                     </StackPanel>
-                </ScrollViewer>
-            </TabItem>
+                </Expander>
 
-        </TabControl>
+                <DataGrid Grid.Row="2"
+                          ItemsSource="{Binding Ticks}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          GridLinesVisibility="All"
+                          Margin="8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Time (msc)" Binding="{Binding TimeMsc}"/>
+                        <DataGridTextColumn Header="Bid" Binding="{Binding Bid}"/>
+                        <DataGridTextColumn Header="Ask" Binding="{Binding Ask}"/>
+                        <DataGridTextColumn Header="Last" Binding="{Binding Last}"/>
+                        <DataGridTextColumn Header="Volume" Binding="{Binding Volume}"/>
+                        <DataGridTextColumn Header="Flags" Binding="{Binding Flags}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="3" Text="{Binding TerminalInfoText}" Margin="8" FontFamily="Consolas"/>
+            </Grid>
+
+            <!-- ============ 2. REQUESTER ============ -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding IsRequesterPanelVisible}">
+                <StackPanel Margin="16" Spacing="16">
+                    <TextBlock Text="MT5 History Cache Requester"
+                               FontSize="18"
+                               FontWeight="Bold"/>
+                    <TextBlock Text="Triggers MT5 via EA to download tick history from broker servers and build local .tkc files on disk without sending raw ticks over TCP."
+                               TextWrapping="Wrap"
+                               Foreground="Gray"/>
+
+                    <Grid ColumnDefinitions="120, *" RowDefinitions="Auto, Auto" Margin="0,8,0,0">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ReqSymbol}" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Lookback (Days):" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding ReqLookbackDays}" Minimum="1" Maximum="36520"/>
+                    </Grid>
+
+                    <Button Content="Request Sync in MT5"
+                            Command="{Binding RequestSyncCommand}"
+                            HorizontalAlignment="Left"
+                            Padding="16,8"/>
+
+                    <ProgressBar Value="{Binding ReqProgress}" Maximum="100" Height="6"/>
+                    <TextBlock Text="{Binding ReqStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ============ 3. .TKC EXTRACT ============ -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding IsTkcPanelVisible}">
+                <StackPanel Margin="16" Spacing="16">
+                    <TextBlock Text="Direct .tkc File Extraction" FontSize="18" FontWeight="Bold"/>
+                    <TextBlock Text="Reads local MetaTrader .tkc tick cache files directly from disk at SSD speed into Kline candles."
+                               TextWrapping="Wrap" Foreground="Gray"/>
+
+                    <Grid ColumnDefinitions="160, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto" Margin="0,8,0,0">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Terminal Data Root:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TerminalDataRoot}" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Broker Folder:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TerminalBroker}" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Symbol:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TkcSymbol}" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Timeframe:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="3" Grid.Column="1"
+                                  ItemsSource="{Binding Timeframes}"
+                                  SelectedItem="{Binding TkcTimeframe}"
+                                  HorizontalAlignment="Stretch" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Lookback (Days):" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TkcLookbackDays}" Minimum="0" Margin="0,0,0,8"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Max Ticks (0=All):" VerticalAlignment="Center"/>
+                        <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding TkcMaxTicks}" Minimum="0"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Extract to Cache" Command="{Binding ExtractToCacheCommand}" Padding="16,8"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}" Padding="16,8"/>
+                    </StackPanel>
+
+                    <ProgressBar Value="{Binding TkcProgress}" Maximum="100" Height="6"/>
+                    <TextBlock Text="{Binding TkcProgressText}"/>
+                    <TextBlock Text="{Binding TkcStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ============ 4. PARSING ============ -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding IsParsingPanelVisible}">
+                <StackPanel Margin="16" Spacing="16">
+                    <TextBlock Text="Parse CSV Ticks to Klines" FontSize="18" FontWeight="Bold"/>
+                    <TextBlock Text="Converts raw tick CSV exports into aggregated Kline candle caches."
+                               TextWrapping="Wrap" Foreground="Gray"/>
+
+                    <Grid ColumnDefinitions="120, *, Auto" RowDefinitions="Auto, Auto" Margin="0,8,0,0">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="CSV File Path:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ParseFilePath}" Margin="0,0,8,8"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Timeframe:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="1" Grid.Column="1"
+                                  ItemsSource="{Binding Timeframes}"
+                                  SelectedItem="{Binding ParseTimeframe}"
+                                  HorizontalAlignment="Stretch" Margin="0,0,8,0"/>
+                    </Grid>
+
+                    <Button Content="Parse CSV" Command="{Binding ParseCsvCommand}" HorizontalAlignment="Left" Padding="16,8"/>
+
+                    <ProgressBar Value="{Binding ParseProgress}" Maximum="100" Height="6"/>
+                    <TextBlock Text="{Binding ParseStatusText}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </UserControl>
