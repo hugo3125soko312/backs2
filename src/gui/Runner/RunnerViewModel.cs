@@ -20,7 +20,7 @@ using backs2.Core.Runner;
 
 namespace backs2.ViewModels;
 
-public partial class RunnerViewModel : ObservableObject
+public partial class RunnerViewModel : ObservableObject, INavigationTarget
 {
     private readonly StrategyCatalogService _catalog;
     private readonly StrategyManager _strat;
@@ -61,6 +61,15 @@ public partial class RunnerViewModel : ObservableObject
     [ObservableProperty] private string _combinationSummary = "";
     [ObservableProperty] private bool _isOptimizing;
     [ObservableProperty] private string _etaText = "";
+
+    /// <summary>Which subtab is visible — driven by the shell navigation tree.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsRunnerPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsResultsPanelVisible))]
+    private int _selectedSubtabIndex;
+
+    public bool IsRunnerPanelVisible  => SelectedSubtabIndex == 0;
+    public bool IsResultsPanelVisible => SelectedSubtabIndex == 1;
 
     private CancellationTokenSource? _optimizeCts;
     private bool _suppressGridPersist;
@@ -104,6 +113,9 @@ public partial class RunnerViewModel : ObservableObject
 
         _ = RefreshResultsAsync();
     }
+
+    /// <summary>Called by the shell when a Runner subtab node is selected.</summary>
+    public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -19,7 +18,11 @@ public partial class RunnerViewModel
 
     private CancellationTokenSource? _resultsLoadCts;
 
-    public ObservableCollection<OptimizationResultRow> OptimizationResults { get; } = new();
+    /// <summary>
+    /// Bulk-notifying collection — one Reset per swap instead of N Adds.
+    /// This is what keeps the DataGrid responsive when the tab is opened.
+    /// </summary>
+    public RangeObservableCollection<OptimizationResultRow> OptimizationResults { get; } = new();
 
     public IReadOnlyList<string> AvailableSortKeys { get; } = OptimizationResultRow.AvailableSortKeys;
 
@@ -86,12 +89,14 @@ public partial class RunnerViewModel
         if (ct.IsCancellationRequested) return;
 
         _allResults = loaded;
+
+        // One UI-thread swap — Clear + AddRange emits two notifications total.
+        ApplyResultsSort();
+        sw.Stop();
+
         int batchCount = loaded.Count == 0
             ? 0
             : loaded.Select(r => r.BatchFile).Distinct().Count();
-
-        ApplyResultsSort();
-        sw.Stop();
 
         ResultsStatus = _allResults.Count == 0
             ? $"No optimization batches found in {_optStore.RootDirectory}."
@@ -140,8 +145,10 @@ public partial class RunnerViewModel
 
         var top = sorted.Take(Math.Max(1, ResultsCap)).ToList();
 
+        // Clear fires one Reset; AddRange fires another. Two notifications
+        // total regardless of row count. This is the whole fix — the previous
+        // N individual Add calls each triggered a DataGrid re-measure.
         OptimizationResults.Clear();
-        foreach (var row in top)
-            OptimizationResults.Add(row);
+        OptimizationResults.AddRange(top);
     }
 }

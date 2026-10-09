@@ -99,219 +99,215 @@
             </StackPanel>
         </Expander>
 
-        <!-- ========== Subtabs ========== -->
-        <TabControl Grid.Row="2" Margin="8,0,8,0" FontSize="12">
+        <!-- ========== Subtabs (stacked in one cell, toggled by IsVisible) ========== -->
+        <Grid Grid.Row="2" Margin="8,0,8,0">
 
-            <!-- Subtab: Runner (strategy / parameters / presets) -->
-            <TabItem Header="Runner">
-                <Grid ColumnDefinitions="280,4,*">
+            <!-- ===== Runner panel ===== -->
+            <Grid ColumnDefinitions="280,4,*" IsVisible="{Binding IsRunnerPanelVisible}">
 
-                    <Border Grid.Column="0"
-                            Margin="0,6,0,6"
-                            BorderThickness="1"
-                            BorderBrush="{DynamicResource BorderDefault}"
-                            CornerRadius="4">
-                        <Grid RowDefinitions="Auto,*,Auto" Margin="6">
+                <Border Grid.Column="0"
+                        Margin="0,6,0,6"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource BorderDefault}"
+                        CornerRadius="4">
+                    <Grid RowDefinitions="Auto,*,Auto" Margin="6">
 
-                            <TextBox Grid.Row="0"
-                                     Text="{Binding StrategyFilter, Mode=TwoWay}"
-                                     Watermark="Filter strategies..."
-                                     Margin="0,0,0,6" />
+                        <TextBox Grid.Row="0"
+                                 Text="{Binding StrategyFilter, Mode=TwoWay}"
+                                 Watermark="Filter strategies..."
+                                 Margin="0,0,0,6" />
 
-                            <ListBox Grid.Row="1"
-                                     ItemsSource="{Binding FilteredStrategies}"
-                                     SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate DataType="core:StrategyDescriptor">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}"
-                                                       FontWeight="SemiBold"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Path}"
+                        <ListBox Grid.Row="1"
+                                 ItemsSource="{Binding FilteredStrategies}"
+                                 SelectedItem="{Binding SelectedStrategy, Mode=TwoWay}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="core:StrategyDescriptor">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Path}"
+                                                   FontSize="10"
+                                                   Opacity="0.6"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <Button Grid.Row="2"
+                                Content="View Source..."
+                                Command="{Binding ViewSourceCommand}"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,6,0,0" />
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Column="1"
+                              Width="4"
+                              Background="Transparent"
+                              ResizeDirection="Columns" />
+
+                <Border Grid.Column="2"
+                        Margin="0,6,0,6"
+                        Padding="8"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource BorderDefault}"
+                        CornerRadius="4"
+                        IsVisible="{Binding HasParameters}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Parameters}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:RunnerParameterViewModel">
+                                    <StackPanel Margin="0,0,0,12">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding Name}"
+                                                       FontSize="11"
+                                                       Opacity="0.75"
+                                                       Margin="0,0,0,2"
+                                                       VerticalAlignment="Center" />
+                                            <Button Grid.Column="1"
+                                                    Content="Save"
+                                                    FontSize="10"
+                                                    Padding="6,2"
+                                                    IsVisible="{Binding IsDirty}"
+                                                    ToolTip.Tip="Save current values as a preset"
+                                                    Command="{Binding DataContext.SavePresetCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                        </Grid>
+                                        <ComboBox ItemsSource="{Binding Options}"
+                                                  SelectedItem="{Binding CurrentValue, Mode=TwoWay}"
+                                                  IsVisible="{Binding HasOptions}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBox Text="{Binding CurrentValue, Mode=TwoWay}"
+                                                 IsVisible="{Binding IsTextInput}"
+                                                 HorizontalAlignment="Stretch" />
+                                        <ToggleSwitch IsChecked="{Binding CurrentBool, Mode=TwoWay}"
+                                                      IsVisible="{Binding IsBoolToggle}"
+                                                      HorizontalAlignment="Left" />
+
+                                        <Grid ColumnDefinitions="Auto,80,Auto,80,Auto,80,*"
+                                              IsVisible="{Binding IsNumeric}"
+                                              Margin="0,4,0,0">
+                                            <TextBlock Grid.Column="0" Text="Min"
+                                                       FontSize="10" Opacity="0.6"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,4,0" />
+                                            <TextBox Grid.Column="1"
+                                                     Text="{Binding MinText, Mode=TwoWay}"
+                                                     Watermark="min"
+                                                     FontSize="11"
+                                                     Height="26"
+                                                     Padding="6,2"
+                                                     VerticalContentAlignment="Center" />
+
+                                            <TextBlock Grid.Column="2" Text="Max"
+                                                       FontSize="10" Opacity="0.6"
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,4,0" />
+                                            <TextBox Grid.Column="3"
+                                                     Text="{Binding MaxText, Mode=TwoWay}"
+                                                     Watermark="max"
+                                                     FontSize="11"
+                                                     Height="26"
+                                                     Padding="6,2"
+                                                     VerticalContentAlignment="Center" />
+
+                                            <TextBlock Grid.Column="4" Text="Step"
+                                                       FontSize="10" Opacity="0.6"
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,4,0" />
+                                            <TextBox Grid.Column="5"
+                                                     Text="{Binding StepText, Mode=TwoWay}"
+                                                     Watermark="step"
+                                                     FontSize="11"
+                                                     Height="26"
+                                                     Padding="6,2"
+                                                     VerticalContentAlignment="Center" />
+
+                                            <TextBlock Grid.Column="6"
+                                                       Text="{Binding ValueCountText}"
                                                        FontSize="10"
-                                                       Opacity="0.6"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                                       Foreground="{DynamicResource AccentPrimary}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="8,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
 
-                            <Button Grid.Row="2"
-                                    Content="View Source..."
-                                    Command="{Binding ViewSourceCommand}"
-                                    HorizontalAlignment="Stretch"
-                                    Margin="0,6,0,0" />
-                        </Grid>
-                    </Border>
+            <!-- ===== Optimization Results panel ===== -->
+            <Grid RowDefinitions="Auto,*,Auto"
+                  IsVisible="{Binding IsResultsPanelVisible}">
 
-                    <GridSplitter Grid.Column="1"
-                                  Width="4"
-                                  Background="Transparent"
-                                  ResizeDirection="Columns" />
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                    <TextBlock Text="Sort by:" VerticalAlignment="Center" FontSize="11" Opacity="0.75" />
+                    <ComboBox ItemsSource="{Binding AvailableSortKeys}"
+                              SelectedItem="{Binding ResultsSortKey, Mode=TwoWay}"
+                              Width="220"
+                              FontSize="11" />
 
-                    <Border Grid.Column="2"
-                            Margin="0,6,0,6"
-                            Padding="8"
-                            BorderThickness="1"
-                            BorderBrush="{DynamicResource BorderDefault}"
-                            CornerRadius="4"
-                            IsVisible="{Binding HasParameters}">
-                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding Parameters}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="vm:RunnerParameterViewModel">
-                                        <StackPanel Margin="0,0,0,12">
-                                            <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock Grid.Column="0"
-                                                           Text="{Binding Name}"
-                                                           FontSize="11"
-                                                           Opacity="0.75"
-                                                           Margin="0,0,0,2"
-                                                           VerticalAlignment="Center" />
-                                                <Button Grid.Column="1"
-                                                        Content="Save"
-                                                        FontSize="10"
-                                                        Padding="6,2"
-                                                        IsVisible="{Binding IsDirty}"
-                                                        ToolTip.Tip="Save current values as a preset"
-                                                        Command="{Binding DataContext.SavePresetCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                            </Grid>
-                                            <ComboBox ItemsSource="{Binding Options}"
-                                                      SelectedItem="{Binding CurrentValue, Mode=TwoWay}"
-                                                      IsVisible="{Binding HasOptions}"
-                                                      HorizontalAlignment="Stretch" />
-                                            <TextBox Text="{Binding CurrentValue, Mode=TwoWay}"
-                                                     IsVisible="{Binding IsTextInput}"
-                                                     HorizontalAlignment="Stretch" />
-                                            <ToggleSwitch IsChecked="{Binding CurrentBool, Mode=TwoWay}"
-                                                          IsVisible="{Binding IsBoolToggle}"
-                                                          HorizontalAlignment="Left" />
+                    <TextBlock Text="Top" VerticalAlignment="Center" FontSize="11" Opacity="0.75" Margin="8,0,0,0" />
+                    <NumericUpDown Value="{Binding ResultsCap, Mode=TwoWay}"
+                                   Minimum="10" Maximum="10000" Increment="10"
+                                   FormatString="0" ShowButtonSpinner="False"
+                                   Width="110" />
 
-                                            <Grid ColumnDefinitions="Auto,80,Auto,80,Auto,80,*"
-                                                  IsVisible="{Binding IsNumeric}"
-                                                  Margin="0,4,0,0">
-                                                <TextBlock Grid.Column="0" Text="Min"
-                                                           FontSize="10" Opacity="0.6"
-                                                           VerticalAlignment="Center"
-                                                           Margin="0,0,4,0" />
-                                                <TextBox Grid.Column="1"
-                                                         Text="{Binding MinText, Mode=TwoWay}"
-                                                         Watermark="min"
-                                                         FontSize="11"
-                                                         Height="26"
-                                                         Padding="6,2"
-                                                         VerticalContentAlignment="Center" />
+                    <Button Content="Refresh"
+                            Command="{Binding RefreshResultsCommand}"
+                            FontSize="11" Padding="10,4" />
 
-                                                <TextBlock Grid.Column="2" Text="Max"
-                                                           FontSize="10" Opacity="0.6"
-                                                           VerticalAlignment="Center"
-                                                           Margin="8,0,4,0" />
-                                                <TextBox Grid.Column="3"
-                                                         Text="{Binding MaxText, Mode=TwoWay}"
-                                                         Watermark="max"
-                                                         FontSize="11"
-                                                         Height="26"
-                                                         Padding="6,2"
-                                                         VerticalContentAlignment="Center" />
+                    <Button Content="Open Folder"
+                            Command="{Binding OpenResultsFolderCommand}"
+                            FontSize="11" Padding="10,4" />
 
-                                                <TextBlock Grid.Column="4" Text="Step"
-                                                           FontSize="10" Opacity="0.6"
-                                                           VerticalAlignment="Center"
-                                                           Margin="8,0,4,0" />
-                                                <TextBox Grid.Column="5"
-                                                         Text="{Binding StepText, Mode=TwoWay}"
-                                                         Watermark="step"
-                                                         FontSize="11"
-                                                         Height="26"
-                                                         Padding="6,2"
-                                                         VerticalContentAlignment="Center" />
-
-                                                <TextBlock Grid.Column="6"
-                                                           Text="{Binding ValueCountText}"
-                                                           FontSize="10"
-                                                           Foreground="{DynamicResource AccentPrimary}"
-                                                           VerticalAlignment="Center"
-                                                           Margin="8,0,0,0" />
-                                            </Grid>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Border>
-                </Grid>
-            </TabItem>
-
-            <!-- Subtab: Optimization Results -->
-            <TabItem Header="Optimization Results">
-                <Grid RowDefinitions="Auto,*,Auto" Margin="4,8,4,4">
-
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
-                        <TextBlock Text="Sort by:" VerticalAlignment="Center" FontSize="11" Opacity="0.75" />
-                        <ComboBox ItemsSource="{Binding AvailableSortKeys}"
-                                  SelectedItem="{Binding ResultsSortKey, Mode=TwoWay}"
-                                  Width="220"
-                                  FontSize="11" />
-
-                        <TextBlock Text="Top" VerticalAlignment="Center" FontSize="11" Opacity="0.75" Margin="8,0,0,0" />
-                        <NumericUpDown Value="{Binding ResultsCap, Mode=TwoWay}"
-                                       Minimum="10" Maximum="10000" Increment="10"
-                                       FormatString="0" ShowButtonSpinner="False"
-                                       Width="110" />
-
-                        <Button Content="Refresh"
-                                Command="{Binding RefreshResultsCommand}"
-                                FontSize="11" Padding="10,4" />
-
-                        <Button Content="Open Folder"
-                                Command="{Binding OpenResultsFolderCommand}"
-                                FontSize="11" Padding="10,4" />
-
-                        <TextBlock Text="{Binding ResultsStatus}"
-                                   VerticalAlignment="Center"
-                                   FontSize="10"
-                                   Opacity="0.6"
-                                   Margin="12,0,0,0" />
-                    </StackPanel>
-
-                    <DataGrid Grid.Row="1"
-                              ItemsSource="{Binding OptimizationResults}"
-                              AutoGenerateColumns="False"
-                              CanUserSortColumns="False"
-                              CanUserReorderColumns="True"
-                              CanUserResizeColumns="True"
-                              IsReadOnly="True"
-                              GridLinesVisibility="Horizontal"
-                              HeadersVisibility="Column"
-                              FontSize="11"
-                              RowHeight="24">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Batch"      Binding="{Binding BatchId}"                 Width="130" />
-                            <DataGridTextColumn Header="Dataset"    Binding="{Binding Dataset}"                 Width="130" />
-                            <DataGridTextColumn Header="Params"     Binding="{Binding ParameterSummary}"        Width="260" />
-                            <DataGridTextColumn Header="Trades"     Binding="{Binding TradeCount}"              Width="70" />
-                            <DataGridTextColumn Header="Net PnL"    Binding="{Binding NetPnlDisplay}"           Width="90" />
-                            <DataGridTextColumn Header="CAGR"       Binding="{Binding CagrDisplay}"             Width="80" />
-                            <DataGridTextColumn Header="P(Funded)"  Binding="{Binding PFundedDisplay}"          Width="90" />
-                            <DataGridTextColumn Header="P(Ruin)"    Binding="{Binding PRuinDisplay}"            Width="80" />
-                            <DataGridTextColumn Header="P(Timeout)" Binding="{Binding PTimeoutDisplay}"         Width="90" />
-                            <DataGridTextColumn Header="Edge %"     Binding="{Binding EdgeDisplay}"             Width="80" />
-                            <DataGridTextColumn Header="Med Bal"    Binding="{Binding MedianBalanceDisplay}"    Width="90" />
-                            <DataGridTextColumn Header="Med DD"     Binding="{Binding MaxDdMedianDisplay}"      Width="90" />
-                            <DataGridTextColumn Header="BestDay"    Binding="{Binding BestDayViolationDisplay}" Width="90" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-
-                    <TextBlock Grid.Row="2"
-                               Text="Rows are drawn from every batch file under data/optimizations/, aggregated across all runs. Default sort is Edge %. Net PnL and CAGR are backtest-level, not MC-derived; CAGR is '-' on batches written before this column existed."
+                    <TextBlock Text="{Binding ResultsStatus}"
+                               VerticalAlignment="Center"
                                FontSize="10"
-                               Opacity="0.5"
-                               TextWrapping="Wrap"
-                               Margin="0,6,0,0" />
-                </Grid>
-            </TabItem>
-        </TabControl>
+                               Opacity="0.6"
+                               Margin="12,0,0,0" />
+                </StackPanel>
+
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding OptimizationResults}"
+                          AutoGenerateColumns="False"
+                          CanUserSortColumns="False"
+                          CanUserReorderColumns="True"
+                          CanUserResizeColumns="True"
+                          IsReadOnly="True"
+                          GridLinesVisibility="Horizontal"
+                          HeadersVisibility="Column"
+                          FontSize="11">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Batch"      Binding="{Binding BatchId}"                 Width="130" />
+                        <DataGridTextColumn Header="Dataset"    Binding="{Binding Dataset}"                 Width="130" />
+                        <DataGridTextColumn Header="Params"     Binding="{Binding ParameterSummary}"        Width="260" />
+                        <DataGridTextColumn Header="Trades"     Binding="{Binding TradeCount}"              Width="70" />
+                        <DataGridTextColumn Header="Net PnL"    Binding="{Binding NetPnlDisplay}"           Width="90" />
+                        <DataGridTextColumn Header="CAGR"       Binding="{Binding CagrDisplay}"             Width="80" />
+                        <DataGridTextColumn Header="P(Funded)"  Binding="{Binding PFundedDisplay}"          Width="90" />
+                        <DataGridTextColumn Header="P(Ruin)"    Binding="{Binding PRuinDisplay}"            Width="80" />
+                        <DataGridTextColumn Header="P(Timeout)" Binding="{Binding PTimeoutDisplay}"         Width="90" />
+                        <DataGridTextColumn Header="Edge %"     Binding="{Binding EdgeDisplay}"             Width="80" />
+                        <DataGridTextColumn Header="Med Bal"    Binding="{Binding MedianBalanceDisplay}"    Width="90" />
+                        <DataGridTextColumn Header="Med DD"     Binding="{Binding MaxDdMedianDisplay}"      Width="90" />
+                        <DataGridTextColumn Header="BestDay"    Binding="{Binding BestDayViolationDisplay}" Width="90" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="2"
+                           Text="Rows are drawn from every batch file under data/optimizations/, aggregated across all runs. Default sort is Edge %. Net PnL and CAGR are backtest-level, not MC-derived; CAGR is '-' on batches written before this column existed."
+                           FontSize="10"
+                           Opacity="0.5"
+                           TextWrapping="Wrap"
+                           Margin="0,6,0,0" />
+            </Grid>
+        </Grid>
 
         <!-- ========== Status line ========== -->
         <TextBox Grid.Row="3"
