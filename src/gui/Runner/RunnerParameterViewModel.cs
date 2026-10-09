@@ -80,10 +80,23 @@ public partial class RunnerParameterViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Number of values this parameter contributes to the optimization grid.
+    /// Mirrors ParameterGridBuilder.GetValuesFor so the Runner's combination
+    /// counter matches the actual grid the optimizer will build:
+    ///   bool                 -> 2  (true, false)
+    ///   string with options  -> Options.Count
+    ///   numeric with range   -> floor((Max - Min) / Step) + 1
+    ///   everything else      -> 1 (single fixed value)
+    /// </summary>
     public int ValueCount
     {
         get
         {
+            if (IsBool) return 2;
+
+            if (IsString && Options.Count > 0) return Options.Count;
+
             if (!IsNumeric) return 1;
 
             var min = MinValue;
@@ -105,7 +118,10 @@ public partial class RunnerParameterViewModel : ObservableObject
         }
     }
 
-    public bool HasGridRange => ValueCount > 1;
+    // HasGridRange gates the min/max/step editor, which only applies to
+    // numeric params. Keep it numeric-only even though ValueCount now
+    // counts bool and string-with-options axes.
+    public bool HasGridRange => IsNumeric && ValueCount > 1;
 
     partial void OnMinTextChanged(string value) => NotifyGridChanged();
     partial void OnMaxTextChanged(string value) => NotifyGridChanged();

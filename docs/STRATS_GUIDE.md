@@ -61,9 +61,9 @@ Anything else — a `string` without `options`, a numeric with an empty Min/Max/
 
 The min/max/step fields render **only** for numeric params (`RunnerParameterViewModel.IsNumeric`). `bool` and `string-with-options` axes never show the three fields — their sweep comes from the type and the declaration, not from user-entered bounds. This is deliberate, not an omission: there is nothing to configure for them.
 
-### Known discrepancy (bug)
+### GUI counter
 
-`RunnerViewModel.TotalCombinations` is computed from `RunnerParameterViewModel.ValueCount`, which returns `1` for every non-numeric parameter. It does **not** count `bool` or `string-with-options` axes. `ParameterGridBuilder` **does** count them. Consequence: for a strategy whose only axis is a `string` with `options:` (e.g. `EtWindow`'s `Side` param), the Runner's combination summary shows `1` while the optimizer actually produces `N` combinations (one per option). The batch written to disk is correct — only the UI counter is wrong.
+`RunnerViewModel.TotalCombinations` is the product of every parameter's `ValueCount`, which counts all three axis types (numeric range, `bool`, `string-with-options`). It matches what `ParameterGridBuilder` will actually produce, so the combination summary in the Runner reflects the real sweep size.
 
 ### Persistence
 
