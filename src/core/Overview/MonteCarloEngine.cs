@@ -21,6 +21,28 @@ public sealed class MonteCarloEngine
     private const int OutcomeFunded = MonteCarloOutcome.Funded;
     private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
 
+    /// <summary>
+    /// Runs N iterations of the time-domain bootstrap.
+    ///
+    /// <paramref name="maxDegreeOfParallelism"/> controls the inner
+    /// parallelism over iterations:
+    ///   -1 (default) — Environment.ProcessorCount (current behavior)
+    ///    1           — sequential loop, no ThreadPool dispatch
+    ///   N &gt; 1      — exactly N concurrent iterations
+    ///
+    /// The sequential fast-path exists for outer-parallel orchestrators
+    /// (see OptimizationRunner.RunAsync) that already saturate the machine
+    /// by running multiple versions concurrently. Sending the inner loop
+    /// to the ThreadPool in that case only adds scheduling overhead.
+    /// Topology decision documented in ROADMAP Phase 22E.
+    ///
+    /// <paramref name="retainCurves"/> is a caller-side gate on top of the
+    /// MaxCurveCells ceiling. Pass false when the caller does not consume
+    /// EquityCurves (coarse MC passes), so per-version allocations do not
+    /// stack under outer parallelism. The ceiling always wins: if
+    /// (iterations × targetDurationSlices) exceeds MaxCurveCells, curves are
+    /// dropped regardless of this flag.
+    /// </summary>
     public MonteCarloResult Run(
         TimeSlice[] slices,
         int targetDurationSlices,
@@ -34,7 +56,9 @@ public sealed class MonteCarloEngine
         double bestDayRulePercent = 50.0,
         int? seed = null,
         IProgress<int>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int maxDegreeOfParallelism = -1,
+        bool retainCurves = true)
     {
         if (slices == null || slices.Length == 0 || startingCapital <= 0 || targetDurationSlices <= 0)
         {
@@ -51,13 +75,13 @@ public sealed class MonteCarloEngine
         int n = slices.Length;
 
         long curveCells = (long)iterations * targetDurationSlices;
-        bool retainCurves = curveCells <= MaxCurveCells;
+        bool keepCurves = retainCurves && curveCells <= MaxCurveCells;
 
         var terminalBalances = new double[iterations];
         var outcomes = new byte[iterations];
         var slicesElapsed = new int[iterations];
         var maxDrawdowns = new double[iterations];
-        var equityCurves = retainCurves ? new double[iterations][] : Array.Empty<double[]>();
+        var equityCurves = keepCurves ? new double[iterations][] : Array.Empty<double[]>();
         var bestDayRatios = new double[iterations];
         var longestLosingStreaks = new int[iterations];
         var longestFlatStretches = new int[iterations];
@@ -73,66 +97,91 @@ public sealed class MonteCarloEngine
         int completed = 0;
         int progressStep = Math.Max(1, iterations / 20);
 
+        // Normalize the DOP:
+        //   1       -> sequential fast-path
+        //   >1      -> exact thread count
+        //   <=0 (-1) -> Environment.ProcessorCount (current default)
+        int dop = maxDegreeOfParallelism == 1
+            ? 1
+            : maxDegreeOfParallelism > 1
+                ? maxDegreeOfParallelism
+                : Environment.ProcessorCount;
+
         var parallelOptions = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Environment.ProcessorCount,
+            MaxDegreeOfParallelism = dop,
             CancellationToken = cancellationToken
         };
 
+        // Shared iteration body. Captured by both the sequential loop and
+        // the Parallel.For below. Local function so the body lives once.
+        void RunIteration(int i)
+        {
+            var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
+
+            double[]? curve = keepCurves ? new double[targetDurationSlices] : null;
+
+            SimulateOnce(
+                slices,
+                n,
+                targetDurationSlices,
+                startingCapital,
+                dailyFloorLoss,
+                maxFloorLoss,
+                profitTarget,
+                trailingEod,
+                trailingIntraday,
+                expectedBlockSize,
+                rng,
+                curve,
+                out var terminal,
+                out var outcome,
+                out var elapsed,
+                out var maxDd,
+                out var bestDayRatio,
+                out var longestLosing,
+                out var longestFlat,
+                out var ruinCause);
+
+            terminalBalances[i] = terminal;
+            outcomes[i] = outcome;
+            slicesElapsed[i] = elapsed;
+            maxDrawdowns[i] = maxDd;
+            if (keepCurves) equityCurves[i] = curve!;
+            bestDayRatios[i] = bestDayRatio;
+            longestLosingStreaks[i] = longestLosing;
+            longestFlatStretches[i] = longestFlat;
+            ruinCauses[i] = ruinCause;
+
+            if (progress != null)
+            {
+                int current = Interlocked.Increment(ref completed);
+                if (current % progressStep == 0 || current == iterations)
+                    progress.Report(current);
+            }
+        }
+
         try
         {
-            Parallel.For(0, iterations, parallelOptions, i =>
+            if (dop == 1)
             {
-                var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
-
-                double[]? curve = retainCurves ? new double[targetDurationSlices] : null;
-
-                SimulateOnce(
-                    slices,
-                    n,
-                    targetDurationSlices,
-                    startingCapital,
-                    dailyFloorLoss,
-                    maxFloorLoss,
-                    profitTarget,
-                    trailingEod,
-                    trailingIntraday,
-                    expectedBlockSize,
-                    rng,
-                    curve,
-                    out var terminal,
-                    out var outcome,
-                    out var elapsed,
-                    out var maxDd,
-                    out var bestDayRatio,
-                    out var longestLosing,
-                    out var longestFlat,
-                    out var ruinCause);
-
-                terminalBalances[i] = terminal;
-                outcomes[i] = outcome;
-                slicesElapsed[i] = elapsed;
-                maxDrawdowns[i] = maxDd;
-                if (retainCurves) equityCurves[i] = curve!;
-                bestDayRatios[i] = bestDayRatio;
-                longestLosingStreaks[i] = longestLosing;
-                longestFlatStretches[i] = longestFlat;
-                ruinCauses[i] = ruinCause;
-
-                if (progress != null)
+                for (int i = 0; i < iterations; i++)
                 {
-                    int current = Interlocked.Increment(ref completed);
-                    if (current % progressStep == 0 || current == iterations)
-                        progress.Report(current);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    RunIteration(i);
                 }
-            });
+            }
+            else
+            {
+                Parallel.For(0, iterations, parallelOptions, RunIteration);
+            }
         }
         catch (OperationCanceledException)
         {
             throw;
         }
 
-        long curveBytes = retainCurves
+        long curveBytes = keepCurves
             ? (long)iterations * targetDurationSlices * sizeof(double)
             : 0L;
 
@@ -153,7 +202,7 @@ public sealed class MonteCarloEngine
             drawdownType ?? "static",
             bestDayRulePercent,
             curveBytes,
-            retainCurves);
+            keepCurves);
     }
 
     private static void SimulateOnce(
