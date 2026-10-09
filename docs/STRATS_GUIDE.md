@@ -20,6 +20,39 @@ Define parameters at the very top of the script using `// @param` comments. The 
 - Format: `// @param <Name> <Type> = <Default> [options: "A", "B"]`
 - **Crucial C# Rule**: Always use `System.Globalization.CultureInfo.InvariantCulture` when parsing `double` to prevent decimal-comma locale crashes.
 
+## 3a. Optimization Grid (min / max / step)
+
+The Runner's **Optimize** command sweeps a parameter grid without any change to the source file. Numeric `// @param` declarations (`int` and `double` only) gain three runtime-only fields in the parameter panel:
+
+- **Min** - lower bound of the sweep (inclusive).
+- **Max** - upper bound of the sweep (inclusive).
+- **Step** - increment between sampled values.
+
+These are **not** declared in source. There is no `// @param` syntax for them - they live in the parameter panel and persist to settings, not to the `.cs` file.
+
+### Derived values
+
+- `ValueCount = floor((Max - Min) / Step) + 1` when all three fields parse, `Step > 0`, and `Max >= Min`. Any other state - blank field, unparseable text, `Step <= 0`, `Max < Min` - collapses the parameter to `ValueCount = 1`, meaning it contributes a single fixed value to the search space.
+- `TotalCombinations` is the product of every parameter's `ValueCount`.
+- `ExceedsCap` becomes true when `TotalCombinations > AppSettings.OptimizerMaxCombinations` (default **500**). Above the cap the Optimize command offers a random sample of the full grid rather than the Cartesian product.
+- `HasGridRange` is true when `ValueCount > 1` - this is what distinguishes a swept axis from a fixed value in the UI.
+
+### Persistence
+
+Grid ranges are stored in `config/settings.json` under `AppSettings.OptimizerGridRanges`:
+
+- Key: `"{StrategyName}|{ParamName}"`.
+- Value: `"Min|Max|Step"` - the raw text from the three fields; empty fields stay empty.
+- A cleared range serializes as `"||"`, which the Runner treats as a **delete** so empty entries do not accumulate.
+
+Loading a strategy restores every persisted range for that strategy automatically. Presets (`Save Preset...` / `Presets...`) carry the grid ranges alongside parameter values, so a saved preset fully restores the sweep configuration.
+
+### Author rules
+
+- Only `int` and `double` parameters get the grid editor. `string` and `bool` are always fixed for the optimizer.
+- A `string` parameter with `options: "A", "B"` is not swept - the optimizer uses whichever option is currently selected.
+- Do not attempt to encode min/max/step in `// @param` comments. The parser reads only `Name`, `Type`, `Default`, and `options`.
+
 ## 4. Standard Loop Structure
 ```csharp
 using System;
