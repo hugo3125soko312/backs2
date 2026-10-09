@@ -175,7 +175,7 @@
             </Grid>
         </Border>
 
-        <!-- ==================== Main content: navigation tree + content host ==================== -->
+        <!-- ==================== Main content: navigation tree + host pane ==================== -->
         <Grid ColumnDefinitions="220,4,*">
 
             <Border Grid.Column="0"
@@ -197,9 +197,28 @@
                           Background="Transparent"
                           ResizeDirection="Columns"/>
 
-            <ContentControl Grid.Column="2"
-                            x:CompileBindings="False"
-                            Content="{Binding CurrentVm}"/>
+            <!--
+                Tab launcher: every root is instantiated once as a ContentControl
+                stacked in the same Grid cell. IsVisible flips between them via
+                the node's IsActive binding. Content materializes lazily — a
+                never-visited tab has Content == null and renders as an empty
+                ContentControl. Once visited, the View instance stays alive, so
+                switching back is a layout pass instead of a full rebuild.
+            -->
+            <ItemsControl Grid.Column="2" ItemsSource="{Binding NavigationNodes}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Grid />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:NavigationNode">
+                        <ContentControl Content="{Binding Content}"
+                                        IsVisible="{Binding IsActive}"
+                                        x:CompileBindings="False"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
     </DockPanel>
 </Window>

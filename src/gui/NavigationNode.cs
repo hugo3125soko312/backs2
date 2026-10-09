@@ -5,14 +5,15 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace backs2.ViewModels;
 
 /// <summary>
-/// One node in the shell navigation tree. Root nodes map to a top-level tab
-/// ViewModel via <see cref="Factory"/>. Child nodes are subtabs of their
-/// parent — they resolve the same ViewModel and additionally carry a
-/// <see cref="SubtabIndex"/> that the parent's INavigationTarget.Navigate
-/// consumes on selection.
+/// One node in the shell navigation tree.
 ///
-/// IsExpanded drives the accordion: only one root is expanded at a time,
-/// enforced by MainViewModel.OnSelectedNodeChanged.
+/// Root nodes own a <see cref="Content"/> (the tab ViewModel) that the shell
+/// host renders — materialized lazily on first visit, then kept alive for the
+/// lifetime of the app so subsequent switches are visibility flips, not view
+/// rebuilds. <see cref="IsActive"/> marks which root is currently displayed.
+///
+/// Child nodes are subtabs of a root — they reuse the same Content and drive
+/// the parent VM's subtab through <see cref="SubtabIndex"/>.
 /// </summary>
 public partial class NavigationNode : ObservableObject
 {
@@ -26,7 +27,20 @@ public partial class NavigationNode : ObservableObject
 
     public ObservableCollection<NavigationNode> Children { get; } = new();
 
+    /// <summary>Accordion state — only one root is expanded at a time.</summary>
     [ObservableProperty] private bool _isExpanded;
+
+    /// <summary>
+    /// The tab ViewModel. Null until the node is first selected, then never
+    /// cleared — this is what keeps revisits cheap (no view rebuild).
+    /// </summary>
+    [ObservableProperty] private object? _content;
+
+    /// <summary>
+    /// True for the single root whose Content is currently displayed.
+    /// Bound to ContentControl.IsVisible in the shell host.
+    /// </summary>
+    [ObservableProperty] private bool _isActive;
 }
 
 /// <summary>
