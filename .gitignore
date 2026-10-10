@@ -26,3 +26,4 @@
 # Profiler output
 /.metreja
 docs/unzipper/*.exe
+tools/exec-bridge/*.exe
