@@ -224,3 +224,26 @@ try {
 finally {
     Pop-Location
 }
+
+# --- 7. Optional: launch the unzipper watcher in a new window ---
+Write-Host
+Write-Host 'Press ENTER to launch the unzipper watcher in a new PowerShell window, or type anything and press ENTER to exit:' -ForegroundColor Cyan
+$response = Read-Host
+if ([string]::IsNullOrWhiteSpace($response)) {
+    $exePath = Join-Path $root 'docs\unzipper\watch_downloads.exe'
+    if (-not (Test-Path $exePath)) {
+        Write-Host 'watch_downloads.exe not found; building from source...' -ForegroundColor Yellow
+        Push-Location (Join-Path $root 'docs\unzipper')
+        try {
+            go build -o watch_downloads.exe
+            if ($LASTEXITCODE -ne 0) { Write-Host "go build exited with code $LASTEXITCODE" -ForegroundColor Red }
+        } finally { Pop-Location }
+    }
+    if (Test-Path $exePath) {
+        $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { 'pwsh.exe' } else { 'powershell.exe' }
+        Start-Process -FilePath $shellExe -ArgumentList '-NoExit', '-NoProfile', '-Command', "& '$exePath'"
+        Write-Host 'Launched unzipper watcher in a new window.' -ForegroundColor Green
+    } else {
+        Write-Host 'Build failed; unzipper not launched.' -ForegroundColor Red
+    }
+}

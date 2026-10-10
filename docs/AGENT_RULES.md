@@ -212,6 +212,13 @@ Before sending any response, verify:
 
 Two patterns for emitting code. Pick the one that matches the change.
 
+**Size rule.** If the target file is under 350 lines, emit the full file
+(pattern A) even when only a few lines change. The patch pattern (B) is for
+files large enough that re-emitting the whole file is wasteful -- past that
+threshold, anchoring on a stable substring is cheaper than shipping the whole
+body. Under 350 lines, the full emission is safer: no anchor drift, no
+partial-patch risk, and the reader sees the whole file in one place.
+
 ### A. New or standalone file -> LONG_WORK zip
 
 When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit it inside a BDS:LONG_WORK block wrapping one or more BDS:create_file tags. The chat extension collects them into a single .zip that `docs/watch_downloads.go` extracts into the repository root, overwriting in place.
