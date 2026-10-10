@@ -405,6 +405,22 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 29A).
 - [ ] Wire `OptimizationRunner` to dispatch Roslyn script backtests in batches to the worker.
 - [ ] The worker routes these batches strictly to `CpuBackend` (Parallel.For), as strategy scripts are inherently non-vectorizable.
 
+### Phase 30 -- Roslyn Backtest Cost Investigation [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 30).
+
+- **Size:** S · **Depends on:** 29A · **Succeeds when:** the compile-vs-execute split inside `ScriptRunner` is a measured number rather than a derived residual.
+- [x] Add accumulated stage timers to `StrategyManager` (`CompileTimeMs`, `CacheLookupTimeMs`, `InvokeTimeMs`, `GlobalsSetupTimeMs`, plus hit/miss counters), resettable per run and read once at summary time.
+- [x] Emit one `[30]` summary block from `OptimizationRunner` alongside the existing `[29A]` block.
+- [x] Re-run the Phase 29A workload unchanged: 500 combinations, `EtWindow` on `GOLD.pro@30m`, 20 cores, cold pass then warm pass.
+- Result: **the warm path is invoke-bound and the invoke cost is mostly Roslyn scripting-API overhead, not strategy-internal work.** Warm backtest phase 1,081 ms of a 3,255 ms wall (33.2%); inside it, invoke is 19,796 of 21,209 ms thread time (93.3%), compile is 0 (500/500 cache hits), and stat + source read + cache lookup are 1,195 ms (5.6%). Probes put the strategy's own body work at 11.03 ms/version against a 39.59 ms/version invoke — **72% of every invoke is Roslyn plumbing**. The cold pass inverts it: compile 126,284 of 151,663 ms thread time (83.3%), because 20 of 20 first-wave workers miss the cache and compile the same script concurrently. Phase 29A's "38 ms derived residual" was correct but hid all of this — it could not see inside `ScriptRunner`.
+
+### Phase 31 -- Backtest Invoke Overhead (working title)
+
+- **Size:** M · **Depends on:** 30 · **Succeeds when:** the per-version warm invoke cost drops materially below the measured 39.59 ms/version (target: the 11.03 ms/version the strategy's own work actually costs), with byte-identical `Trade` sequences on the Phase 30 workload.
+- [ ] **First, answer the open question, then pick the lever.** Whether the ~28 ms/version of non-strategy invoke time is attributable to the scripting API's per-call plumbing (globals binding, entry-point delegate indirection, exception frame setup) or to something in how the compiled script was emitted has to be established before any fix is specced. If it is the scripting API, the lever is bypassing `ScriptRunner<T>` for a pre-bound delegate over a fixed globals shape. If it is emission, the lever is elsewhere, and this phase is re-specced rather than started.
+- [ ] **Separate, cheap, and orthogonal: the cold-start compile stampede.** 20 workers all miss and compile the same script. A per-path `Lazy<Task<ScriptRunner<object?>>>` (or an `AsyncLazy` slot published before the compile starts) collapses the 20 compiles to 1 and removes ~120 s of thread time from a cold Optimize. This is a `StrategyManager` caching change and was explicitly out of scope for Phase 30; it is proposed here, not assumed.
+- Open question carried into 31: the Phase 29A reference run's backtest phase implies ~142 ms/version of thread span against this reproduction's 39.59 ms/version. The split and the load-bearing conclusion are unaffected — they are internal to a single run on the same machine, workload and topology — but the absolute 29A per-version number should not be reused as a baseline without re-measuring.
+
 ---
 
 ## Appendix A: Shipped Accounts

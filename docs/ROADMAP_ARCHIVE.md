@@ -1054,3 +1054,79 @@ Phase 22E's hypothesis was that Optimize runs at 22% average CPU because it spen
 - The summary is emitted from a `finally` around the run body, so a cancelled run logs whatever accumulated before the cancel. Percent is `n/a` rather than a division by zero when total wall time is zero.
 - The `StrategyManager` compile-cache lookup is the one **derived** number rather than a wrapped span: total call time minus script execution (`StrategyRunResult.Duration`) leaves everything `StrategyManager` does around the script, and the cache lookup and the source read are not separable from outside that class. `StrategyManager.cs` was out of scope for this phase, so the lookup is measured, not wrapped, and the line is labelled as derived.
 - The instrumentation ships on -- there is no enable/disable flag. It is scaffolding for 29B/29C and a future phase removes it or downgrades it to Debug. Accumulators are per-instance and the runner is a DI singleton, so `RunAsync` resets them at entry; that is safe because the UI runs one Optimize pass at a time behind `IsBusy`.
+
+## Phase 30: Roslyn Backtest Cost Investigation [COMPLETED]
+
+Ship date: 2026-10-10. Discovery step ahead of any backtest optimization.
+
+Instrumentation only, no optimization. 29A proved the Optimize wall time lives in the backtest phase and reduced everything `StrategyManager` does *around* the script to a 38 ms derived residual -- which left ~3,545 ms of the warm backtest phase attributed to "`ScriptRunner` compile + execute" as a single unmeasured number. That number was the largest unknown on the critical path. This phase splits it by wrapping the stages *inside* `StrategyManager`, which 29A was explicitly forbidden to touch.
+
+Workload is 29A's, unchanged: 500 combinations (`OptimizerMaxCombinations` 500, sampled with seed 42 from an `EtWindow` grid of 3,362 = Side 2 x StartMinute 41 x EndMinute 41), `OptimizerCoarseIterations` 100, `OptimizerRefineIterations` 1000, `OptimizerRefineTopN` 20, `GOLD.pro@30m` (60,540 bars), 20 cores. Two passes were taken in one process: pass 1 cold (first Roslyn use in the process), pass 2 warm. The Phase 30 replay produced the same 500 parameter sets in the same order with the same trade counts and net PnL as the archived 29A batch `batch_20261010-161522.json` -- verified element-by-element across all 500 versions, 0 mismatches -- so the measurement is on the identical workload.
+
+### Numbers
+
+Per-version stage accumulators, thread-summed across the 20 backtest workers. Percentages are of the backtest phase's own thread-summed span, which is the span the split has to explain. A stage can exceed 100% of the backtest *wall* because the workers are concurrent; that overshoot is the parallelism, not measurement error.
+
+| Stage | Cold pass (ms) | % | Warm pass (ms) | % |
+|---|---|---|---|---|
+| Backtest phase wall | 7,610 | -- | 1,081 | -- |
+| Backtest phase span, thread-summed | 151,663 | | 21,209 | |
+| Compile (`CSharpScript.Create` + `CreateDelegate`) | 126,284 | 83.3% | 0 | 0.0% |
+| Invoke (`runner(globals)`) | 23,535 | 15.5% | 19,796 | 93.3% |
+| Source read (`File.ReadAllTextAsync`) | 1,054 | 0.7% | 874 | 4.1% |
+| Stat (`File.Exists` + `FileInfo`) | 249 | 0.2% | 320 | 1.5% |
+| Globals setup (`TradeRecorder` + `RunnerScriptGlobals`) | 5 | 0.0% | 1 | 0.0% |
+| Cache lookup (key + dictionary) | 1 | 0.0% | 1 | 0.0% |
+| Unwrapped residual | 535 | 0.4% | 217 | 1.0% |
+| Cache hits / misses | 480 / 20 | | 500 / 0 | |
+| Real compiles | 20 | | 0 | |
+| Invoke per version | 47.07 ms | | 39.59 ms | |
+
+Whole-run context for the two passes:
+
+| Metric | Cold pass | Warm pass |
+|---|---|---|
+| Total wall | 9,403 ms | 3,255 ms |
+| Backtest phase wall | 7,610 ms (80.9% of wall) | 1,081 ms (33.2% of wall) |
+| Coarse MC phase wall | 824 ms (8.8%) | 826 ms (25.4%) |
+| Refine MC phase wall | 876 ms (9.3%) | 1,308 ms (40.2%) |
+| Save/persist | 73 ms (0.8%) | 39 ms (1.2%) |
+
+### Attribution probes
+
+The invoke number is only actionable if it can be split into "the strategy's own work" and "Roslyn plumbing", so two probes were run in the same process after the passes. Both are plain C# with no Roslyn, no globals and no delegate; neither is part of the shipped execution path.
+
+- **Conversion probe.** The `EtWindow` body calls `EasternTime.ToEastern(k.Timestamp)` (a `DateTimeKind` switch plus `TimeZoneInfo.ConvertTimeFromUtc` against `America/New_York`) once per bar. 60,540 calls: **best 8.35 ms, avg 9.42 ms** over 200 repeats.
+- **Body replica.** The whole `EtWindow` loop replicated statement-for-statement -- `Trades.Advance(i)`, the kline reads, the ET conversion, the `inTrade` state machine, `Trades.Enter/Exit` against a fresh `TradeRecorder` per repeat, the end-of-data close -- as plain C#: **avg 11.03 ms/version** over 200 repeats. Extrapolated to 500 versions: **5,515 ms** of thread time.
+
+### Verdict: API-overhead-bound (warm), compile-bound (cold) -- not strategy-internal
+
+The warm critical path is invoke-bound, and the invoke cost is mostly Roslyn scripting-API overhead rather than the strategy's own computation. Against the three hypotheses:
+
+1. **Compile dominates -- false on the warm path, true on the cold path.** Warm: compile is 0 ms of 21,209 ms because 500 of 500 versions hit the cache. Cold: compile is 126,284 of 151,663 ms (83.3%) -- but that is not "the cache is missing", it is the cache being *stampeded*: with `SerializeBacktests = false`, 20 workers start the backtest phase at the same instant, all 20 call `GetOrCreateRunner` for the same path before any of them publishes an entry, and all 20 compile the same script. The miss count is 20, and the 20 compiles cost 126,284 ms (6,314 ms each under 20-way load). The single-entry-per-path cache is correct; it is not thread-safe *against its own miss path*.
+2. **Execute dominates and is Roslyn-API overhead -- true, this is the finding.** Warm invoke is 19,796 of 21,209 ms of backtest thread time (93.3%). The strategy's own work in that invoke is 11.03 ms/version (the body replica, at most -- the replica is the full body, and the trace says it is essentially the ET conversion). Measured invoke is 39.59 ms/version. So **39.59 - 11.03 = 28.56 ms per version, 72.1% of every invoke, is Roslyn scripting-API plumbing**. Across 500 versions that is 14,281 ms of the 21,209 ms backtest thread span, i.e. 14,281 / 21,209 = 67.3% of the entire warm backtest phase, and 14,281 / 65,100 = 21.9% of the whole run's 20-core ceiling (20 x 3,255 ms). This is the globals binding / entry-point delegate / call-frame path that `ScriptRunner<T>.Invoke` imposes on every call, and it is paid regardless of how little the script does.
+3. **Execute dominates and is strategy-internal -- false.** The strategy's entire per-version computation, replicated exactly as plain C#, is 11.03 ms of a 39.59 ms invoke. `TradeRecorder.Enter`/`Exit` are O(1) state flips plus a `List.Add` on close, `Advances` is a bounds check and a field store, and `EtWindow` never calls `Engine.GetMetric(...)` at all, so `MetricRegistry` and `IMetric.Calculate` are not on this path. Globals setup -- the hypothesis that `RunnerScriptGlobals` and `TradeRecorder` construction costs something -- is **1 ms across 500 versions**. There is nothing left to optimize inside `TradeRecorder` or `MetricRegistry` for this workload.
+
+What the split looks like end to end on the warm pass: of the 21,209 ms backtest thread span, 19,796 ms is invoke (14,281 of it Roslyn plumbing, 5,515 the strategy), 1,195 ms is stat + source read + cache lookup, 0 ms is compile, and 217 ms is unwrapped residual. The entire non-invoke, non-script overhead is **1,195 / 21,209 = 5.6%** -- which is what 29A's 38 ms "derived residual" was actually measuring, and why it could not see the answer.
+
+### Note: what this measurement cannot see
+
+- **`ScriptRunner`'s own internal caching is invisible here.** `CSharpScript.Create` + `CreateDelegate` do internal work (syntax tree, compilation, emitted assembly) that `StrategyManager` does not observe. The compile number is therefore the cost of the whole call, not a breakdown of it.
+- **Only one strategy shape was measured.** `EtWindow` is a single `for` loop over 60,540 bars that never touches `MetricRegistry`. A strategy that calls `Engine.GetMetric(...).Calculate(Data)` would move work into the invoke span where this instrumentation can see the total but not the split. The "72% Roslyn" figure is a property of the scripting API's per-call cost, not of one strategy, but the *strategy-internal* share would grow for a metric-heavy script.
+- **Absolute per-version numbers do not reproduce 29A's.** The 29A reference run's backtest phase (3,583 ms wall, 71,197 ms thread span over 500 versions) implies ~142 ms/version of thread span; this reproduction measures 39.59-47.07 ms/version of invoke. The two runs were not taken under identical conditions (the 29A pass ran inside the full Avalonia process through the Runner's Optimize path; this one ran headless through a temporary CLI replay hook), and no attempt was made to reconcile them. **The split and the verdict are unaffected** -- they are internal to a single run on the same machine, workload and topology -- but 29A's absolute per-version figure should not be reused as a baseline without re-measuring. This is recorded as an open question, not explained away.
+- **The cold-pass stampede is a finding, not a measurement artefact.** 20 misses for 1 distinct script is a real concurrency defect in the cache's miss path; it just was not the question this phase was asked.
+
+### Implication for Phase 31
+
+- **The lever is the invoke, specifically the Roslyn scripting API's per-call cost.** Removing it entirely is worth up to 14,281 / 65,100 = 21.9% of warm wall time -- and the MC phases (826 + 1,308 = 2,134 ms of 3,255 ms wall) would become the critical path before that ceiling is reached, so the practical target is smaller than the theoretical one.
+- **The cheap orthogonal win is the compile stampede.** Collapsing 20 concurrent compiles of one script to one removes ~126 s of thread time and ~6 s of wall from a cold Optimize -- a 9,403 ms cold run would approach its 3,255 ms warm shape. That is a `StrategyManager` caching change, deliberately not made here.
+- **Do not tune `TradeRecorder` or `MetricRegistry` for this.** They are 11 ms of a 39.59 ms invoke on this workload. 29A's advice stands -- the lever is the cost of one script execution -- and this phase says where in that execution the cost is.
+
+### Instrumentation shipped
+
+- Six stages timed per version, each with one `Stopwatch.GetTimestamp()` pair: cache lookup (key + `TryGetValue`), stat (`File.Exists` + `FileInfo`), source read, compile (`CSharpScript.Create` + `CreateDelegate`, miss path only), globals setup (`TradeRecorder` + `RunnerScriptGlobals`), invoke (`runner(globals)`). Accumulated with `Interlocked.Add` into `long` tick fields on `StrategyManager` -- one atomic add per stage per version, no allocation and no per-iteration logging. Hit/miss/compile counters are `Interlocked.Increment`ed and `Interlocked.Read` back.
+- One `[30]` block of three `LogManager.Info(LogTag.Runner, ...)` lines at the end of the run, emitted from the same `finally` as the `[29A]` block, so a cancelled run still logs what accumulated. Line 1 carries every stage in ms; line 2 carries the split as percentages of the backtest phase span plus the unwrapped residual; line 3 carries hit/miss counts, real compiles, invoke ms/version and the backtest phase's share of total wall. No new `LogTag` and no new package.
+- The `[29A]` block was left exactly as it was, including its derived-residual line, so the two phases' numbers are directly comparable in one log.
+- `OptimizationRunner.ResetStageTimers` also calls `StrategyManager.ResetInstrumentation()`, because the stage accumulators live on a DI singleton and a second Optimize pass would otherwise inherit the first pass's numbers. The UI runs one Optimize pass at a time behind `IsBusy`.
+- Temporary scaffolding, like 29A's: it ships on, with no enable/disable flag, and a future phase removes it or downgrades it to Debug.
+- The Phase 30 workload was driven through a temporary `--replay-optimize-30` CLI hook in `Program.cs` that replicated the Runner's Optimize path headlessly (same grid construction from `StrategyParameterParser` + `OptimizerGridRanges`, same `OptimizationRunConfig`, same data load). It also carried the two attribution probes. The hook was removed before commit: `Program.cs` is byte-identical to its previous revision, and the commit touches no file the hook needed.

@@ -80,6 +80,25 @@ public sealed class OptimizationRunner
     private double _msRefineVersion;
     private double _msNullGenerate;
 
+    // ------------------------------------------------------------------
+    // Phase 30 — Roslyn backtest cost split (temporary scaffolding).
+    //
+    // StrategyManager accumulates the stage timings; this class owns the
+    // reader side only. Converted from ticks once, at summary time.
+    // ------------------------------------------------------------------
+
+    private double _msCompile;
+    private double _msCacheLookup;
+    private double _msSourceRead;
+    private double _msStat;
+    private double _msGlobals;
+    private double _msInvoke;
+
+    private long _compileCalls;
+    private long _cacheHits;
+    private long _cacheMisses;
+    private long _instrumentedVersions;
+
     public OptimizationRunner(StrategyManager strat, MonteCarloEngine mc, OptimizationStore store)
     {
         _strat = strat;
@@ -577,6 +596,22 @@ public sealed class OptimizationRunner
         _msCoarseVersion = 0;
         _msRefineVersion = 0;
         _msNullGenerate = 0;
+
+        _msCompile = 0;
+        _msCacheLookup = 0;
+        _msSourceRead = 0;
+        _msStat = 0;
+        _msGlobals = 0;
+        _msInvoke = 0;
+
+        _compileCalls = 0;
+        _cacheHits = 0;
+        _cacheMisses = 0;
+        _instrumentedVersions = 0;
+
+        // Phase 30: the stage accumulators live on the StrategyManager
+        // singleton, so they need the same per-run reset.
+        _strat.ResetInstrumentation();
     }
 
     /// <summary>
@@ -642,6 +677,72 @@ public sealed class OptimizationRunner
             $"refine-version {survivorCount} ({_msRefineVersion:F0} ms summed), " +
             $"derived StrategyManager residual {_msDiskIo:F0} ms " +
             $"over {_stageCompileLookupVersionTicks} version(s)");
+
+        EmitRoslynSummary(batchId, totalMs, comboCount);
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 30 — Roslyn compile vs execute split
+    //
+    // The 29A numbers above localise the wall time to the backtest phase and
+    // leave only a 38 ms derived residual inside StrategyManager (29A's warm
+    // run). Everything else in that phase is inside ScriptRunner: Roslyn
+    // compile plus script invoke. This block splits it. It reads
+    // StrategyManager's accumulators and reports them against the backtest
+    // phase wall span, because that is the span the split has to explain —
+    // not total wall.
+    //
+    // Like the 29A per-stage spans, the stage numbers here are summed across
+    // every concurrent worker and may exceed the backtest wall (and 100%).
+    // That overshoot is the 20-way parallelism, not a measurement error; the
+    // percentages answer "of the backtest wall, how much did this stage
+    // cost", and the split between the stages is what matters.
+    // ------------------------------------------------------------------
+
+    private void EmitRoslynSummary(string batchId, double totalMs, int comboCount)
+    {
+        var snap = _strat.GetInstrumentationSnapshot();
+
+        _instrumentedVersions = snap.Versions;
+        _cacheHits = snap.CacheHits;
+        _cacheMisses = snap.CacheMisses;
+        _compileCalls = snap.CompileCalls;
+
+        _msCompile = TicksToMs(snap.CompileTicks);
+        _msCacheLookup = TicksToMs(snap.CacheLookupTicks);
+        _msSourceRead = TicksToMs(snap.SourceReadTicks);
+        _msStat = TicksToMs(snap.StatTicks);
+        _msGlobals = TicksToMs(snap.GlobalsTicks);
+        _msInvoke = TicksToMs(snap.InvokeTicks);
+
+        double backtestMs = _msBacktest;
+
+        // What StrategyManager wrapped itself, and therefore all of it
+        // except any remaining unmeasured residue.
+        double wrappedMs = _msCompile + _msCacheLookup + _msSourceRead + _msStat + _msGlobals + _msInvoke;
+        double residualMs = backtestMs - wrappedMs;
+
+        double perVersionInvoke = _instrumentedVersions > 0
+            ? _msInvoke / _instrumentedVersions
+            : 0.0;
+
+        LogManager.Info(LogTag.Runner,
+            $"[30] optimization {batchId}: backtest phase {backtestMs:F0} ms thread-summed over " +
+            $"{comboCount} combination(s); compile {_msCompile:F0} ms, cache lookup {_msCacheLookup:F0} ms, " +
+            $"source read {_msSourceRead:F0} ms, stat {_msStat:F0} ms, globals setup {_msGlobals:F0} ms, " +
+            $"invoke {_msInvoke:F0} ms");
+
+        LogManager.Info(LogTag.Runner,
+            $"[30]   split of backtest thread time: compile {Percent(_msCompile, backtestMs)}, " +
+            $"cache lookup {Percent(_msCacheLookup, backtestMs)}, source read {Percent(_msSourceRead, backtestMs)}, " +
+            $"stat {Percent(_msStat, backtestMs)}, globals setup {Percent(_msGlobals, backtestMs)}, " +
+            $"invoke {Percent(_msInvoke, backtestMs)}, unwrapped residual {residualMs:F0} ms");
+
+        LogManager.Info(LogTag.Runner,
+            $"[30]   cache: {_cacheHits} hit(s) / {_cacheMisses} miss(es) over {_instrumentedVersions} version(s), " +
+            $"{_compileCalls} real compile(s); invoke {perVersionInvoke:F2} ms/version; " +
+            $"of total wall {totalMs:F0} ms the backtest phase owns the span but not the wall " +
+            $"({Percent(backtestMs, totalMs)} in thread-summed terms)");
     }
 
     /// <summary>
