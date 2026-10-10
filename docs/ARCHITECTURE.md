@@ -626,6 +626,52 @@ The EA serializes `GET_TICKS` responses into a pre-sized `uchar[]` byte buffer v
   ```
 - UI-side smoke test: the Monte Carlo settings expander has a **Test Worker** button bound to `TestWorkerCommand`. It constructs a `JobConfig` with `MemoryLimitMb = 512` and awaits `ComputeWorkerManager.RunJobAsync`, streaming progress into the status line. Expected log lines on success: `Compute worker started (pid N, mem cap 512 MB)`, `Compute worker pid N: job complete — trades=0, "placeholder job complete"`. Intended to be removed when Phase 3 lands and `MonteCarloViewModel.RunAsync` routes through the worker.
 
+## 22. Computing Subsystem (Phase 28)
+
+- Purpose: single domain-typed entry point for hardware-bound compute in the parent process. Callers request a Monte Carlo dispatch or a backtest batch; they never name a device, a backend, or an IPC frame. Phase 28A shipped the facade and the backend seam, Phase 28B replaced the pass-through with a chunked work-stealing scheduler. The real GPU kernel and the move into the worker process are Phase 29B / a future Compute Worker phase. This is the abstraction layer in front of, not a replacement for, the OS-level worker boundary in §21: `src/core/Compute/` is still the only thing that owns a child process, a pipe, and a Job Object.
+- Location: `src/core/Computing/` (namespace `backs2.Core.Computing`, backends in `backs2.Core.Computing.Backends`), sibling to `src/core/Compute/`.
+
+### IComputeBackend (`src/core/Computing/Backends/IComputeBackend.cs`)
+
+The contract every backend implements. Two methods, both returning a `double[]` of terminal balances indexed by iteration:
+- `Task<double[]> RunSimulationsAsync(TimeSlice[] slices, int targetDurationSlices, int iterations, int? seed, CancellationToken ct)` — whole batch. Phase 28A shipped this signature; it is the Phase 27 shape (`TimeSlice[]` in, terminal balances out) and what a caller uses when it owns the parallelism.
+- `Task<double[]> RunIterationsAsync(TimeSlice[] slices, int targetDurationSlices, int startIteration, int iterationCount, int? seed, CancellationToken ct)` — one contiguous chunk of a batch, added by Phase 28B so the dispatcher can schedule chunks generically. The scheduler owns chunking, work-stealing, and result placement; the backend owns how an iteration range executes. `startIteration` is the absolute batch index.
+- `Name` (shown in logs) and `IsAccelerated` complete the surface. Contract: degenerate input (`null`/empty slices, non-positive `targetDurationSlices`, non-positive iteration count) returns an empty array instead of throwing; cancellation is observed between iterations, never mid-iteration; the same `(slices, targetDurationSlices, iterations, seed)` is reproducible.
+
+### ISimulationKernel (`src/core/Computing/Backends/ISimulationKernel.cs`)
+
+- `double SimulateOnce(TimeSlice[] slices, int targetDurationSlices, Random rng, int iteration)` — the per-iteration kernel seam. Keeps the parallel skeleton separate from the Monte Carlo state machine: implementations must be pure, safe to call concurrently, and deterministic for a given `(rng, iteration)`, which is why the RNG is injected per iteration rather than captured.
+- Currently a null-object placeholder (`CpuBackend.PlaceholderKernel`, private). It consumes the RNG exactly as the real kernel will and derives a deterministic terminal balance from it, so the subsystem is resolvable, non-throwing, and reproducible — but carries no simulation meaning. Phase 29B supplies the real port of `MonteCarloEngine.SimulateOnce`.
+
+### CpuBackend (`src/core/Computing/Backends/CpuBackend.cs`)
+
+- `RunSimulationsAsync` — `Parallel.For` at `Environment.ProcessorCount`, with a single-iteration fast path that runs inline (ThreadPool dispatch costs more than the work).
+- `RunIterationsAsync` — a plain sequential loop on the calling worker thread. Deliberate: the dispatcher already saturates the machine, so a nested `Parallel.For` here would over-subscribe the cores. The scheduler owns the parallelism; this method must not add any.
+- RNGs are split as `new Random(seed + i)` on the **absolute** iteration index (`Random.Shared` when `seed` is null), matching `MonteCarloEngine.Run`. On the chunk-level path the same absolute index seeds the RNG and is passed to the kernel as `iteration`, which is what makes a chunked run bit-identical to the whole-batch call.
+
+### GpuBackend (`src/core/Computing/Backends/GpuBackend.cs`)
+
+- ComputeSharp over the DirectX 12 backend. The constructor probes `GraphicsDevice.GetDefault()`; any failure logs one `Warn` and stores a `CpuBackend` fallback — a missing device degrades the feature, never the process. Both dispatch methods then delegate to that fallback (no re-probe, no per-call Warn noise).
+- `IsAccelerated` stays `false` even when a device was found: no `[Shader]` exists until Phase 29B, and claiming acceleration the backend does not perform would make the worker status line a lie. `Name` reports `GPU (<adapter>)` once a device is held, otherwise the fallback name.
+- `RunIterationsAsync` is the single change point for the Phase 29B kernel — until then every chunk is delegated to CPU.
+
+### IComputeDispatcher / CpuComputeDispatcher (`src/core/Computing/`)
+
+- `IComputeDispatcher` is the only compute entry point the rest of the app sees: `Task<double[]> DispatchMonteCarloAsync(MonteCarloDispatchRequest request, CancellationToken ct)` and `Task<double[]> DispatchBacktestBatchAsync(int jobCount, CancellationToken ct)`. `MonteCarloDispatchRequest(TimeSlice[] Slices, int TargetDurationSlices, int Iterations, int? Seed = null)` is a record so the same shape can cross the worker IPC boundary as JSON without reshaping the interface.
+- `CpuComputeDispatcher` is the parent-process implementation and the Phase 28B scheduler:
+  - `DispatchMonteCarloAsync` chunks `request.Iterations` into a private `McChunkSize = 10_000` and enqueues the chunk indices into a `ConcurrentQueue<int>`. Workers claim work with `TryDequeue` and run until the queue is dry; the pool is `Parallel.For(0, Math.Min(Environment.ProcessorCount, chunkCount), …)`, and a single-chunk batch runs exactly one worker so small dispatches never pay ThreadPool overhead.
+  - Each claimed chunk is one `IComputeBackend.RunIterationsAsync` call — the loop is backend-agnostic, so no caller-side branch decides CPU vs GPU and chunks route to `GpuBackend` once `IsAccelerated` flips.
+  - `DispatchBacktestBatchAsync` does not enter the queue: one parameter combination is one unit of work, run with `Parallel.For` at `Environment.ProcessorCount`. Backtests are Roslyn executions, non-vectorizable and non-chunkable, so the batch routes to the CPU path only. Phase 29C supplies the per-combination body behind this loop.
+  - **Determinism contract.** The per-iteration RNG for iteration `i` is `new Random(seed + i)` on the absolute index in `[0, iterations)`, never the chunk-local index, so a chunked dispatch is bit-identical to `CpuBackend.RunSimulationsAsync(slices, targetDurationSlices, iterations, seed)` and stays stable when `McChunkSize` or the core count changes. `seed == null` uses `Random.Shared`.
+  - **Cancellation.** A cancelled dispatch returns the chunks that completed as a truncated `double[]` and never throws. A chunk is published only once it is demonstrably whole (`chunkResults.Length == iterationCount`), so a cancelled result is a sum of complete chunks rather than an arbitrary iteration cut. Degenerate input returns an empty array.
+  - Chunk scheduling and per-chunk completion log at Debug under `LogTag.MonteCarlo`, with the absolute iteration range. No new tag.
+
+### DI wiring
+
+- `App.axaml.cs` registers `IComputeBackend` -> `CpuBackend` and `IComputeDispatcher` -> `CpuComputeDispatcher` as singletons.
+- `GpuBackend` is not registered directly. The parent UI process must not hold a GPU device; it is selected by the backend factory once `IsAccelerated` becomes true (Phase 29B).
+- Forward pointer: the worker-process migration of the scheduler and the real GPU `[Shader]` are Phase 29B / a future Compute Worker phase. Both are wiring behind `IComputeDispatcher` and `IComputeBackend` — the loop, the chunk size, and the backend seam do not move.
+
 ### Cross-tab navigation message
 
 - `NavigateToTradeMessage` (`src/gui/Messages/NavigateToTradeMessage.cs`) — `record(string Symbol, string Timeframe, DateTime TargetTime)`. Broadcast via `WeakReferenceMessenger.Default` (CommunityToolkit.Mvvm). No static, no DI registration — the messenger singleton is the transport.

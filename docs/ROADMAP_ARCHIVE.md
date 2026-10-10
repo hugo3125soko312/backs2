@@ -961,3 +961,37 @@ Scheduler for the `src/core/Computing/` subsystem. Phase 28B as originally writt
 
 ### Rollback path
 `CpuComputeDispatcher.DispatchMonteCarloAsync` can return to a direct `_backend.RunSimulationsAsync` passthrough by deleting the chunk loop; `RunIterationsAsync` stays as an unused backend seam. Nothing else depends on the scheduler.
+
+---
+
+## Phase 28A: Abstractions & Parent Dispatcher [COMPLETED]
+
+Ship date: 2026-10-10.
+
+Bootstrap of the `src/core/Computing/` subsystem: the parent-process facade, the backend seam, and the null-object kernel placeholder that keeps the layer resolvable before the real Monte Carlo state machine exists. Phase 28B kept every published signature from this phase intact and replaced the pass-through body of `DispatchMonteCarloAsync` with the chunked scheduler, so the surface frozen here is the surface callers use today.
+
+### Delivered
+- `src/core/Computing/IComputeDispatcher.cs` -- `IComputeDispatcher` with `Task<double[]> DispatchMonteCarloAsync(MonteCarloDispatchRequest request, CancellationToken ct)` and `Task<double[]> DispatchBacktestBatchAsync(int jobCount, CancellationToken ct)`. Domain-typed on purpose: callers ask for a Monte Carlo dispatch or a backtest batch, never for a CUDA call. The interface carries no reference to `WorkerIpc`, `WorkerEnvelope`, or `JobConfig`.
+- `MonteCarloDispatchRequest(TimeSlice[] Slices, int TargetDurationSlices, int Iterations, int? Seed = null)` -- a record rather than a parameter list, so the same shape can cross the worker IPC boundary as JSON later without reshaping the surface.
+- `src/core/Computing/CpuComputeDispatcher.cs` -- thin in-process implementation that resolves `IComputeBackend` from DI and delegates. 28A held no compute logic of its own: `DispatchMonteCarloAsync` forwarded to `IComputeBackend.RunSimulationsAsync` after a Debug log, and `DispatchBacktestBatchAsync` ran a `Parallel.For` skeleton at `Environment.ProcessorCount` that wrote `scores[i] = i`.
+- `src/core/Computing/Backends/IComputeBackend.cs` -- the Phase 27 signature, `RunSimulationsAsync(slices, targetDurationSlices, iterations, seed, ct)`, plus `Name` / `IsAccelerated`. Contract: degenerate input returns empty instead of throwing, cancellation is observed between iterations, and the result array is `max(iterations, 0)` long and indexed by iteration.
+- `src/core/Computing/Backends/CpuBackend.cs` -- `Parallel.For` over iterations at `Environment.ProcessorCount` (one iteration runs inline; ThreadPool dispatch costs more than the work), with a single-iteration fast path and RNGs split as `new Random(seed + i)` (`Random.Shared` when unseeded), exactly as `MonteCarloEngine.Run` does it.
+- `src/core/Computing/Backends/GpuBackend.cs` -- ComputeSharp DirectX 12 device probe. A failed probe logs one `Warn` and stores a `CpuBackend` fallback instead of throwing; `Name` reports `GPU (<adapter>)` once a device is held, and `IsAccelerated` stays `false` until a real `[Shader]` exists.
+- `src/core/Computing/Backends/ISimulationKernel.cs` -- the per-iteration seam `SimulateOnce(slices, targetDurationSlices, rng, iteration)` that separates the parallel skeleton from the Monte Carlo state machine. Backed by a private non-throwing `PlaceholderKernel` until Phase 29B ports the real engine.
+- `ComputeSharp` 3.2.0 `PackageReference` in `backs2.csproj` (net8.0, source-generator kernels, no runtime compilation step). Restore verified; no new `LogTag`.
+
+### DI wiring
+- `App.axaml.cs` registers `IComputeBackend` -> `CpuBackend` and `IComputeDispatcher` -> `CpuComputeDispatcher` as singletons.
+- `GpuBackend` is deliberately not registered: the parent UI process must not hold a GPU device. It is resolved inside the worker, which is where holding one is correct.
+
+### Scope changes against the original entry
+- **The parent-side `WorkerEnvelope` proxy did not ship.** 28A was written to proxy dummy requests to the worker through `ComputeWorkerManager`, but Compute Worker Phase 3 is not a scheduled phase and does not exist, so there was no IPC path to proxy over. The entry therefore closes with no `WorkerEnvelope` / `ComputeWorkerManager` reference anywhere in `src/core/Computing/`.
+- **The "Compute Worker Phase 3 complete" precondition was dropped.** It gated a phase on work that was never scheduled. `Phase 26 closed` stands on its own, and `MonteCarloDispatchRequest` keeps the payload JSON-shaped so a future proxy can be added without touching callers.
+- 28A sized the dispatcher as a pass-through and expected 28B to be the worker-IPC proxy. 28B instead parked the worker migration and shipped the chunked scheduler in the parent process against the DI-resolved backend (see the Phase 28B entry above); `IComputeDispatcher`, `IComputeBackend`, and the dispatcher's public signatures were unchanged by that swap.
+
+### Consequence
+- The compute layer is exercisable end to end in-process: a caller can dispatch a real Monte Carlo batch and get `double[]` terminal balances back with no worker, no pipe, and no GPU.
+- 28B extended this surface rather than redesigning it -- a chunk-level `RunIterationsAsync` was added to `IComputeBackend` and the MonteCarlo body became the work-stealing scheduler. Nothing documented above had to change.
+
+### Rollback path
+`CpuComputeDispatcher` was a pure delegation to `IComputeBackend.RunSimulationsAsync`, so the bootstrap is removable without touching callers: drop the DI registrations and the subsystem stops being reachable. 28B has since made the dispatcher load-bearing for the chunked path, so the live rollback is the 28B one (return `DispatchMonteCarloAsync` to whole-batch), not this.

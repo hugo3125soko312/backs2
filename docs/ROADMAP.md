@@ -361,10 +361,12 @@ Introduces a central abstraction layer in `src/core/Computing/` for hybrid CPU/G
 
 **Preconditions.** Phase 26 must be fully closed. Compute Worker Phase 3 must be complete (the worker process is active and handles the 64 MB IPC pipe).
 
-### Phase 28A -- Abstractions & Parent Dispatcher
-- **Size:** S · **Depends on:** Phase 26 closed; Compute Worker Phase 3 complete · **Succeeds when:** `IComputeDispatcher` exists in the parent process and successfully proxies dummy requests to the worker via `ComputeWorkerManager`.
-- [ ] Define `IComputeDispatcher` with domain-specific methods: `DispatchMonteCarloAsync` and `DispatchBacktestBatchAsync`.
-- [ ] Implement the parent-side proxy that wraps these calls into `WorkerEnvelope` JSON payloads.
+### Phase 28A -- Abstractions & Parent Dispatcher [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 28A).
+
+- **Size:** S · **Depends on:** Phase 26 closed · **Succeeds when:** `IComputeDispatcher` exists in the parent process with domain-typed `DispatchMonteCarloAsync` / `DispatchBacktestBatchAsync` methods implemented against a DI-resolved `IComputeBackend`.
+- [x] Define `IComputeDispatcher` with domain-specific methods: `DispatchMonteCarloAsync` and `DispatchBacktestBatchAsync`.
+- Deferred: the parent-side `WorkerEnvelope` proxy. Compute Worker Phase 3 is not a scheduled phase, so there is no IPC path to proxy over — `CpuComputeDispatcher` resolved `IComputeBackend` from DI and delegated in-process. `MonteCarloDispatchRequest` stays a JSON-shaped record so the proxy is a wiring change, not a redesign.
 
 ### Phase 28B -- Parent-Process Hybrid Scheduler [COMPLETED]
 - **Size:** M · **Depends on:** 28A (shipped) · **Succeeds when:** the parent-process dispatcher executes a Monte Carlo workload with chunked work-stealing, with per-iteration seed determinism preserved across chunk boundaries.
