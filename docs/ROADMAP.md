@@ -180,7 +180,8 @@ See `docs/ARCHITECTURE.md` "Future: GPU acceleration" note (added with Phase 26'
 
 ---
 
-## Phase 27: GPU-Accelerated Monte Carlo [PLANNED]
+## Phase 27: GPU-Accelerated Monte Carlo [SUPERSEDED]
+See Phase 28 and Phase 29 for the unified compute architecture.
 
 Extends the optimizer and MC engine with a GPU compute path. Scope is deliberately narrow: only `MonteCarloEngine.SimulateOnce` is a target. Every other compute surface -- `BuildResult` sort/percentile, `IMetric.Calculate`, `KMeansClusterer`, `TimeSliceBuilder`, per-combination backtests -- is explicitly rejected (see Rejection list below). Rationale: `SimulateOnce` is the only workload with enough scale (100k iterations x ~60k slices) to amortize GPU dispatch overhead.
 
@@ -349,6 +350,53 @@ Provider discovery via `ActivatorUtilities.CreateInstance` completes in ~8 ms pe
 ---
 
 ## Phase 12: Hardening & Housekeeping [PLANNED]
+
+---
+
+## Phase 28: Unified Computing Subsystem [PLANNED]
+
+Introduces a central abstraction layer in `src/core/Computing/` for hybrid CPU/GPU workload dispatch. This sits behind the existing Compute Worker IPC boundary: the parent process dispatches domain-specific workloads to the worker, which schedules them across available hardware.
+
+**Framework.** `ComputeSharp` (DirectX 12 backend). Chosen over ILGPU because it is .NET 8 native, uses source generators to compile kernels directly into the assembly (no runtime compilation step), and is available on public NuGet. The CPU path uses `System.Threading.Tasks.Parallel`.
+
+**Preconditions.** Phase 26 must be fully closed. Compute Worker Phase 3 must be complete (the worker process is active and handles the 64 MB IPC pipe).
+
+### Phase 28A -- Abstractions & Parent Dispatcher
+- **Size:** S · **Depends on:** Phase 26 closed; Compute Worker Phase 3 complete · **Succeeds when:** `IComputeDispatcher` exists in the parent process and successfully proxies dummy requests to the worker via `ComputeWorkerManager`.
+- [ ] Define `IComputeDispatcher` with domain-specific methods: `DispatchMonteCarloAsync` and `DispatchBacktestBatchAsync`.
+- [ ] Implement the parent-side proxy that wraps these calls into `WorkerEnvelope` JSON payloads.
+
+### Phase 28B -- Worker-Side Hybrid Scheduler
+- **Size:** M · **Depends on:** 28A · **Succeeds when:** the worker can receive a dispatched job and route it to either a CPU fallback or a mock GPU backend.
+- [ ] Create `src/core/Computing/Backends/` containing `IComputeBackend`, `CpuBackend`, and `GpuBackend` (probing for a DirectX 12 device, falling back seamlessly).
+- [ ] Implement a cooperative work-stealing scheduler in the worker: large iteration counts are chunked (e.g. 10k), and available backends pull from the queue concurrently. Non-vectorizable workloads bypass the queue and route strictly to `CpuBackend`.
+
+**Rejection list** (explicitly out of scope for the computing subsystem):
+- **`IMetric.Calculate`** -- sequential time-series dependency chains (EMA, etc.); GPU cores would starve.
+- **`KMeansClusterer.Cluster`** -- N = 20-500 trades. Dispatch overhead heavily exceeds compute time. Constrained to fixed seed 42, making GPU wavefront determinism an unnecessary risk.
+- **`MonteCarloEngine.BuildResult`** -- CPU radix sort handles 100k arrays in milliseconds; GPU memory round-trip is pure overhead.
+
+---
+
+## Phase 29: Compute Retrofit [PLANNED]
+
+Retrofits existing CPU-bound and parallel workloads onto the Phase 28 subsystem.
+
+### Phase 29A -- Instrumentation & Bottleneck Verification
+- **Size:** S · **Depends on:** 28B · **Succeeds when:** telemetry conclusively identifies the serialized stage causing the 22% CPU average during Optimize runs (Phase 22E finding).
+- [ ] Add granular `Stopwatch` metrics around the disk I/O, `StrategyManager` compile cache, and time-slice allocation phases of the Optimizer loop.
+- [ ] Log these phases to `logs/runtime-*.log` and do not proceed to 29C until the I/O-bound vs CPU-bound split is mathematically proven.
+
+### Phase 29B -- Monte Carlo Engine Retrofit (Replaces Phase 27)
+- **Size:** L · **Depends on:** 29A · **Succeeds when:** `MonteCarloEngine.SimulateOnce` executes via `IComputeDispatcher`, utilizing `ComputeSharp` `[Shader]` kernels when the worker holds the GPU, with results statistically identical to the pure CPU path.
+- [ ] Port the exact MTM-low vs max-DD floor state machine into a ComputeSharp kernel.
+- [ ] Enforce Phase 27 constraints: RNG seed splitting for determinism, 100k max iterations chunked under Windows TDR limits.
+- [ ] Parent process receives aggregated `MonteCarloResult` scalars back via IPC, never exceeding the 64 MB pipe cap.
+
+### Phase 29C -- Optimizer Backtest Retrofit
+- **Size:** M · **Depends on:** 29A · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
+- [ ] Wire `OptimizationRunner` to dispatch Roslyn script backtests in batches to the worker.
+- [ ] The worker routes these batches strictly to `CpuBackend` (Parallel.For), as strategy scripts are inherently non-vectorizable.
 
 ---
 

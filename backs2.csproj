@@ -37,6 +37,11 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
 
+    <!-- Phase 28: Unified Computing Subsystem — DirectX 12 compute backend.
+         Source-generator based (kernels compile into the assembly), .NET 8
+         native, public NuGet. Device probing happens in the worker process. -->
+    <PackageReference Include="ComputeSharp" Version="3.2.0" />
+
     <!-- Data Automation -->
     <PackageReference Include="Vortice.Direct3D11" Version="3.6.2" />
     <PackageReference Include="Vortice.DXGI" Version="3.6.2" />

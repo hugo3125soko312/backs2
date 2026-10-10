@@ -5,9 +5,14 @@
     "**/.hg": true,
     "**/.jj": true,
     "**/.DS_Store": true,
-    "**/Thumbs.db": true
+    "**/Thumbs.db": true,
+    "bin/Debug/net8.0": true,
+    ".metreja": true
   },
-  "hide-files.files": [],
+  "hide-files.files": [
+    "bin/Debug/net8.0",
+    ".metreja"
+  ],
   "axaml.selectedSolution": "c:\\Users\\petri\\Desktop\\programming\\backs2",
 
   "dotnet.backgroundAnalysis.analyzerDiagnosticsScope": "openFiles",

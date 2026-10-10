@@ -4,6 +4,8 @@ using Avalonia.Markup.Xaml;
 using backs2.Core;
 using backs2.Core.Accounts;
 using backs2.Core.Compute;
+using backs2.Core.Computing;
+using backs2.Core.Computing.Backends;
 using backs2.Core.DataAutomation;
 using backs2.Core.MT5;
 using backs2.Core.Optimizer;
@@ -118,6 +120,13 @@ public partial class App : Application
 
         // Compute worker: process-isolated strategy / Monte Carlo execution.
         services.AddSingleton<ComputeWorkerManager>();
+
+        // Unified computing subsystem (Phase 28A). The parent process registers the
+        // CPU backend only — GpuBackend is never registered here, because the parent
+        // UI process must not hold the GPU. Phase 28B resolves GpuBackend inside the
+        // worker process, where the device belongs.
+        services.AddSingleton<IComputeBackend, CpuBackend>();
+        services.AddSingleton<IComputeDispatcher, CpuComputeDispatcher>();
 
         // Data Automation
         services.AddSingleton<DataAutomationService>();
