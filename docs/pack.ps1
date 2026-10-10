@@ -42,7 +42,7 @@ try {
 
     $textExtensions = @(
         '.txt', '.md', '.cs', '.axaml', '.csproj', '.sln', '.json', '.yml', '.yaml',
-        '.ps1', '.sh', '.bat', '.cmd', '.xml', '.config', '.toml', '.ini'
+        '.ps1', '.sh', '.bat', '.cmd', '.xml', '.config', '.toml', '.ini', '.go'
     )
 
     $excludeNames = @('pack.ps1', 'starting_promt.txt')
@@ -50,7 +50,8 @@ try {
     $coreNames = @(
         'CONTEXT_ESSENTIALS.md',
         'AGENT_RULES.md',
-        'ROADMAP.md'
+        'ROADMAP.md',
+        'watch_downloads.go'
     )
     $guideNames = @(
         'MT5_TICK_GUIDE.md',
