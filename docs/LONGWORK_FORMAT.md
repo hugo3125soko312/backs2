@@ -1,6 +1,6 @@
 # LONG_WORK Block Format
 
-The `<BDS:LONG_WORK>` block is a multi-file emission format used by the Better DeepSeek browser extension. It packages one or more files into a single `.zip` that `docs/unzipper/watch_downloads.go` watches for and extracts into the repository root.
+The `<BDS:LONG_WORK>` block is a multi-file emission format used by the Better DeepSeek browser extension. It packages one or more files into a single `.zip` that `tools/unzipper/watch_downloads.go` watches for and extracts into the repository root.
 
 ## Syntax
 

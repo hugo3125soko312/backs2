@@ -221,7 +221,7 @@ partial-patch risk, and the reader sees the whole file in one place.
 
 ### A. New or standalone file -> LONG_WORK zip
 
-When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit it inside a BDS:LONG_WORK block wrapping one or more BDS:create_file tags. The chat extension collects them into a single .zip that `docs/watch_downloads.go` extracts into the repository root, overwriting in place.
+When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit it inside a BDS:LONG_WORK block wrapping one or more BDS:create_file tags. The chat extension collects them into a single .zip that `tools/unzipper/watch_downloads.go` extracts into the repository root, overwriting in place.
 
 Rules:
 - **Exact relative project paths** in the create_file `fileName` (e.g. `src/core/Foo.cs`, never an absolute path). The watcher extracts relative to repo root, so a leading slash or a drive letter breaks it.

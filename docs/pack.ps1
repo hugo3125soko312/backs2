@@ -230,10 +230,10 @@ Write-Host
 Write-Host 'Press ENTER to launch the unzipper watcher in a new PowerShell window, or type anything and press ENTER to exit:' -ForegroundColor Cyan
 $response = Read-Host
 if ([string]::IsNullOrWhiteSpace($response)) {
-    $exePath = Join-Path $root 'docs\unzipper\watch_downloads.exe'
+    $exePath = Join-Path $root 'tools\unzipper\watch_downloads.exe'
     if (-not (Test-Path $exePath)) {
         Write-Host 'watch_downloads.exe not found; building from source...' -ForegroundColor Yellow
-        Push-Location (Join-Path $root 'docs\unzipper')
+        Push-Location (Join-Path $root 'tools\unzipper')
         try {
             go build -o watch_downloads.exe
             if ($LASTEXITCODE -ne 0) { Write-Host "go build exited with code $LASTEXITCODE" -ForegroundColor Red }

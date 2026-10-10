@@ -25,6 +25,6 @@
 
 # Profiler output
 /.metreja
-docs/unzipper/*.exe
+tools/unzipper/*.exe
 tools/exec-bridge/*.exe
 tools/exec-bridge/data/*.json
