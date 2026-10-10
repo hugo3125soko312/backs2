@@ -54,8 +54,19 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     [ObservableProperty] private int _mcIterations = 1000;
     [ObservableProperty] private int _mcBlockSize = 5;
     [ObservableProperty] private double _mcRuinThresholdPercent = 10.0;
-    [ObservableProperty] private string _activeAccountName = "(none)";
 
+    /// <summary>
+    /// Which backend Monte Carlo runs on (ROADMAP Phase 29B.2). Read from and
+    /// written through <see cref="ConfigManager"/>, so the choice survives a
+    /// restart; the dispatcher re-reads it per dispatch, so a change applies to
+    /// the next run without a restart and never splits a run in flight.
+    /// </summary>
+    [ObservableProperty] private string _mcBackend = "Auto";
+
+    /// <summary>The selectable values, in display order. Bound by the ComboBox.</summary>
+    public IReadOnlyList<string> McBackendOptions { get; } = AppSettings.MonteCarloBackendValues;
+
+    [ObservableProperty] private string _activeAccountName = "(none)";
     [ObservableProperty] private int _totalCombinations = 1;
     [ObservableProperty] private bool _exceedsCap;
     [ObservableProperty] private string _combinationSummary = "";
@@ -100,6 +111,12 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         _optimizer = optimizer;
         _optStore = optStore;
 
+        // Loaded through the backing field on purpose: assigning the property
+        // would fire the persist handler and rewrite settings.json on every
+        // startup, which is exactly the "do not write when unchanged" behaviour
+        // the config layer already guarantees.
+        _mcBackend = ConfigManager.NormalizeBackend(config.Settings.MonteCarloBackend);
+
         _catalog.Changed += OnCatalogChanged;
         _queue.Changed += OnQueueChanged;
         _accounts.ActiveChanged += OnActiveAccountChanged;
@@ -116,6 +133,27 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     /// <summary>Called by the shell when a Runner subtab node is selected.</summary>
     public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
+
+    /// <summary>
+    /// Persists the backend choice. Normalizes first so a value that arrives from
+    /// a binding in an unexpected case still lands in settings.json in canonical
+    /// form, then writes through the same <see cref="ConfigManager"/> path the
+    /// grid ranges use.
+    /// </summary>
+    partial void OnMcBackendChanged(string value)
+    {
+        var normalized = ConfigManager.NormalizeBackend(value);
+
+        // Normalization can legitimately change the value (e.g. "gpu" -> "Gpu").
+        // Writing the field back is safe: the generated setter only raises a
+        // change notification when the value actually differs, so this cannot
+        // recurse forever.
+        if (!string.Equals(normalized, value, StringComparison.Ordinal))
+            McBackend = normalized;
+
+        _config.Settings.MonteCarloBackend = normalized;
+        _config.SaveConfig();
+    }
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {

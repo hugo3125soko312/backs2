@@ -5,103 +5,158 @@ using System.Globalization;
 namespace backs2.Core.Optimizer;
 
 /// <summary>
-/// Dead-simple countdown timer for an optimization run.
-///
-/// There is no sampling, no blending, no adaptive anything. One estimate
-/// is computed once from the run's shape (combination count, refine-top-N,
-/// iteration counts) using the tunable per-unit constants below, then the
-/// number counts down monotonically as wall time elapses. It only ever
-/// decreases. When the estimate is exhausted it floors at
-/// <see cref="FloorSeconds"/> and stays there for the rest of the run.
-///
-/// The whole estimate is derived from these five public constants. If the
-/// countdown is consistently wrong — too fast, too slow — tune the constant
-/// and rerun. Every constant is in wall seconds per unit of work, already
-/// divided by whatever parallelism the optimizer applies (so
-/// <see cref="WallSecPerBacktest"/> is the per-combination wall-time when
-/// the backtest phase is running across all cores).
-///
-/// The breakdown of the initial estimate is exposed via <see cref="Breakdown"/>
-/// and logged once at Start.
+/// Self-calibrating ETA estimator (ROADMAP Phase 26C). Replaces the previous
+/// frozen-countdown design whose hardcoded per-unit constants produced a 6.1s
+/// estimate against a 37.5s actual run. The estimate is recomputed on every
+/// Remaining() call from the grid shape captured at Start plus per-unit
+/// thread-second moving averages updated by the caller as work completes.
+/// Per-unit samples are topology-independent, so the average stays valid
+/// across runs on different core counts.
 /// </summary>
 public sealed class EtaEstimator
 {
-    // ---- Tunables. Wall seconds per unit of work, post-parallel. --------
-
-    /// <summary>Wall seconds per combination in the backtest phase.</summary>
-    public double WallSecPerBacktest { get; init; } = 0.0005;
-
-    /// <summary>Wall seconds per combination in the coarse-MC phase (at the configured coarse iterations).</summary>
-    public double WallSecPerCoarseMc { get; init; } = 0.008;
-
-    /// <summary>Wall seconds per survivor in the refine-MC phase, scaled by refineIterations / 1000.</summary>
-    public double WallSecPerRefineMc { get; init; } = 0.046;
-
-    /// <summary>Wall seconds per survivor in the null-model pass, scaled by refineIterations / 1000.</summary>
-    public double WallSecPerNullMc { get; init; } = 0.046;
-
-    /// <summary>Floor for the reported value. Never returns below this.</summary>
+    public double DefaultThreadSecPerBacktest { get; init; } = 0.100;
+    public double DefaultThreadSecPerCoarseSim { get; init; } = 0.00050;
+    public double DefaultThreadSecPerRefineSim { get; init; } = 0.00100;
+    public double DefaultThreadSecPerNullSim { get; init; } = 0.00100;
+    public double DefaultSaveSec { get; init; } = 0.5;
     public double FloorSeconds { get; init; } = 0.5;
 
-    private const double RefineScaleBaselineIterations = 1000.0;
-
+    private const double EmaAlpha = 0.125;
+    private readonly object _lock = new();
     private Stopwatch? _clock;
-    private double _totalSeconds;
+
+    private int _comboCount;
+    private int _refineTopN;
+    private int _coarseIterations;
+    private int _refineIterations;
+    private int _backtestOuter = 1;
+    private int _coarseOuter = 1;
+    private int _refineOuter = 1;
+
+    private double _threadSecPerBacktest;
+    private double _threadSecPerCoarseSim;
+    private double _threadSecPerRefineSim;
+    private double _threadSecPerNullSim;
 
     public bool IsRunning => _clock != null;
-    public double TotalEstimateSeconds => _totalSeconds;
     public double ElapsedSeconds => _clock?.Elapsed.TotalSeconds ?? 0.0;
-
-    /// <summary>One-line breakdown of how the frozen estimate was assembled.</summary>
+    public double InitialEstimateSeconds { get; private set; }
     public string Breakdown { get; private set; } = "";
 
-    /// <summary>
-    /// Freezes the estimate and starts the countdown clock. Call once at the
-    /// start of the run, after the grid is built.
-    /// </summary>
     public void Start(
         int combinationCount,
         int refineTopN,
         int coarseIterations,
-        int refineIterations)
+        int refineIterations,
+        int backtestOuter,
+        int coarseOuter,
+        int refineOuter)
     {
-        _clock = Stopwatch.StartNew();
+        lock (_lock)
+        {
+            _comboCount = Math.Max(0, combinationCount);
+            _refineTopN = Math.Max(0, refineTopN);
+            _coarseIterations = Math.Max(1, coarseIterations);
+            _refineIterations = Math.Max(1, refineIterations);
+            _backtestOuter = Math.Max(1, backtestOuter);
+            _coarseOuter = Math.Max(1, coarseOuter);
+            _refineOuter = Math.Max(1, refineOuter);
 
-        double refineScale = coarseIterations > 0
-            ? refineIterations / RefineScaleBaselineIterations
-            : 1.0;
+            _threadSecPerBacktest = DefaultThreadSecPerBacktest;
+            _threadSecPerCoarseSim = DefaultThreadSecPerCoarseSim;
+            _threadSecPerRefineSim = DefaultThreadSecPerRefineSim;
+            _threadSecPerNullSim = DefaultThreadSecPerNullSim;
 
-        double backtestSec = combinationCount * WallSecPerBacktest;
-        double coarseSec   = combinationCount * WallSecPerCoarseMc;
-        double refineSec   = refineTopN * WallSecPerRefineMc * refineScale;
-        double nullSec     = refineTopN * WallSecPerNullMc * refineScale;
-
-        _totalSeconds = backtestSec + coarseSec + refineSec + nullSec;
-
-        Breakdown = string.Format(
-            CultureInfo.InvariantCulture,
-            "backtest={0:F1}s ({1}x{2:F2}) | coarse={3:F1}s ({1}x{4:F2}) | " +
-            "refine={5:F1}s ({6}x{7:F2}x{8:F2}) | null={9:F1}s ({6}x{10:F2}x{8:F2}) | total={11:F1}s",
-            backtestSec, combinationCount, WallSecPerBacktest,
-            coarseSec, WallSecPerCoarseMc,
-            refineSec, refineTopN, WallSecPerRefineMc, refineScale,
-            nullSec, WallSecPerNullMc,
-            _totalSeconds);
+            _clock = Stopwatch.StartNew();
+            InitialEstimateSeconds = ComputeEstimateLocked();
+            Breakdown = FormatBreakdownLocked();
+        }
     }
 
-    /// <summary>
-    /// Seconds remaining. Monotonically decreasing. Never below
-    /// <see cref="FloorSeconds"/>. Returns the floor when Start was never
-    /// called.
-    /// </summary>
+    public void RecordBacktest(double elapsedMs)
+    {
+        if (elapsedMs <= 0 || double.IsNaN(elapsedMs) || double.IsInfinity(elapsedMs)) return;
+        lock (_lock)
+        {
+            double perVersionSec = elapsedMs / 1000.0;
+            _threadSecPerBacktest = Blend(_threadSecPerBacktest, perVersionSec);
+        }
+    }
+
+    public void RecordCoarseMc(double elapsedMs, int iterations)
+    {
+        if (elapsedMs <= 0 || iterations <= 0 || double.IsNaN(elapsedMs) || double.IsInfinity(elapsedMs)) return;
+        lock (_lock)
+        {
+            double perSimSec = elapsedMs / 1000.0 / iterations;
+            _threadSecPerCoarseSim = Blend(_threadSecPerCoarseSim, perSimSec);
+        }
+    }
+
+    public void RecordRefineMc(double elapsedMs, int iterations)
+    {
+        if (elapsedMs <= 0 || iterations <= 0 || double.IsNaN(elapsedMs) || double.IsInfinity(elapsedMs)) return;
+        lock (_lock)
+        {
+            double perSimSec = elapsedMs / 1000.0 / iterations;
+            _threadSecPerRefineSim = Blend(_threadSecPerRefineSim, perSimSec);
+        }
+    }
+
+    public void RecordNullMc(double elapsedMs, int iterations)
+    {
+        if (elapsedMs <= 0 || iterations <= 0 || double.IsNaN(elapsedMs) || double.IsInfinity(elapsedMs)) return;
+        lock (_lock)
+        {
+            double perSimSec = elapsedMs / 1000.0 / iterations;
+            _threadSecPerNullSim = Blend(_threadSecPerNullSim, perSimSec);
+        }
+    }
+
+    public double EstimateTotal()
+    {
+        lock (_lock) return ComputeEstimateLocked();
+    }
+
     public double Remaining()
     {
-        if (_clock == null) return FloorSeconds;
-
-        double r = _totalSeconds - _clock.Elapsed.TotalSeconds;
-        if (double.IsNaN(r) || double.IsInfinity(r) || r < FloorSeconds)
-            return FloorSeconds;
-
+        Stopwatch? clock;
+        double total;
+        lock (_lock)
+        {
+            clock = _clock;
+            if (clock == null) return FloorSeconds;
+            total = ComputeEstimateLocked();
+        }
+        double r = total - clock.Elapsed.TotalSeconds;
+        if (double.IsNaN(r) || double.IsInfinity(r) || r < FloorSeconds) return FloorSeconds;
         return r;
+    }
+
+    private static double Blend(double current, double sample)
+        => current * (1.0 - EmaAlpha) + sample * EmaAlpha;
+
+    private double ComputeEstimateLocked()
+    {
+        double backtestSec = (double)_comboCount * _threadSecPerBacktest / _backtestOuter;
+        double coarseSec = (double)_comboCount * _coarseIterations * _threadSecPerCoarseSim / _coarseOuter;
+        double refineSec = (double)_refineTopN * _refineIterations * _threadSecPerRefineSim / _refineOuter;
+        double nullSec = (double)_refineTopN * _refineIterations * _threadSecPerNullSim / _refineOuter;
+        return backtestSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
+    }
+
+    private string FormatBreakdownLocked()
+    {
+        double backtestSec = (double)_comboCount * _threadSecPerBacktest / _backtestOuter;
+        double coarseSec = (double)_comboCount * _coarseIterations * _threadSecPerCoarseSim / _coarseOuter;
+        double refineSec = (double)_refineTopN * _refineIterations * _threadSecPerRefineSim / _refineOuter;
+        double nullSec = (double)_refineTopN * _refineIterations * _threadSecPerNullSim / _refineOuter;
+        double totalSec = backtestSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "backtest={0:F1}s | coarse={1:F1}s | refine={2:F1}s | null={3:F1}s | save={4:F1}s | total={5:F1}s (W: bt={6} c={7} r={8})",
+            backtestSec, coarseSec, refineSec, nullSec, DefaultSaveSec, totalSec,
+            _backtestOuter, _coarseOuter, _refineOuter);
     }
 }

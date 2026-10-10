@@ -92,6 +92,20 @@
                                VerticalAlignment="Center" />
                 </Grid>
 
+                <!-- Phase 29B.2 — backend selection. Auto uses the GPU when the
+                     device probe succeeded, Cpu never touches the device, Gpu
+                     asks for it and degrades to CPU with one warning. -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Backend"
+                               VerticalAlignment="Center"
+                               Margin="0,0,1,0"
+                               Opacity="0.75" />
+                    <ComboBox ItemsSource="{Binding McBackendOptions}"
+                              SelectedItem="{Binding McBackend, Mode=TwoWay}"
+                              MinWidth="110"
+                              ToolTip.Tip="Auto uses the GPU when one is available; Cpu never touches the device; Gpu requires it and falls back with a warning." />
+                </StackPanel>
+
                 <TextBlock Text="These settings apply when Monte Carlo runs. Ruin threshold is derived from the funded phase's max-loss % of the active account and updates when the account changes."
                            FontSize="10"
                            Opacity="0.55"

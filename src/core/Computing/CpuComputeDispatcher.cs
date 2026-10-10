@@ -48,7 +48,25 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// </summary>
     private const int McChunkSize = 10_000;
 
-    private readonly IComputeBackend _backend;
+    private readonly ConfigManager? _config;
+    private readonly IComputeBackend _cpu;
+    private readonly IComputeBackend _gpu;
+
+    /// <summary>
+    /// The backend the scheduler is currently claiming chunks against. Resolved
+    /// once per dispatch by <see cref="ResolveBackend"/> and cached here so the
+    /// <see cref="Backend"/> property stays stable for the duration of a run.
+    /// </summary>
+    private IComputeBackend _backend;
+
+    /// <summary>
+    /// Tri-state answer to "is <see cref="_gpu"/> accelerated": 1 yes, 0 no, -1
+    /// not asked yet. The constructor skips the question entirely in
+    /// <c>Cpu</c> mode, so the first non-CPU dispatch is what asks it — and the
+    /// answer is then cached, because a device does not appear or vanish between
+    /// dispatches.
+    /// </summary>
+    private int _gpuAccelerated;
 
     /// <param name="backends">
     /// Every backend the process can resolve. The dispatcher picks the
@@ -57,33 +75,142 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// instead of leaking into every caller. One registration is a valid
     /// collection: a deployment with no GPU registers only the CPU backend.
     /// </param>
-    public CpuComputeDispatcher(IEnumerable<IComputeBackend> backends)
+    /// <param name="config">
+    /// Supplies <see cref="AppSettings.MonteCarloBackend"/>. Optional, and null
+    /// means <c>Auto</c>, so the dispatcher still works in a host that has no
+    /// settings file (a test, a tool, the eventual Compute Worker process). The
+    /// value is re-read on every dispatch rather than captured at construction,
+    /// so flipping the toggle in the UI takes effect on the next run without a
+    /// restart — while a run already in flight keeps the backend it started with,
+    /// because the choice is resolved once per dispatch and never mid-loop.
+    /// </param>
+    public CpuComputeDispatcher(IEnumerable<IComputeBackend> backends, ConfigManager? config = null)
     {
         if (backends == null)
             throw new ArgumentNullException(nameof(backends));
 
+        _config = config;
+
+        // Probed lazily, and only when the configuration can actually use a
+        // device. -1 means "not asked yet"; see ResolveBackend.
+        _gpuAccelerated = -1;
+
         IComputeBackend? first = null;
-        IComputeBackend? accelerated = null;
+        IComputeBackend? candidate = null;
+        bool cpuOnly = IsCpuOnly();
 
         foreach (var backend in backends)
         {
             if (backend == null) continue;
 
-            first ??= backend;
-            if (accelerated == null && backend.IsAccelerated) accelerated = backend;
+            bool isCpuBackend = backend is CpuBackend;
+            if (isCpuBackend && first == null) first = backend;
+
+            // Never ask a deferred backend for IsAccelerated while the configured
+            // mode forbids device use: the answer costs a DirectX 12 probe, and
+            // MonteCarloBackend=Cpu exists precisely to avoid that cost and its
+            // log line.
+            if (!cpuOnly && backend.IsAccelerated)
+            {
+                candidate = backend;
+                _gpuAccelerated = 1;
+                break;
+            }
+
+            candidate ??= backend;
         }
 
-        _backend = accelerated ?? first ?? new CpuBackend();
+        _cpu = first ?? new CpuBackend();
+        _gpu = candidate ?? _cpu;
+        _backend = _cpu;
 
         LogManager.Debug(LogTag.MonteCarlo,
-            $"compute: dispatcher resolved {_backend.Name} " +
-            $"({(accelerated != null ? "accelerated" : "no accelerated backend available")})");
+            $"compute: dispatcher resolved {_cpu.Name}" +
+            (ReferenceEquals(_gpu, _cpu) ? "" : $" + {_gpu.Name}") +
+            (_gpuAccelerated == 1 ? " (accelerated backend available)" : " (device not probed yet)") +
+            $" — MonteCarloBackend={ConfiguredBackend()}");
     }
 
     /// <summary>
-    /// Gets the backend the scheduler claims chunks against.
+    /// True when the configured mode forbids device use outright.
+    /// </summary>
+    private bool IsCpuOnly() =>
+        string.Equals(ConfiguredBackend(), "Cpu", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Gets the backend the scheduler claims chunks against. Resolved per
+    /// dispatch by <see cref="ResolveBackend"/> and cached here so the
+    /// <see cref="Backend"/> property stays stable for the duration of a run.
     /// </summary>
     public IComputeBackend Backend => _backend;
+
+    /// <summary>
+    /// The configured backend name, normalized, for logging and for the
+    /// <c>Gpu</c> fallback warning.
+    /// </summary>
+    private string ConfiguredBackend() =>
+        ConfigManager.NormalizeBackend(_config?.Settings.MonteCarloBackend ?? "Auto");
+
+    /// <summary>
+    /// Picks the backend for one dispatch from the <c>MonteCarloBackend</c>
+    /// setting (ROADMAP Phase 29B.2):
+    ///
+    /// <list type="bullet">
+    ///   <item><description><c>Cpu</c> — never touch the device. The accelerated
+    ///   backend is not even named, so a broken driver cannot cost anything.</description></item>
+    ///   <item><description><c>Gpu</c> — the accelerated backend when the probe
+    ///   succeeded; otherwise one <c>[WRN]</c> and CPU. It warns instead of
+    ///   throwing because "GPU requested, none present" is a degraded
+    ///   configuration, not a failed run.</description></item>
+    ///   <item><description><c>Auto</c> — accelerated when available, CPU
+    ///   otherwise, silently. This is the pre-29B.2 behavior.</description></item>
+    /// </list>
+    /// </summary>
+    private IComputeBackend ResolveBackend()
+    {
+        bool accelerated = IsGpuAccelerated();
+        string configured = ConfiguredBackend();
+
+        switch (configured)
+        {
+            case "Cpu":
+                if (accelerated)
+                {
+                    LogManager.Info(LogTag.MonteCarlo,
+                        "compute: MonteCarloBackend=Cpu — running all Monte Carlo work on the CPU backend, " +
+                        $"device '{_gpu.Name}' not used");
+                }
+
+                return _cpu;
+
+            case "Gpu":
+                if (accelerated) return _gpu;
+
+                // Deduplicated rather than repeated: the absence of an
+                // accelerated backend is a property of the machine, not of each
+                // chunk, so it is worth exactly one warning per run.
+                LogManager.LogOnce.Warn(LogTag.MonteCarlo,
+                    "compute: MonteCarloBackend=Gpu was requested but no accelerated backend is available " +
+                    "(device probe failed or no DirectX 12 hardware) — using the CPU backend");
+
+                return _cpu;
+
+            default:
+                return accelerated ? _gpu : _cpu;
+        }
+    }
+
+    /// <summary>
+    /// Caches the one-time "is the GPU backend accelerated" answer, asking the
+    /// backend (and so probing the device) at most once.
+    /// </summary>
+    private bool IsGpuAccelerated()
+    {
+        if (_gpuAccelerated < 0)
+            _gpuAccelerated = !ReferenceEquals(_gpu, _cpu) && _gpu.IsAccelerated ? 1 : 0;
+
+        return _gpuAccelerated == 1;
+    }
 
     /// <inheritdoc/>
     public async Task<MonteCarloDispatchResult> DispatchMonteCarloAsync(
@@ -105,6 +232,10 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         int iterations = request.Iterations;
         int? seed = request.Seed;
         bool retainCurves = request.RetainCurves;
+
+        // One resolution per dispatch, never per chunk: a toggle flipped while a
+        // run is in flight must not split one batch across two backends.
+        _backend = ResolveBackend();
 
         int chunkSize = McChunkSize;
         int chunkCount = (iterations + chunkSize - 1) / chunkSize;
@@ -258,27 +389,26 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
                     // arbitrary iteration instead of a chunk boundary.
                     if (chunkResults.Count != iterationCount)
                     {
-                        LogManager.Debug(LogTag.MonteCarlo,
+                        LogManager.LogOnce.DebugMsg(LogTag.MonteCarlo,
                             $"compute: chunk #{chunk} abandoned mid-run " +
                             $"({chunkResults.Count}/{iterationCount} iteration(s)) on {_backend.Name}");
                         return;
                     }
 
-                    // Publish only after the whole chunk is in hand; the log line
-                    // carries the absolute iteration range so a chunk-boundary
-                    // determinism regression is visible in runtime-*.log.
+                    // Publish only after the whole chunk is in hand. Deliberately
+                    // silent: this line fired once per chunk — 1,841 times in the
+                    // 926 KB Phase 29B log — to report a success, which the batch
+                    // schedule line above already states. A chunk that does not
+                    // arrive whole is still reported, just below.
                     completedChunks[chunk] = chunkResults;
-
-                    LogManager.Debug(LogTag.MonteCarlo,
-                        $"compute: chunk #{chunk}/{chunkCount} " +
-                        $"[{startIteration}, {startIteration + iterationCount}) " +
-                        $"completed on {_backend.Name}");
                 }
             });
         }
         catch (Exception ex) when (IsCancellation(ex))
         {
-            LogManager.Debug(LogTag.MonteCarlo,
+            // Deduplicated: a cancellation reaches every worker, and each one
+            // used to log the same line (20 identical lines in the Phase 29B log).
+            LogManager.LogOnce.DebugMsg(LogTag.MonteCarlo,
                 $"compute: MonteCarlo dispatch cancelled after {completedChunks.Count}/{chunkCount} " +
                 "chunk(s) — returning the chunks that completed");
         }

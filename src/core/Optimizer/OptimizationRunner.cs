@@ -188,10 +188,13 @@ public sealed class OptimizationRunner
             combinationCount: comboCount,
             refineTopN: config.RefineTopN,
             coarseIterations: config.CoarseIterations,
-            refineIterations: config.RefineIterations);
+            refineIterations: config.RefineIterations,
+            backtestOuter: backtestOuter,
+            coarseOuter: coarseOuter,
+            refineOuter: refineOuter);
 
         LogManager.Info(LogTag.Runner,
-            $"optimization {batchId}: ETA estimate {eta.TotalEstimateSeconds:F1}s - {eta.Breakdown}");
+            $"optimization {batchId}: ETA estimate {eta.InitialEstimateSeconds:F1}s - {eta.Breakdown}");
 
         var versions = new OptimizationVersion[comboCount];
         var tradesByVersion = new IReadOnlyList<Trade>[comboCount];
@@ -232,6 +235,7 @@ public sealed class OptimizationRunner
                         .ConfigureAwait(false);
                     long versionEnd = Stopwatch.GetTimestamp();
                     double versionMs = TicksToMs(versionEnd - versionStart);
+                    eta.RecordBacktest(versionMs);
                     Interlocked.Add(ref _stageBacktestTicks, versionEnd - versionStart);
 
                     // RunBacktestFromFileAsync does the per-version disk read
@@ -359,8 +363,10 @@ public sealed class OptimizationRunner
                 cancellationToken: ct,
                 maxDegreeOfParallelism: coarseInner,
                 retainCurves: false);
+            long mcEnd = Stopwatch.GetTimestamp();
             StageCall(ref _callsCoarseMc);
-            Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - mcStart);
+            Interlocked.Add(ref _stageMcCallTicks, mcEnd - mcStart);
+            eta.RecordCoarseMc(TicksToMs(mcEnd - mcStart), config.CoarseIterations);
 
             versions[i] = v with
             {
@@ -461,8 +467,10 @@ public sealed class OptimizationRunner
                 cancellationToken: ct,
                 maxDegreeOfParallelism: refineInner,
                 retainCurves: refineRetainCurves);
+            long mcEnd = Stopwatch.GetTimestamp();
             StageCall(ref _callsRefineMc);
-            Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - mcStart);
+            Interlocked.Add(ref _stageMcCallTicks, mcEnd - mcStart);
+            eta.RecordRefineMc(TicksToMs(mcEnd - mcStart), config.RefineIterations);
 
             double edgePct = double.NaN;
             double nullMean = double.NaN;
@@ -497,8 +505,10 @@ public sealed class OptimizationRunner
                     cancellationToken: ct,
                     maxDegreeOfParallelism: refineInner,
                     retainCurves: false);
+                long nullMcEnd = Stopwatch.GetTimestamp();
                 StageCall(ref _callsRefineMc);
-                Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - nullMcStart);
+                Interlocked.Add(ref _stageMcCallTicks, nullMcEnd - nullMcStart);
+                eta.RecordNullMc(TicksToMs(nullMcEnd - nullMcStart), config.RefineIterations);
 
                 edgePct = (mcResult.TerminalBalanceMean - nullResult.TerminalBalanceMean)
                           / config.StartingCapital * 100.0;
@@ -554,7 +564,7 @@ public sealed class OptimizationRunner
 
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: complete in {wall.ElapsedMilliseconds} ms " +
-            $"(estimate was {eta.TotalEstimateSeconds:F1}s)");
+            $"(estimate was {eta.InitialEstimateSeconds:F1}s, final projection {eta.EstimateTotal():F1}s)");
 
         progress?.Report(new OptimizationProgress(
             "Done", 1, 1,

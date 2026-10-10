@@ -52,6 +52,28 @@ public class AppSettings
     public double OptimizerGpuFactor { get; set; } = 1.0;
 
     /// <summary>
+    /// Which backend the Monte Carlo dispatcher uses (ROADMAP Phase 29B.2).
+    /// One of <c>Auto</c>, <c>Cpu</c>, <c>Gpu</c>; compared
+    /// case-insensitively and normalized on load, so an existing
+    /// <c>settings.json</c> without the field upgrades silently to
+    /// <c>Auto</c>.
+    /// </summary>
+    /// <remarks>
+    ///   <list type="bullet">
+    ///     <item><description><c>Auto</c> (default) — use the accelerated backend
+    ///     when one probed successfully, the CPU backend otherwise.</description></item>
+    ///     <item><description><c>Cpu</c> — never probe the device and never
+    ///     dispatch to it. The escape hatch for a GPU path that misbehaves.</description></item>
+    ///     <item><description><c>Gpu</c> — prefer the accelerated backend, but
+    ///     degrade to CPU with one warning when the probe failed.</description></item>
+    ///   </list>
+    /// </remarks>
+    public string MonteCarloBackend { get; set; } = "Auto";
+
+    /// <summary>The canonical backend-selection values, in UI order.</summary>
+    public static readonly string[] MonteCarloBackendValues = { "Auto", "Cpu", "Gpu" };
+
+    /// <summary>
     /// Per-parameter grid ranges for the optimizer, persisted so a range
     /// survives strategy switches and app restarts.
     /// Key: "{strategyName}|{paramName}". Value: "{min}|{max}|{step}"
@@ -178,6 +200,37 @@ public class ConfigManager
         if (Settings.OptimizerRefineTopN <= 0)        Settings.OptimizerRefineTopN = 20;
         if (Settings.OptimizerGpuFactor <= 0)         Settings.OptimizerGpuFactor = 1.0;
         Settings.OptimizerGridRanges ??= new Dictionary<string, string>();
+
+        // Phase 29B.2 — an absent field deserializes to the "Auto" initializer, so
+        // an existing settings.json upgrades without a migration. Anything that is
+        // present but not a canonical value (a typo, a stale lowercase value) is
+        // normalized once here rather than being rejected mid-dispatch.
+        Settings.MonteCarloBackend = NormalizeBackend(Settings.MonteCarloBackend);
+    }
+
+    /// <summary>
+    /// Maps <paramref name="value"/> onto a canonical backend name, defaulting to
+    /// <c>Auto</c>. Null, empty, and unrecognized values warn once and resolve to
+    /// the default rather than throwing — an unusable setting must not be able to
+    /// stop the app from starting.
+    /// </summary>
+    public static string NormalizeBackend(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Auto";
+
+        var trimmed = value.Trim();
+
+        foreach (var candidate in AppSettings.MonteCarloBackendValues)
+        {
+            if (string.Equals(trimmed, candidate, StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        }
+
+        LogManager.Warn(LogTag.Config,
+            $"settings: unknown MonteCarloBackend '{trimmed}' — using 'Auto' " +
+            $"(expected one of: {string.Join(", ", AppSettings.MonteCarloBackendValues)})");
+
+        return "Auto";
     }
 
     public void SaveConfig()

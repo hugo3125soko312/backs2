@@ -46,8 +46,29 @@ public sealed class GpuBackend : IComputeBackend
     private const int GpuIterationBatch = 10_000;
 
     private readonly CpuBackend _fallback;
-    private readonly GraphicsDevice? _device;
-    private readonly SimulationKernelGpu? _kernel;
+
+    /// <summary>
+    /// The probed device and the kernel built against it, both created on first
+    /// use rather than in the constructor (ROADMAP Phase 29B.2).
+    ///
+    /// <para><b>Why deferred.</b> The probe is the only expensive, device-touching
+    /// thing this class does, and it logs a device line when it succeeds. The DI
+    /// container builds this backend as soon as the dispatcher resolves, so an
+    /// eager probe would make <c>MonteCarloBackend=Cpu</c> — the setting whose
+    /// entire purpose is "do not go near the GPU" — still initialise the device
+    /// and still write the probe line. Deferring it makes that setting literally
+    /// true: with <c>Cpu</c> nothing here is ever touched, and
+    /// <see cref="_device"/> / <see cref="_kernel"/> stay uncreated.</para>
+    ///
+    /// <para><b>When it fires.</b> On the first read of
+    /// <see cref="IsAccelerated"/> or <see cref="Name"/>, which is exactly when
+    /// <c>CpuComputeDispatcher.ResolveBackend</c> decides whether the configured
+    /// mode can use a device. <see cref="LazyThreadSafetyMode.ExecutionAndPublication"/>
+    /// means concurrent first dispatches still probe once.</para>
+    /// </summary>
+    private readonly Lazy<GraphicsDevice?> _device;
+
+    private readonly Lazy<SimulationKernelGpu?> _kernel;
 
     /// <param name="fallback">
     /// CPU backend used whenever no device is available, when the device is not
@@ -57,25 +78,46 @@ public sealed class GpuBackend : IComputeBackend
     public GpuBackend(CpuBackend? fallback = null)
     {
         _fallback = fallback ?? new CpuBackend();
-        _device = TryProbeDevice();
 
-        // The kernel is bound to the device, so it is created once here rather
-        // than per dispatch. A failure to build it degrades to the fallback, the
-        // same way a missing device does.
-        _kernel = _device != null && _device.IsHardwareAccelerated
-            ? TryCreateKernel(_device)
-            : null;
+        // The kernel is bound to the device, so it is built once, right after the
+        // probe, rather than per dispatch. A failure to build it degrades to the
+        // fallback the same way a missing device does.
+        _device = new Lazy<GraphicsDevice?>(TryProbeDevice, LazyThreadSafetyMode.ExecutionAndPublication);
+        _kernel = new Lazy<SimulationKernelGpu?>(CreateKernelIfAccelerated, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
-        if (_device != null && !_device.IsHardwareAccelerated)
+    /// <summary>
+    /// Builds the kernel, or returns null when there is no hardware-accelerated
+    /// device to build it against. Reading <see cref="_device"/> here is what
+    /// triggers the probe, which is why this is separate from the constructor.
+    /// </summary>
+    private SimulationKernelGpu? CreateKernelIfAccelerated()
+    {
+        var device = _device.Value;
+
+        if (device == null) return null;
+
+        if (!device.IsHardwareAccelerated)
         {
             LogManager.Warn(LogTag.MonteCarlo,
-                $"compute: DirectX 12 device '{_device.Name}' is a software adapter — " +
+                $"compute: DirectX 12 device '{device.Name}' is a software adapter — " +
                 "not claiming GPU acceleration, CPU fallback in use");
+
+            return null;
         }
+
+        return TryCreateKernel(device);
     }
 
     /// <inheritdoc/>
-    public string Name => _device != null ? $"GPU ({_device.Name})" : _fallback.Name;
+    public string Name
+    {
+        get
+        {
+            var device = _device.Value;
+            return device != null ? $"GPU ({device.Name})" : _fallback.Name;
+        }
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -84,12 +126,13 @@ public sealed class GpuBackend : IComputeBackend
     /// against it. A software adapter or a kernel-creation failure reports false,
     /// so the claim always matches what dispatch actually does.
     /// </remarks>
-    public bool IsAccelerated => _kernel != null;
+    public bool IsAccelerated => _kernel.Value != null;
 
     /// <summary>
-    /// Gets the probed DirectX 12 device, or null when the probe failed.
+    /// Gets the probed DirectX 12 device, or null when the probe failed. Reads
+    /// the device, so it triggers the probe on first call.
     /// </summary>
-    public GraphicsDevice? Device => _device;
+    public GraphicsDevice? Device => _device.Value;
 
     /// <inheritdoc/>
     public Task<MonteCarloDispatchResult> RunSimulationsAsync(
@@ -105,12 +148,11 @@ public sealed class GpuBackend : IComputeBackend
             return Task.FromResult(MonteCarloDispatchResult.Empty);
 
         // No accelerated kernel: the fallback carries the whole call, with no
-        // re-probe and no per-call Warn noise (the constructor already logged).
-        if (_kernel == null)
+        // re-probe and no per-call Warn noise (the probe logged once already).
+        var kernel = _kernel.Value;
+        if (kernel == null)
             return _fallback.RunSimulationsAsync(
                 slices, request, iterations, seed, retainCurves, maxDegreeOfParallelism, ct);
-
-        var kernel = _kernel;
 
         return Task.Run(() =>
         {
@@ -150,31 +192,43 @@ public sealed class GpuBackend : IComputeBackend
         if (slices == null || slices.Length == 0 || request.TargetDurationSlices <= 0 || iterationCount <= 0)
             return Task.FromResult(MonteCarloDispatchResult.Empty);
 
-        if (_kernel == null)
-            return _fallback.RunIterationsAsync(
-                slices, request, startIteration, iterationCount, seed, retainCurves, ct);
-
         // A single GPU dispatch is one unit of work on one device queue; the
         // scheduler's workers are already the outer parallelism, and it claims
         // chunks from a shared queue rather than sending several at once.
-        var kernel = _kernel;
+        var kernel = _kernel.Value;
+        if (kernel == null)
+            return _fallback.RunIterationsAsync(
+                slices, request, startIteration, iterationCount, seed, retainCurves, ct);
 
         return Task.Run(() =>
         {
-            var chunks = new List<MonteCarloDispatchResult>();
+            // The run's fallback accounting is opened and closed around the whole
+            // batch, so a batch that degrades reports one summary line rather than
+            // one per chunk. Nothing is lost when every dispatch succeeds: the
+            // counters stay at zero and the summary is never emitted.
+            LogManager.LogOnce.RecordDispatch();
 
-            for (int offset = 0; offset < iterationCount; offset += GpuIterationBatch)
+            try
             {
-                if (ct.IsCancellationRequested)
-                    break;
+                var chunks = new List<MonteCarloDispatchResult>();
 
-                int count = Math.Min(GpuIterationBatch, iterationCount - offset);
+                for (int offset = 0; offset < iterationCount; offset += GpuIterationBatch)
+                {
+                    if (ct.IsCancellationRequested)
+                        break;
 
-                chunks.Add(kernel.RunChunk(
-                    slices, request, startIteration + offset, count, seed, retainCurves, _fallback));
+                    int count = Math.Min(GpuIterationBatch, iterationCount - offset);
+
+                    chunks.Add(kernel.RunChunk(
+                        slices, request, startIteration + offset, count, seed, retainCurves, _fallback));
+                }
+
+                return MonteCarloDispatchResult.Concat(chunks);
             }
-
-            return MonteCarloDispatchResult.Concat(chunks);
+            finally
+            {
+                LogManager.LogOnce.FlushFallbackSummary();
+            }
         }, CancellationToken.None);
     }
 
