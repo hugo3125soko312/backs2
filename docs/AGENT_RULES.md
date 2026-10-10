@@ -208,6 +208,36 @@ Before sending any response, verify:
 - [ ] If uncertain but NOT escalating, you stated your confidence level
       explicitly instead of guessing silently.
 
+## File Emission Patterns
+
+Two patterns for emitting code. Pick the one that matches the change.
+
+### A. New or standalone file -> LONG_WORK zip
+
+When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit it inside a BDS:LONG_WORK block wrapping one or more BDS:create_file tags. The chat extension collects them into a single .zip that `docs/watch_downloads.go` extracts into the repository root, overwriting in place.
+
+Rules:
+- **Exact relative project paths** in the create_file `fileName` (e.g. `src/core/Foo.cs`, never an absolute path). The watcher extracts relative to repo root, so a leading slash or a drive letter breaks it.
+- **One file per create_file tag.** Do not concatenate multiple files.
+- **Full file content, not a diff.** The zip overwrites, it does not merge.
+- **No prose inside the LONG_WORK block.** A one-line summary after the closing tag is the only allowed commentary.
+- **Renderer-safe C#.** The chat's Markdown/LaTeX pipeline eats `$"...{x}..."` interpolations and mangles `<` / `>` inside inline code. Convert interpolated strings to `+` concatenation, escape `<` / `>` in XML doc comments as `&lt;` / `&gt;`, and never put a bare `$` immediately before a quote. A file that arrives mangled from the ZIP is worse than a clean patch.
+
+### B. Targeted change to an existing file -> PowerShell patch
+
+When the change is one or a few anchored edits inside an existing file, emit a single powershell-fenced block that:
+
+1. Reads the file: `$c = Get-Content <path> -Raw`.
+2. Detects newline style from the file itself so the patch survives either line-ending convention.
+3. Replaces anchored substrings with `.Replace(old, new)` — one pair per edit, executed in order.
+4. Guards every anchor: `if (-not $c.Contains($old)) { throw 'anchor missing: <id>' }` — a drifted anchor aborts before `Set-Content` runs, so the file is left untouched and the failure is legible.
+5. Writes with `Set-Content <path> -Value $c -NoNewline`.
+6. Ends with **one** build command (see the Build Protocol below), never `build` followed by `run`.
+
+The patch pattern is preferred when the file is large, when only a few lines change, and when a stable anchor can be trusted. If no anchor exists — the region has drifted across prior commits — fall back to the LONG_WORK pattern and re-emit the whole file.
+
+When a new file is small and self-contained (a helper script, a config sample), it may also be written via `Set-Content` with a here-string rather than routed through the ZIP pipeline. Use your judgement: the ZIP is for code the user will open and edit; `Set-Content` is for small fixtures and utilities.
+
 ## Completion Protocol (applies to EVERY unit of work)
 This protocol fires whenever ANY of the following is completed:
 - A phase or sub-phase in docs/ROADMAP.md.
@@ -290,32 +320,38 @@ Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipbo
 - Do not also list the files in prose — the command is the request.
 
 ## PowerShell & File System Protocol
+
 - You have access to PowerShell 7 environments.
 - You may propose PowerShell 7 commands to perform diagnostic or file-system tasks.
-- File Access Constraint: Before reading, writing, or modifying any file, you must explicitly state the file path and request permission or wait for the user to confirm the operation.
-- Execution Protocol: If an action requires terminal interaction, propose the exact PowerShell command inside a ```powershell fenced block, wait for the user to execute it and provide the output, then analyze the results before proceeding.
+- File Access Constraint: before reading, writing, or modifying any file, state the file path and request permission or wait for the user to confirm the operation.
+- Execution Protocol: if an action requires terminal interaction, propose the exact PowerShell command inside a powershell-fenced block, wait for the user to execute it and provide the output, then analyze the results before proceeding.
 - Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
-- Diagnosis first: When an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes. Exception: when the error message itself identifies a specific missing file (e.g. "Unable to resolve type X", "Root element is missing"), rewrite the file directly instead of running a diagnostic loop.
-- Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes. Repeated speculative changes waste the user's time.
-- Build only (compile-time changes):
+- Diagnosis first: when an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes. Exception: when the error message itself identifies a specific missing file (e.g. "Unable to resolve type X", "Root element is missing"), rewrite the file directly instead of running a diagnostic loop.
+- Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes.
 
-```powershell
-dotnet build --no-incremental 2>&1 | Select-Object -Last 15
-```
+### Build Protocol - one command, never both
+
+Choose **one** of the two commands per response. Never emit both.
+
+- **Compile-only change** (types, signatures, refactors that do not affect runtime behaviour, docs-only, test scaffolding) -> run **only** the build:
+
+  ```powershell
+  dotnet build --no-incremental 2>&1 | Select-Object -Last 15
+  ```
 
   Success ends with `Build succeeded`.
 
-- Build + run (runtime changes):
+- **Runtime change that needs a user test** (UI, wiring, anything the user must click through to confirm) -> run **only** the app:
 
-```powershell
-dotnet run
-```
+  ```powershell
+  dotnet run
+  ```
 
-  Then after the app closes:
+  Then, after the user closes the app:
 
-```powershell
-Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
-```
+  ```powershell
+  Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
+  ```
 
-- Ask for build OR run, never both. Compile-only change → build. Runtime change → run.
+- **Why "never both".** A successful `dotnet run` implies a successful build — it compiles first, then launches. Prefixing it with a separate `dotnet build` forces a second full compile, doubles the wait, and adds no signal: a failing build would fail the same way inside the run, just later. There is no workflow in this repository where running after building helps.
 - If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.
