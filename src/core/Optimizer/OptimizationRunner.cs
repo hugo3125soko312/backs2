@@ -35,6 +35,51 @@ public sealed class OptimizationRunner
     private readonly MonteCarloEngine _mc;
     private readonly OptimizationStore _store;
 
+    // ------------------------------------------------------------------
+    // Phase 29A — stage instrumentation (temporary scaffolding).
+    //
+    // Per-stage accumulated timestamps, in raw Stopwatch ticks. The
+    // instrumentation is observation only: nothing here changes a
+    // computation, skips work, or reorders a loop. Ticks are converted to
+    // milliseconds once, in the closing summary, so the hot path pays one
+    // Interlocked.Add per instrumented region and no allocation.
+    //
+    // Timestamps come from Stopwatch.GetTimestamp() +
+    // Stopwatch.GetElapsedTime(start, end), matching the [startup] marker
+    // style in App.axaml.cs. Unlike a shared Stopwatch.Restart(), that is
+    // safe on the parallel backtest path, where per-version regions run
+    // concurrently and their elapsed ranges overlap.
+    //
+    // Accumulators are per-instance and OptimizationRunner is a DI
+    // singleton, so RunAsync resets them before every run. The UI runs one
+    // Optimize pass at a time (IsBusy guards it), which is what makes the
+    // reset safe.
+    // ------------------------------------------------------------------
+
+    private long _callsSliceBuild;
+    private long _callsCoarseMc;
+    private long _callsRefineMc;
+    private long _callsNullGenerate;
+
+    private long _stageBacktestTicks;
+    private long _stageCompileLookupTicks;
+    private long _stageSliceBuildTicks;
+    private long _stageMcCallTicks;
+    private long _stageNullGenerateTicks;
+
+    private long _stageCompileLookupVersionTicks;
+    private long _stageCoarseVersionTicks;
+    private long _stageRefineVersionTicks;
+
+    // Converted from accumulated ticks once, at summary time.
+    private double _msBacktest;
+    private double _msDiskIo;
+    private double _msSliceBuild;
+    private double _msMcCall;
+    private double _msCoarseVersion;
+    private double _msRefineVersion;
+    private double _msNullGenerate;
+
     public OptimizationRunner(StrategyManager strat, MonteCarloEngine mc, OptimizationStore store)
     {
         _strat = strat;
@@ -57,6 +102,17 @@ public sealed class OptimizationRunner
             throw new ArgumentException("Optimization needs a non-empty data series.", nameof(data));
 
         var wall = Stopwatch.StartNew();
+        ResetStageTimers();
+
+        // Setup runs on this thread, so a plain timestamp pair is enough.
+        long setupStart = Stopwatch.GetTimestamp();
+        double setupMs = 0.0;
+        double backtestMs = 0.0;
+        double coarseMs = 0.0;
+        double refineMs = 0.0;
+        double saveMs = 0.0;
+        int survivorCount = 0;
+
         var batchId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
 
         double dataSpanYears = ComputeDataSpanYears(data);
@@ -111,6 +167,15 @@ public sealed class OptimizationRunner
         bool savedSerialize = _strat.SerializeBacktests;
         _strat.SerializeBacktests = false;
 
+        setupMs = Stopwatch.GetElapsedTime(setupStart, Stopwatch.GetTimestamp()).TotalMilliseconds;
+
+        // The whole run body sits inside one try/finally so the Phase 29A
+        // summary is emitted on the cancel path as well as the success path.
+        // `savedSerialize` is captured before the try because the inner
+        // finally that restores it must still run when the summary throws.
+        try
+        {
+        long backtestStart = Stopwatch.GetTimestamp();
         try
         {
             int completedBacktests = 0;
@@ -130,8 +195,30 @@ public sealed class OptimizationRunner
                     foreach (var p in paramSet)
                         paramDict[p.Name] = p.Value;
 
+                    long versionStart = Stopwatch.GetTimestamp();
                     var result = await _strat.RunBacktestFromFileAsync(strategyPath, data, paramDict, token)
                         .ConfigureAwait(false);
+                    long versionEnd = Stopwatch.GetTimestamp();
+                    double versionMs = TicksToMs(versionEnd - versionStart);
+                    Interlocked.Add(ref _stageBacktestTicks, versionEnd - versionStart);
+
+                    // RunBacktestFromFileAsync does the per-version disk read
+                    // (File.ReadAllTextAsync) and then the compile-cache path
+                    // in StrategyManager. StrategyManager is out of scope for
+                    // this phase, so the compile-cache lookup is measured
+                    // rather than wrapped: total call time minus script
+                    // execution (StrategyRunResult.Duration) leaves everything
+                    // StrategyManager does around the script — the file
+                    // existence check, the FileInfo stat, the compile-cache
+                    // lookup in GetOrCreateRunner, and the source read. That
+                    // residual is one number because the lookup and the read
+                    // are not separable from outside StrategyManager; it is a
+                    // derived span, not a directly wrapped one.
+                    double scriptMs = result.Duration.TotalMilliseconds;
+                    double lookupMs = versionMs > scriptMs ? versionMs - scriptMs : 0.0;
+                    Interlocked.Add(ref _stageCompileLookupTicks,
+                        (long)Math.Round(lookupMs * Stopwatch.Frequency / 1000.0));
+                    Interlocked.Add(ref _stageCompileLookupVersionTicks, 1);
 
                     tradesByVersion[i] = result.Trades;
 
@@ -166,6 +253,8 @@ public sealed class OptimizationRunner
             _strat.SerializeBacktests = savedSerialize;
         }
 
+        backtestMs = TicksToMs(Stopwatch.GetTimestamp() - backtestStart);
+
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: backtests complete in {wall.ElapsedMilliseconds} ms");
 
@@ -175,6 +264,8 @@ public sealed class OptimizationRunner
         // Phase 2 - coarse MC, outer-parallel with adaptive inner degree.
         // Coarse curves are never consumed, so retainCurves is false here.
         // ------------------------------------------------------------------
+
+        long coarseStart = Stopwatch.GetTimestamp();
 
         int coarseDone = 0;
         var coarseOptions = new ParallelOptions
@@ -187,6 +278,8 @@ public sealed class OptimizationRunner
         {
             ct.ThrowIfCancellationRequested();
 
+            long versionStart = Stopwatch.GetTimestamp();
+
             var v = versions[i];
             var trades = tradesByVersion[i] ?? Array.Empty<Trade>();
 
@@ -197,10 +290,15 @@ public sealed class OptimizationRunner
                     "Coarse MC", d, comboCount,
                     $"Coarse MC {d}/{comboCount} (skipped)",
                     eta.Remaining()));
+                Interlocked.Add(ref _stageCoarseVersionTicks, Stopwatch.GetTimestamp() - versionStart);
                 return;
             }
 
+            long sliceStart = Stopwatch.GetTimestamp();
             var slices = TimeSliceBuilder.Build(trades, data);
+            StageCall(ref _callsSliceBuild);
+            Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - sliceStart);
+
             if (slices.Length == 0)
             {
                 int d = Interlocked.Increment(ref coarseDone);
@@ -208,9 +306,11 @@ public sealed class OptimizationRunner
                     "Coarse MC", d, comboCount,
                     $"Coarse MC {d}/{comboCount} (no slices)",
                     eta.Remaining()));
+                Interlocked.Add(ref _stageCoarseVersionTicks, Stopwatch.GetTimestamp() - versionStart);
                 return;
             }
 
+            long mcStart = Stopwatch.GetTimestamp();
             var mcResult = _mc.Run(
                 slices,
                 targetSlices,
@@ -227,6 +327,8 @@ public sealed class OptimizationRunner
                 cancellationToken: ct,
                 maxDegreeOfParallelism: coarseInner,
                 retainCurves: false);
+            StageCall(ref _callsCoarseMc);
+            Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - mcStart);
 
             versions[i] = v with
             {
@@ -243,8 +345,11 @@ public sealed class OptimizationRunner
                 "Coarse MC", done, comboCount,
                 $"Coarse MC {done}/{comboCount}",
                 eta.Remaining()));
+
+            Interlocked.Add(ref _stageCoarseVersionTicks, Stopwatch.GetTimestamp() - versionStart);
         });
 
+        coarseMs = TicksToMs(Stopwatch.GetTimestamp() - coarseStart);
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: coarse MC complete at {wall.ElapsedMilliseconds} ms");
 
@@ -255,6 +360,7 @@ public sealed class OptimizationRunner
             .ThenByDescending(t => t.Version.Mc!.TerminalBalanceMedian)
             .Take(config.RefineTopN)
             .ToList();
+        survivorCount = survivors.Count;
 
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: refining top {survivors.Count} survivor(s) at {config.RefineIterations} iterations");
@@ -276,6 +382,8 @@ public sealed class OptimizationRunner
                 $"would exceed MaxCurveCells ({MonteCarloEngine.MaxCurveCells:N0})");
         }
 
+        long refineStart = Stopwatch.GetTimestamp();
+
         int refineDone = 0;
         var refineOptions = new ParallelOptions
         {
@@ -287,15 +395,24 @@ public sealed class OptimizationRunner
         {
             ct.ThrowIfCancellationRequested();
 
+            long versionStart = Stopwatch.GetTimestamp();
+
             var (v, i) = survivors[j];
             var trades = tradesByVersion[i] ?? Array.Empty<Trade>();
+
+            long sliceStart = Stopwatch.GetTimestamp();
             var slices = TimeSliceBuilder.Build(trades, data);
+            StageCall(ref _callsSliceBuild);
+            Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - sliceStart);
+
             if (slices.Length == 0)
             {
                 Interlocked.Increment(ref refineDone);
+                Interlocked.Add(ref _stageRefineVersionTicks, Stopwatch.GetTimestamp() - versionStart);
                 return;
             }
 
+            long mcStart = Stopwatch.GetTimestamp();
             var mcResult = _mc.Run(
                 slices,
                 targetSlices,
@@ -312,6 +429,8 @@ public sealed class OptimizationRunner
                 cancellationToken: ct,
                 maxDegreeOfParallelism: refineInner,
                 retainCurves: refineRetainCurves);
+            StageCall(ref _callsRefineMc);
+            Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - mcStart);
 
             double edgePct = double.NaN;
             double nullMean = double.NaN;
@@ -319,9 +438,17 @@ public sealed class OptimizationRunner
 
             if (trades.Count >= EdgeMinTrades)
             {
+                long nullStart = Stopwatch.GetTimestamp();
                 var nullTrades = NullModelGenerator.GenerateRandomSignalTrades(trades, EdgeNullSeed);
-                var nullSlices = TimeSliceBuilder.Build(nullTrades, data);
+                StageCall(ref _callsNullGenerate);
+                Interlocked.Add(ref _stageNullGenerateTicks, Stopwatch.GetTimestamp() - nullStart);
 
+                long nullSliceStart = Stopwatch.GetTimestamp();
+                var nullSlices = TimeSliceBuilder.Build(nullTrades, data);
+                StageCall(ref _callsSliceBuild);
+                Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - nullSliceStart);
+
+                long nullMcStart = Stopwatch.GetTimestamp();
                 var nullResult = _mc.Run(
                     nullSlices,
                     targetSlices,
@@ -338,6 +465,8 @@ public sealed class OptimizationRunner
                     cancellationToken: ct,
                     maxDegreeOfParallelism: refineInner,
                     retainCurves: false);
+                StageCall(ref _callsRefineMc);
+                Interlocked.Add(ref _stageMcCallTicks, Stopwatch.GetTimestamp() - nullMcStart);
 
                 edgePct = (mcResult.TerminalBalanceMean - nullResult.TerminalBalanceMean)
                           / config.StartingCapital * 100.0;
@@ -359,7 +488,11 @@ public sealed class OptimizationRunner
                 "Refine MC", done, survivors.Count,
                 $"Refine {done}/{survivors.Count}",
                 eta.Remaining()));
+
+            Interlocked.Add(ref _stageRefineVersionTicks, Stopwatch.GetTimestamp() - versionStart);
         });
+
+        refineMs = TicksToMs(Stopwatch.GetTimestamp() - refineStart);
 
         progress?.Report(new OptimizationProgress("Save", 0, 1, "Saving batch...", eta.Remaining()));
 
@@ -383,9 +516,9 @@ public sealed class OptimizationRunner
             DataSpanYears: dataSpanYears,
             Versions: versions);
 
+        long saveStart = Stopwatch.GetTimestamp();
         await _store.SaveAsync(batch, ct).ConfigureAwait(false);
-
-        wall.Stop();
+        saveMs = TicksToMs(Stopwatch.GetTimestamp() - saveStart);
 
         LogManager.Info(LogTag.Runner,
             $"optimization {batchId}: complete in {wall.ElapsedMilliseconds} ms " +
@@ -397,7 +530,147 @@ public sealed class OptimizationRunner
             eta.Remaining()));
 
         return batch;
+
+        }
+        finally
+        {
+            // Phase 29A — one summary line per instrumented stage, emitted
+            // once per run on both the success and the cancel path.
+            // Per-iteration logging was deliberately avoided: 2000+ lines
+            // would flood the log and add measurable I/O to the thing being
+            // measured.
+            wall.Stop();
+            EmitStageSummary(batchId, wall.Elapsed, setupMs, backtestMs, coarseMs, refineMs, saveMs, comboCount, survivorCount);
+        }
     }
+
+    // ------------------------------------------------------------------
+    // Phase 29A instrumentation helpers
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Clears the stage accumulators. OptimizationRunner is a DI singleton,
+    /// so without this a second Optimize pass would inherit the first pass's
+    /// numbers.
+    /// </summary>
+    private void ResetStageTimers()
+    {
+        _callsSliceBuild = 0;
+        _callsCoarseMc = 0;
+        _callsRefineMc = 0;
+        _callsNullGenerate = 0;
+
+        _stageBacktestTicks = 0;
+        _stageCompileLookupTicks = 0;
+        _stageSliceBuildTicks = 0;
+        _stageMcCallTicks = 0;
+        _stageNullGenerateTicks = 0;
+
+        _stageCompileLookupVersionTicks = 0;
+        _stageCoarseVersionTicks = 0;
+        _stageRefineVersionTicks = 0;
+
+        _msBacktest = 0;
+        _msDiskIo = 0;
+        _msSliceBuild = 0;
+        _msMcCall = 0;
+        _msCoarseVersion = 0;
+        _msRefineVersion = 0;
+        _msNullGenerate = 0;
+    }
+
+    /// <summary>
+    /// Counts one invocation of a stage. Reached from the parallel phases, so
+    /// the increment is atomic.
+    /// </summary>
+    private static void StageCall(ref long invocationCount)
+        => Interlocked.Increment(ref invocationCount);
+
+    private void EmitStageSummary(
+        string batchId,
+        TimeSpan wall,
+        double setupMs,
+        double backtestMs,
+        double coarseMs,
+        double refineMs,
+        double saveMs,
+        int comboCount,
+        int survivorCount)
+    {
+        ConvertStageTimestampsToMs();
+
+        double totalMs = wall.TotalMilliseconds;
+
+        // `covered` is the sum of the phase wall spans. Setup, backtest,
+        // coarse, refine and save each occupy a distinct stretch of the
+        // orchestration thread, so they partition wall time into consecutive
+        // phases. The per-version and per-MC-call spans are summed across
+        // their workers and are therefore excluded here; they say how much
+        // CPU each phase consumed, not how much wall time it owned.
+        double coveredMs = setupMs + backtestMs + coarseMs + refineMs + saveMs;
+
+        LogManager.Info(LogTag.Runner,
+            $"[29A] optimization {batchId}: total wall {totalMs:F0} ms, " +
+            $"Environment.ProcessorCount {Environment.ProcessorCount}, " +
+            $"combinations {comboCount}, survivors {survivorCount}");
+
+        LogManager.Info(LogTag.Runner,
+            $"[29A]   phase coverage: {coveredMs:F0} ms ({Percent(coveredMs, totalMs)} of wall), " +
+            $"unaccounted {Math.Max(0.0, totalMs - coveredMs):F0} ms");
+
+        // One line per stage, never one per invocation. The per-version and
+        // per-MC-call spans are summed across every concurrent worker, so
+        // they can legitimately exceed wall time (and 100%) when their
+        // parallelism is wider than one core. That overshoot is the
+        // parallelism itself, not a measurement error.
+        LogStage("Setup (grid + topology + ETA)", setupMs, 1, totalMs);
+        LogStage("Backtest phase (wall)", backtestMs, comboCount, totalMs);
+        LogStage("  of which per-version backtest span (thread-summed)", _msBacktest, comboCount, totalMs);
+        LogStage("StrategyManager overhead (stat + compile-cache lookup + source read, derived)",
+            _msDiskIo, comboCount, totalMs);
+        LogStage("TimeSliceBuilder.Build", _msSliceBuild, _callsSliceBuild, totalMs);
+        LogStage("Coarse MC phase (wall)", coarseMs, comboCount, totalMs);
+        LogStage("Refine MC phase (wall)", refineMs, survivorCount, totalMs);
+        LogStage("MC engine calls (coarse + refine, thread-summed)", _msMcCall,
+            _callsCoarseMc + _callsRefineMc, totalMs);
+        LogStage("NullModelGenerator.GenerateRandomSignalTrades", _msNullGenerate, _callsNullGenerate, totalMs);
+        LogStage("Save/persist (OptimizationStore.SaveAsync)", saveMs, 1, totalMs);
+
+        LogManager.Info(LogTag.Runner,
+            $"[29A]   version detail: backtest {comboCount} call(s), " +
+            $"coarse-version {comboCount} ({_msCoarseVersion:F0} ms summed), " +
+            $"refine-version {survivorCount} ({_msRefineVersion:F0} ms summed), " +
+            $"derived StrategyManager residual {_msDiskIo:F0} ms " +
+            $"over {_stageCompileLookupVersionTicks} version(s)");
+    }
+
+    /// <summary>
+    /// Percent of wall time, or `n/a` when the run recorded no wall time
+    /// (zero-combination runs, and any run whose Stopwatch never advanced).
+    /// </summary>
+    private static string Percent(double elapsedMs, double totalMs)
+        => totalMs > 0.0 ? $"{(elapsedMs / totalMs * 100.0):F1}%" : "n/a";
+
+    private static void LogStage(string name, double elapsedMs, long invocations, double totalMs)
+    {
+        LogManager.Info(LogTag.Runner,
+            $"[29A]   {name}: {elapsedMs:F0} ms, {Percent(elapsedMs, totalMs)} of wall, " +
+            $"{invocations} invocation(s)");
+    }
+
+    private void ConvertStageTimestampsToMs()
+    {
+        _msBacktest = TicksToMs(_stageBacktestTicks);
+        _msDiskIo = TicksToMs(_stageCompileLookupTicks);
+        _msSliceBuild = TicksToMs(_stageSliceBuildTicks);
+        _msMcCall = TicksToMs(_stageMcCallTicks);
+        _msNullGenerate = TicksToMs(_stageNullGenerateTicks);
+        _msCoarseVersion = TicksToMs(_stageCoarseVersionTicks);
+        _msRefineVersion = TicksToMs(_stageRefineVersionTicks);
+    }
+
+    private static double TicksToMs(long ticks)
+        => ticks * 1000.0 / Stopwatch.Frequency;
 
     // ------------------------------------------------------------------
     // Helpers

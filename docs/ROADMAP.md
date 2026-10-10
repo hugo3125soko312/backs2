@@ -386,10 +386,13 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 28A).
 
 Retrofits existing CPU-bound and parallel workloads onto the Phase 28 subsystem.
 
-### Phase 29A -- Instrumentation & Bottleneck Verification
+### Phase 29A -- Instrumentation & Bottleneck Verification [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 29A).
+
 - **Size:** S · **Depends on:** 28A (shipped) · **Succeeds when:** telemetry conclusively identifies the serialized stage causing the 22% CPU average during Optimize runs (Phase 22E finding).
-- [ ] Add granular `Stopwatch` metrics around the disk I/O, `StrategyManager` compile cache, and time-slice allocation phases of the Optimizer loop.
-- [ ] Log these phases to `logs/runtime-*.log` and do not proceed to 29C until the I/O-bound vs CPU-bound split is mathematically proven.
+- [x] Add granular `Stopwatch` metrics around the disk I/O, `StrategyManager` compile cache, and time-slice allocation phases of the Optimizer loop.
+- [x] Log these phases to `logs/runtime-*.log` and do not proceed to 29C until the I/O-bound vs CPU-bound split is mathematically proven.
+- Result: the split is proven **CPU-bound** (95.3% of a 20-core ceiling in thread-summed work, 97.3% cold), and Phase 22E's four suspects are all wrong. The backtest phase owns 66-81% of wall time; the disk read plus compile-cache lookup is under 1%; the coarse MC loop is not the serialized stage. 29B/29C proceed, but 29C is a placement change rather than a throughput one. Full numbers in the archive entry.
 
 ### Phase 29B -- Monte Carlo Engine Retrofit (Replaces Phase 27)
 - **Size:** L · **Depends on:** 29A, 28B · **Succeeds when:** `MonteCarloEngine.SimulateOnce` executes via `IComputeDispatcher`, utilizing `ComputeSharp` `[Shader]` kernels when the worker holds the GPU, with results statistically identical to the pure CPU path.

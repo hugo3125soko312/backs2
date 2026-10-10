@@ -995,3 +995,62 @@ Bootstrap of the `src/core/Computing/` subsystem: the parent-process facade, the
 
 ### Rollback path
 `CpuComputeDispatcher` was a pure delegation to `IComputeBackend.RunSimulationsAsync`, so the bootstrap is removable without touching callers: drop the DI registrations and the subsystem stops being reachable. 28B has since made the dispatcher load-bearing for the chunked path, so the live rollback is the 28B one (return `DispatchMonteCarloAsync` to whole-batch), not this.
+
+## Phase 29A: Instrumentation & Bottleneck Verification [COMPLETED]
+
+Ship date: 2026-10-10. Confirmation step ahead of the Phase 29B/29C retrofits.
+
+Instrumentation only, no optimization. `Stopwatch` markers were added around every stage of `OptimizationRunner.RunAsync` so the wall-time split Phase 22E could only hypothesize about is now a measured number. The loops, the work, and the parallelism are unchanged; the runner just records where its wall time goes and logs it.
+
+Measured on a 20-core machine, 500 combinations (`OptimizerMaxCombinations` 500, sampled from an `EtWindow` grid of 1,681), `OptimizerCoarseIterations` 100, `OptimizerRefineIterations` 1000, `OptimizerRefineTopN` 20, 20 survivors refined, `GOLD.pro@30m`. Two full Optimize passes were taken. Run 2 is the quote. Run 1 is the cold-start run (first Roslyn execution, cold page cache) and is kept because the spread is itself part of the finding; it was taken one instrumentation revision earlier, before the backtest phase got its own wall span, so its backtest row is reconstructed from the `backtests complete in` log line rather than read from a `[29A]` line.
+
+### Numbers
+
+Wall time per stage. Percentages are of that run's total wall; a stage's percentage is its share of the critical path.
+
+| Stage | Run 1 cold (ms) | % | Run 2 warm (ms) | % |
+|---|---|---|---|---|
+| Setup (grid + topology + ETA) | 4 | 0.0% | 5 | 0.1% |
+| Backtest phase (wall) | 7,495 | 81.1% | 3,583 | 66.0% |
+| Coarse MC phase (wall) | 761 | 8.2% | 804 | 14.8% |
+| Refine MC phase (wall) | 885 | 9.6% | 933 | 17.2% |
+| Save/persist | 83 | 0.9% | 89 | 1.6% |
+| Phase coverage | 9,228 (99.9%) | | 5,414 (99.8%) | |
+| **Total wall** | **9,238** | | **5,428** | |
+
+Thread-summed per-stage work (summed across all 20 workers, so above 100% is expected and just means "this stage used more than one core"):
+
+| Stage | Run 2 thread time (ms) | % of wall | Invocations |
+|---|---|---|---|
+| Backtest, per-version span | 71,197 | 1,311.6% | 500 |
+| MonteCarloEngine.Run (coarse + refine) | 27,806 | 512.2% | 280 |
+| `TimeSliceBuilder.Build` | 4,438 | 81.8% | 280 |
+| `StrategyManager` overhead (derived) | 38 | 0.7% | 500 |
+| `NullModelGenerator.GenerateRandomSignalTrades` | 21 | 0.4% | 20 |
+| Coarse version span (skips + slices + MC) | 14,601 | 269.1% | 500 |
+| Refine version span | 17,902 | 329.9% | 20 |
+
+Thread-summed work totals 103,500 ms (run 2) against a 20-core ceiling of 20 x 5,428 = 108,560 ms, and 179,715 ms (run 1) against 20 x 9,238 = 184,760 ms. That is **95.3% and 97.3% occupancy** -- the machine is essentially pinned for the whole run, in both a cold and a warm pass. The occupancy is not an artifact of one outlier phase: the backtest phase alone accounts for 71,197 ms of run 2's 103,500 ms.
+
+### Verdict: compute-bound, not I/O-bound
+
+Phase 22E's hypothesis was that Optimize runs at 22% average CPU because it spends most of its wall time *waiting* -- "on disk I/O, on `StrategyManager`'s compile cache, on MC curve allocation, or on a serialized stage." **Every one of those four is wrong.**
+
+- **Disk I/O and the compile cache are not the problem.** Everything `StrategyManager` does per version outside the script -- file existence check, `FileInfo` stat, compile-cache lookup in `GetOrCreateRunner`, source read -- is a 76 ms (run 1) / 38 ms (run 2) derived residual across 500 versions. That is 0.04-0.15 ms per version, and under 1% of wall. The cache hits as designed, and the one real Roslyn compile in the run is amortized to nothing across 500 calls.
+- **The coarse MC loop is not a serialized bottleneck.** It owns 8-15% of wall time. The prime suspect named by the 22E follow-up was not where the wall time goes.
+- **The 22% CPU average is not reproducible here.** Two runs show 95.3% and 97.3% of a 20-core ceiling in thread-summed work. The 2026-10-09 `dotnet-counters` capture that produced 22% is contradicted; the likely explanation is the profiler artifact Phase 22E already documented in the neighbouring warning (a shared writer serializing parallel MC events), not idle wall time. That capture should not be cited again as evidence of what Optimize waits on.
+- **What actually costs wall time is the backtest phase**: 66-81%, with `EtWindow` at 500/500 combinations. It is 20-way parallel across combinations and still consumes its full share of the machine, so the cost is the single-threaded Roslyn script execution per combination, not a scheduling gap.
+
+### Implication for 29B and 29C
+
+- **29C (backtest retrofit) is the phase with the wall-time lever, and it has less headroom than it looks.** Per-combination work is already one unit of work per script execution, and `Parallel.ForEachAsync` already runs it 20-wide within roughly 95-99% of what the phase can consume. Moving that loop behind `IComputeDispatcher` and into the worker is therefore a *placement* change -- process isolation, a memory cap, and an unblocked UI thread -- not a throughput change. Worth doing for those reasons; not worth doing in the expectation that it shortens a 500-combination run.
+- **29B (MC retrofit) still applies, with a caveat.** Monte Carlo is 27.8 s of run 2's 103.5 s of thread time, just over a quarter and is already spread 20-wide across the inner degree, so it is thread-time that a GPU can absorb rather than a serialized wall-time stall waiting to be removed. It is the right target for the eventual `[Shader]` path; it is not the fix for the wall-clock distribution measured here.
+- **Neither retrofit is gated on a serialization problem, because there is no serialization problem to fix.** The remaining critical path is a CPU-bound parallel loop. If the goal is a shorter Optimize run, the lever is the cost of one script execution, not the concurrency topology.
+
+### Instrumentation shipped
+
+- One `Stopwatch` for total wall time, plus `Stopwatch.GetTimestamp()` + `Stopwatch.GetElapsedTime()` (or the raw tick delta) around each instrumented region. Per-version spans are accumulated with `Interlocked.Add` into `long` tick fields -- one atomic add per region, no allocation, and no per-iteration logging.
+- One `LogManager.Info(LogTag.Runner, ...)` line per stage at the end of the run: stage name, accumulated ms, percent of total wall, and invocation count. A final line carries total wall ms, `Environment.ProcessorCount`, combination count, and survivor count. Every line is prefixed `[29A]`, so the whole block extracts with one `Select-String '\[29A\]'` against `logs/runtime-*.log`. No new `LogTag`, no new package.
+- The summary is emitted from a `finally` around the run body, so a cancelled run logs whatever accumulated before the cancel. Percent is `n/a` rather than a division by zero when total wall time is zero.
+- The `StrategyManager` compile-cache lookup is the one **derived** number rather than a wrapped span: total call time minus script execution (`StrategyRunResult.Duration`) leaves everything `StrategyManager` does around the script, and the cache lookup and the source read are not separable from outside that class. `StrategyManager.cs` was out of scope for this phase, so the lookup is measured, not wrapped, and the line is labelled as derived.
+- The instrumentation ships on -- there is no enable/disable flag. It is scaffolding for 29B/29C and a future phase removes it or downgrades it to Debug. Accumulators are per-instance and the runner is a DI singleton, so `RunAsync` resets them at entry; that is safe because the UI runs one Optimize pass at a time behind `IsBusy`.
