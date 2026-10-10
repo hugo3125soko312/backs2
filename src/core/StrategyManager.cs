@@ -27,6 +27,11 @@ public sealed class StrategyRunResult
 /// summary time, so the hot path pays one atomic add per stage and no
 /// allocation. Raw ticks are carried rather than doubles because
 /// Interlocked.Add has no double overload.
+///
+/// Phase 33 — <see cref="InvokePlumbingTicks"/> and
+/// <see cref="InvokeCallTicks"/> subdivide <see cref="InvokeTicks"/> at the
+/// only seam the scripting API exposes from outside: the arguments handed to
+/// the delegate versus the delegate call itself.
 /// </summary>
 public sealed record StrategyInstrumentationSnapshot(
     long Versions,
@@ -38,7 +43,9 @@ public sealed record StrategyInstrumentationSnapshot(
     long SourceReadTicks,
     long StatTicks,
     long GlobalsTicks,
-    long InvokeTicks);
+    long InvokeTicks,
+    long InvokePlumbingTicks,
+    long InvokeCallTicks);
 
 public class StrategyManager
 {
@@ -76,6 +83,10 @@ public class StrategyManager
     //   Globals      TradeRecorder + RunnerScriptGlobals construction
     //   Invoke       runner(globals) — the script body itself
     //
+    // Phase 33 subdivides Invoke into InvokePlumbing (argument construction)
+    // and InvokeCall (the delegate call and everything Roslyn does inside
+    // it); see the Phase 33 block below.
+    //
     // Nothing here computes anything, skips work, or reorders a loop; the
     // timestamps are read around the existing statements. GetTimestamp is
     // safe on the parallel backtest path (per-version regions overlap, so a
@@ -95,6 +106,34 @@ public class StrategyManager
     private long _stageGlobalsTicks;
     private long _stageInvokeTicks;
 
+    // ------------------------------------------------------------------
+    // Phase 33 — subdivision of the Phase 30 Invoke stage.
+    //
+    // Invoke was measured as the whole `runner(globals)` region, so every
+    // Roslyn scripting-API cost sat inside one number. From outside the
+    // scripting API there is exactly one seam to cut it at: the handoff
+    // between "the runner is in hand and its arguments are built" and "the
+    // delegate is called". InvokePlumbing covers the former (globals object
+    // construction, Params handoff, argument preparation); InvokeCall covers
+    // the latter (everything Roslyn does inside the delegate).
+    //
+    //   InvokePlumbing  arg construction: TradeRecorder + RunnerScriptGlobals
+    //                   object initialiser + the argument tuple for the call
+    //   InvokeCall      the delegate invocation itself, i.e. every Roslyn
+    //                   internal: session/execution-state construction,
+    //                   dynamic globals dispatch, method resolution and
+    //                   argument marshalling. Not separable further from
+    //                   outside the API (see the comment at the call site).
+    //
+    // Both are read with the same one-Stopwatch.GetTimestamp()-pair-per-
+    // version budget as the Phase 30 stages, and both are additive with
+    // Invoke: Plumbing + Call ~= Invoke. The two extra reads are the entire
+    // cost this phase adds to the hot path.
+    // ------------------------------------------------------------------
+
+    private long _stageInvokePlumbingTicks;
+    private long _stageInvokeCallTicks;
+
     /// <summary>
     /// Clears every Phase 30 accumulator. Called by the caller at the start
     /// of an instrumented run, so a second run never inherits the first
@@ -112,6 +151,8 @@ public class StrategyManager
         Interlocked.Exchange(ref _stageStatTicks, 0);
         Interlocked.Exchange(ref _stageGlobalsTicks, 0);
         Interlocked.Exchange(ref _stageInvokeTicks, 0);
+        Interlocked.Exchange(ref _stageInvokePlumbingTicks, 0);
+        Interlocked.Exchange(ref _stageInvokeCallTicks, 0);
     }
 
     /// <summary>
@@ -129,7 +170,9 @@ public class StrategyManager
             SourceReadTicks: Interlocked.Read(ref _stageSourceReadTicks),
             StatTicks: Interlocked.Read(ref _stageStatTicks),
             GlobalsTicks: Interlocked.Read(ref _stageGlobalsTicks),
-            InvokeTicks: Interlocked.Read(ref _stageInvokeTicks));
+            InvokeTicks: Interlocked.Read(ref _stageInvokeTicks),
+            InvokePlumbingTicks: Interlocked.Read(ref _stageInvokePlumbingTicks),
+            InvokeCallTicks: Interlocked.Read(ref _stageInvokeCallTicks));
 
     /// <summary>
     /// Half of a Stopwatch timestamp pair. Never throws, so the per-version
@@ -214,6 +257,22 @@ public class StrategyManager
             var runner = await GetOrCreateRunnerAsync(path, lastWriteUtc, size, source, ct)
                 .ConfigureAwait(false);
 
+            // ------------------------------------------------------------------
+            // Phase 33 — the invoke path is deliberately untouched. The two
+            // timestamp pairs below bracket the statements that were already
+            // here; nothing is hoisted, cached, wrapped or reordered, because
+            // the point of the measurement is what the current path costs.
+            //
+            // `invokeStart` still spans everything the Phase 30 [30] line
+            // reports as "invoke", so the Phase 30 numbers stay directly
+            // comparable. `plumbingStart` subdivides that same span at the
+            // delegate boundary; the plumbing region is the Phase 30 globals
+            // region plus the argument preparation for the call.
+            // ------------------------------------------------------------------
+
+            long invokeStart = Stamp();
+            long plumbingStart = invokeStart;
+
             long globalsStart = Stamp();
             var recorder = new TradeRecorder(data);
 
@@ -227,9 +286,30 @@ public class StrategyManager
             };
             AddTicks(ref _stageGlobalsTicks, Stamp(), globalsStart);
 
-            long invokeStart = Stamp();
+            // The plumbing region ends at the last statement whose result is
+            // an argument to the delegate call. Everything from here to the
+            // matching stamp belongs to Roslyn: ScriptRunner's own invocation
+            // performs the execution-state construction, the globals handoff
+            // and the compiled-submission call internally, and none of that is
+            // observable from outside the scripting API. The `await` and
+            // `.ConfigureAwait(false)` are part of the call region because the
+            // task-await continuation is what ScriptRunner returns.
+            //
+            // The one thing the split cannot price is the delegate call-site
+            // dispatch itself (loading the two arguments and entering the
+            // delegate) between the plumbing stamp and the callee's first
+            // instruction; it is one delegate entry against a per-call span of
+            // milliseconds, so it is not worth a third timestamp pair, but
+            // Plumbing + Call is therefore a lower bound on Invoke rather than
+            // an exact sum.
+            long callStart = Stamp();
+            AddTicks(ref _stageInvokePlumbingTicks, callStart, plumbingStart);
+
             await runner(globals).ConfigureAwait(false);
-            AddTicks(ref _stageInvokeTicks, Stamp(), invokeStart);
+            long callEnd = Stamp();
+
+            AddTicks(ref _stageInvokeCallTicks, callEnd, callStart);
+            AddTicks(ref _stageInvokeTicks, callEnd, invokeStart);
 
             LogManager.Info(LogTag.Strategy, $"executed {System.IO.Path.GetFileName(path)}");
 

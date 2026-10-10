@@ -94,6 +94,19 @@ public sealed class OptimizationRunner
     private double _msGlobals;
     private double _msInvoke;
 
+    // ------------------------------------------------------------------
+    // Phase 33 — subdivision of the Phase 30 Invoke stage.
+    //
+    // StrategyManager brackets the delegate call on both sides; this class
+    // does the arithmetic. `_msInvokePlumbing` is the argument-construction
+    // half, `_msInvokeCall` is the delegate call half and therefore every
+    // Roslyn internal that the scripting API does not expose. Converted from
+    // ticks once, at summary time, like every other stage here.
+    // ------------------------------------------------------------------
+
+    private double _msInvokePlumbing;
+    private double _msInvokeCall;
+
     private long _compileCalls;
     private long _cacheHits;
     private long _cacheMisses;
@@ -603,6 +616,8 @@ public sealed class OptimizationRunner
         _msStat = 0;
         _msGlobals = 0;
         _msInvoke = 0;
+        _msInvokePlumbing = 0;
+        _msInvokeCall = 0;
 
         _compileCalls = 0;
         _cacheHits = 0;
@@ -714,6 +729,8 @@ public sealed class OptimizationRunner
         _msStat = TicksToMs(snap.StatTicks);
         _msGlobals = TicksToMs(snap.GlobalsTicks);
         _msInvoke = TicksToMs(snap.InvokeTicks);
+        _msInvokePlumbing = TicksToMs(snap.InvokePlumbingTicks);
+        _msInvokeCall = TicksToMs(snap.InvokeCallTicks);
 
         double backtestMs = _msBacktest;
 
@@ -743,6 +760,62 @@ public sealed class OptimizationRunner
             $"{_compileCalls} real compile(s); invoke {perVersionInvoke:F2} ms/version; " +
             $"of total wall {totalMs:F0} ms the backtest phase owns the span but not the wall " +
             $"({Percent(backtestMs, totalMs)} in thread-summed terms)");
+
+        EmitInvokeDecomposition(batchId, totalMs);
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 33 — decomposition of the Roslyn invoke cost
+    //
+    // Phase 30 put 76% of the warm backtest invoke inside `runner(globals)`
+    // and could not see past the delegate boundary. From outside the
+    // scripting API there is exactly one further seam: between building the
+    // call's arguments and making the call. This block reports both halves,
+    // per version and as a share of the invoke span, so the next phase can
+    // tell an argument-construction cost from a Roslyn-internal one.
+    //
+    // The two halves are additive with the [30] invoke number by
+    // construction (same start stamp, same end stamp), and like every other
+    // per-version span here they are summed across the 20 concurrent
+    // backtest workers, so they may exceed the wall and 100%.
+    //
+    // The call half is NOT a single Roslyn stage and is not reported as one:
+    // the delegate is a `ScriptRunner<object?>`, and its invocation performs
+    // execution-state construction, the globals handoff, the compiled
+    // submission call and the task-await continuation internally. The
+    // scripting API exposes no hook between them, so the split inside the
+    // call is invisible from every call site in this project.
+    // ------------------------------------------------------------------
+
+    private void EmitInvokeDecomposition(string batchId, double totalMs)
+    {
+        double plumbingMs = _msInvokePlumbing;
+        double callMs = _msInvokeCall;
+        double subdivMs = plumbingMs + callMs;
+        double unpricedMs = Math.Max(0.0, _msInvoke - subdivMs);
+
+        double perVersionPlumbing = _instrumentedVersions > 0 ? plumbingMs / _instrumentedVersions : 0.0;
+        double perVersionCall = _instrumentedVersions > 0 ? callMs / _instrumentedVersions : 0.0;
+        double perVersionInvoke = _instrumentedVersions > 0 ? _msInvoke / _instrumentedVersions : 0.0;
+
+        LogManager.Info(LogTag.Runner,
+            $"[33] optimization {batchId}: backtest invoke {_msInvoke:F0} ms thread-summed over " +
+            $"{_instrumentedVersions} version(s); pre-invoke plumbing {plumbingMs:F0} ms " +
+            $"({Percent(plumbingMs, _msInvoke)} of invoke), delegate call {callMs:F0} ms " +
+            $"({Percent(callMs, _msInvoke)} of invoke)");
+
+        LogManager.Info(LogTag.Runner,
+            $"[33]   per version: invoke {perVersionInvoke:F2} ms, plumbing {perVersionPlumbing:F2} ms " +
+            $"({Percent(plumbingMs, _msInvoke)}), delegate call {perVersionCall:F2} ms " +
+            $"({Percent(callMs, _msInvoke)}); outside the [29A]/[30] stage set the invoke is " +
+            $"{Percent(_msInvoke, totalMs)} of total wall ({totalMs:F0} ms), thread-summed");
+
+        LogManager.Info(LogTag.Runner,
+            $"[33]   additivity: plumbing + call {subdivMs:F0} ms against [30] invoke {_msInvoke:F0} ms, " +
+            $"unpriced call-site handoff {unpricedMs:F0} ms " +
+            $"({Percent(unpricedMs, _msInvoke)}); the call half is one undivided " +
+            $"ScriptRunner invocation — execution state, globals handoff, submission call and await " +
+            $"continuation are not separable from any call site");
     }
 
     /// <summary>
