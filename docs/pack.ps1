@@ -51,6 +51,7 @@ try {
         'CONTEXT_ESSENTIALS.md',
         'AGENT_RULES.md',
         'ROADMAP.md',
+        'LONGWORK_FORMAT.md',
         'watch_downloads.go'
     )
     $guideNames = @(
