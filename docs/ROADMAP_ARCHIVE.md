@@ -941,7 +941,7 @@ Scheduler for the `src/core/Computing/` subsystem. Phase 28B as originally writt
 ### Scheduler
 - `CpuComputeDispatcher.DispatchMonteCarloAsync` now schedules instead of passing through: `iterations` is cut into `McChunkSize` (10,000) iteration chunks, one chunk is one unit of work.
 - Work-stealing is a `ConcurrentQueue<int>` of chunk indices and `Parallel.For(0, workerCount, ...)`; each worker loops on `TryDequeue` until the queue is dry. `workerCount = Math.Min(Environment.ProcessorCount, chunkCount)`, and a single-chunk batch runs `1` worker so small dispatches never pay ThreadPool overhead.
-- `IComputeBackend` gains `RunIterationsAsync(slices, targetDurationSlices, startIteration, iterationCount, seed, ct)`. The scheduler owns chunking, work-stealing and result placement; the backend owns how a contiguous iteration range executes. `CpuBackend` implements it as a sequential loop on the calling worker (the scheduler is the parallelism, so a nested `Parallel.For` would over-subscribe). `GpuBackend` implements it as a delegated passthrough to its CPU fallback -- the deliberate single change point for the Phase 29B `[Shader]`.
+- `IComputeBackend` gains `RunIterationsAsync(slices, targetDurationSlices, startIteration, iterationCount, seed, ct)`. The scheduler owns chunking, work-stealing and result placement; the backend owns how a contiguous iteration range executes. `CpuBackend` implements it as a sequential loop on the calling worker (the scheduler is the parallelism, so a nested `Parallel.For` would over-subscribe). `GpuBackend` implements it as a delegated passthrough to its CPU fallback -- the deliberate single change point for the Phase 29B `[Shader]`. **Superseded by 29B** (entry at the top of the 29x block, above 29A): the return shape is no longer `Task<double[]>`. `IComputeBackend.RunIterationsAsync` and `RunSimulationsAsync` now take `MonteCarloSimulationRequest` plus `retainCurves` / `maxDegreeOfParallelism`, and both return `MonteCarloDispatchResult` -- nine parallel per-iteration arrays (`TerminalBalances`, `Outcomes`, `SlicesElapsed`, `MaxDrawdowns`, `BestDayRatios`, `LongestLosingStreaks`, `LongestFlatStretches`, `RuinCauses`) plus optional `EquityCurves` -- because `BuildResult` aggregates all nine and the retained-curve path needs the curves. The chunk queue, `McChunkSize` 10,000, the work-stealing loop, the absolute-index RNG split and the cancellation semantics are unchanged, so the scheduler described above is still accurate. `GpuBackend` is no longer a passthrough -- it holds a real DirectX 12 kernel.
 - The dispatch loop is backend-agnostic: no caller-side branch decides CPU vs GPU, so chunks can be routed to `GpuBackend` once `IsAccelerated` becomes `true`.
 - `DispatchBacktestBatchAsync` keeps one combination per unit of work and `Parallel.For` across the batch at `Environment.ProcessorCount`. Backtests are Roslyn executions -- non-vectorizable, not chunkable -- and never enter the scheduler queue.
 - Chunk-dispatch decisions log at Debug under `LogTag.MonteCarlo` (one line for the schedule, one per completed chunk with its absolute iteration range). No new tag, no new package, no IPC dependency.
@@ -972,7 +972,7 @@ Bootstrap of the `src/core/Computing/` subsystem: the parent-process facade, the
 
 ### Delivered
 - `src/core/Computing/IComputeDispatcher.cs` -- `IComputeDispatcher` with `Task<double[]> DispatchMonteCarloAsync(MonteCarloDispatchRequest request, CancellationToken ct)` and `Task<double[]> DispatchBacktestBatchAsync(int jobCount, CancellationToken ct)`. Domain-typed on purpose: callers ask for a Monte Carlo dispatch or a backtest batch, never for a CUDA call. The interface carries no reference to `WorkerIpc`, `WorkerEnvelope`, or `JobConfig`.
-- `MonteCarloDispatchRequest(TimeSlice[] Slices, int TargetDurationSlices, int Iterations, int? Seed = null)` -- a record rather than a parameter list, so the same shape can cross the worker IPC boundary as JSON later without reshaping the surface.
+- `MonteCarloDispatchRequest(TimeSlice[] Slices, int TargetDurationSlices, int Iterations, int? Seed = null)` -- a record rather than a parameter list, so the same shape can cross the worker IPC boundary as JSON later without reshaping the surface. **Superseded by 29B** (entry at the top of the 29x block, above 29A): the record now carries `Simulation` (`MonteCarloSimulationRequest`), `Slices`, `Iterations`, `Seed`, `RetainCurves` and `MaxDegreeOfParallelism`, and both `IComputeDispatcher.DispatchMonteCarloAsync` and the `IComputeBackend` methods return `MonteCarloDispatchResult` instead of `double[]`. The JSON-shaped-record rationale and the absence of any `WorkerIpc` / `WorkerEnvelope` / `JobConfig` reference still hold.
 - `src/core/Computing/CpuComputeDispatcher.cs` -- thin in-process implementation that resolves `IComputeBackend` from DI and delegates. 28A held no compute logic of its own: `DispatchMonteCarloAsync` forwarded to `IComputeBackend.RunSimulationsAsync` after a Debug log, and `DispatchBacktestBatchAsync` ran a `Parallel.For` skeleton at `Environment.ProcessorCount` that wrote `scores[i] = i`.
 - `src/core/Computing/Backends/IComputeBackend.cs` -- the Phase 27 signature, `RunSimulationsAsync(slices, targetDurationSlices, iterations, seed, ct)`, plus `Name` / `IsAccelerated`. Contract: degenerate input returns empty instead of throwing, cancellation is observed between iterations, and the result array is `max(iterations, 0)` long and indexed by iteration.
 - `src/core/Computing/Backends/CpuBackend.cs` -- `Parallel.For` over iterations at `Environment.ProcessorCount` (one iteration runs inline; ThreadPool dispatch costs more than the work), with a single-iteration fast path and RNGs split as `new Random(seed + i)` (`Random.Shared` when unseeded), exactly as `MonteCarloEngine.Run` does it.
@@ -982,7 +982,7 @@ Bootstrap of the `src/core/Computing/` subsystem: the parent-process facade, the
 
 ### DI wiring
 - `App.axaml.cs` registers `IComputeBackend` -> `CpuBackend` and `IComputeDispatcher` -> `CpuComputeDispatcher` as singletons.
-- `GpuBackend` is deliberately not registered: the parent UI process must not hold a GPU device. It is resolved inside the worker, which is where holding one is correct.
+- `GpuBackend` is deliberately not registered: the parent UI process must not hold a GPU device. It is resolved inside the worker, which is where holding one is correct. **Superseded by 29B** (entry at the top of the 29x block, above 29A): `CpuBackend` and `GpuBackend` are both registered in the parent process, `CpuComputeDispatcher` resolves the accelerated one, and a DirectX 12 device is held in process -- the worker migration is still deferred.
 
 ### Scope changes against the original entry
 - **The parent-side `WorkerEnvelope` proxy did not ship.** 28A was written to proxy dummy requests to the worker through `ComputeWorkerManager`, but Compute Worker Phase 3 is not a scheduled phase and does not exist, so there was no IPC path to proxy over. The entry therefore closes with no `WorkerEnvelope` / `ComputeWorkerManager` reference anywhere in `src/core/Computing/`.
@@ -1054,6 +1054,67 @@ Phase 22E's hypothesis was that Optimize runs at 22% average CPU because it spen
 - The summary is emitted from a `finally` around the run body, so a cancelled run logs whatever accumulated before the cancel. Percent is `n/a` rather than a division by zero when total wall time is zero.
 - The `StrategyManager` compile-cache lookup is the one **derived** number rather than a wrapped span: total call time minus script execution (`StrategyRunResult.Duration`) leaves everything `StrategyManager` does around the script, and the cache lookup and the source read are not separable from outside that class. `StrategyManager.cs` was out of scope for this phase, so the lookup is measured, not wrapped, and the line is labelled as derived.
 - The instrumentation ships on -- there is no enable/disable flag. It is scaffolding for 29B/29C and a future phase removes it or downgrades it to Debug. Accumulators are per-instance and the runner is a DI singleton, so `RunAsync` resets them at entry; that is safe because the UI runs one Optimize pass at a time behind `IsBusy`.
+
+## Phase 29B: Monte Carlo GPU Retrofit [COMPLETED]
+
+Ship date: 2026-10-10 (`f9d5dab`). Replaces the Phase 27 GPU plan; the retrofit that Phase 29A sized and Phase 28B made hookable.
+
+Phase 29B ports the Monte Carlo state machine onto the `src/core/Computing/` subsystem and gives `GpuBackend` a real DirectX 12 kernel. `MonteCarloEngine.SimulateOnce` moved verbatim into `SimulationKernelCpu`; the engine now owns only parameter derivation, the `MaxIterations` clamp, the `MaxCurveCells` ceiling, aggregation and `BuildResult`, and it dispatches through `IComputeDispatcher`. Phase 27 assumed the GPU would live in the Compute Worker process behind IPC; it does not, because for in-process Monte Carlo there is no IPC boundary to protect and holding the device where the workload runs is simpler. The worker migration stays deferred.
+
+### Delivered
+
+- `src/core/Computing/Backends/SimulationKernelGpu.cs` -- the ComputeSharp `[Shader]` kernel: one GPU thread per simulation, one dispatch per chunk, reproducing the CPU state machine statement for statement and in the same order (MTM-low vs daily floor, max-DD floor, realize PnL, HWM update, streak/drawdown bookkeeping, EOD reset). RNG is Philox-4x32-10 seeded per thread from `(seed, absolute iteration)`: `System.Random` cannot exist in a shader, the 64-bit Philox products are built from 16-bit partial products, and the state is plain `uint` scalars because ComputeSharp 3.2.0 exposes no HLSL vector types to shader code. `ThreadsPerGroup = 64`.
+- `src/core/Computing/Backends/SimulationKernelCpu.cs` -- the `SimulateOnce` that shipped through 29A, moved here unchanged, now reachable through `ISimulationKernel.Simulate(...)`. Both backends share one stateless instance.
+- `src/core/Computing/Backends/GpuBackend.cs` -- real dispatch. The constructor probes `GraphicsDevice.GetDefault()`, never throws, and keeps the kernel only when the device is hardware-accelerated *and* kernel creation succeeds; a software adapter or a kernel-creation failure logs one Warn and leaves `IsAccelerated = false` with the `CpuBackend` fallback carrying every call. A chunk that fails on the device re-runs on the CPU for the same absolute iteration range. `GpuIterationBatch = 10_000`, matching the scheduler's `McChunkSize`, so a scheduler call is normally one dispatch; the slice array is uploaded once per call and reused across dispatches.
+- `src/core/Computing/Backends/IComputeBackend.cs`, `ISimulationKernel.cs`, `CpuBackend.cs`, `src/core/Computing/IComputeDispatcher.cs`, `CpuComputeDispatcher.cs` -- the contract widened from `Task<double[]>` (terminal balances only) to `Task<MonteCarloDispatchResult>` (see the 28B `Superseded by 29B` note below). `MonteCarloSimulationRequest` carries the per-batch state machine parameters (pre-scaled floors, target, block size, drawdown type) so the CPU and GPU kernels take the identical shape; the GPU side consumes it as a uniform constant buffer, so its field order and types are an ABI. `retainCurves` and `maxDegreeOfParallelism` travel end to end, and `CpuComputeDispatcher` resolves the accelerated backend so no caller names a device.
+- `App.axaml.cs` -- registers `SimulationKernelCpu`, `CpuBackend`, `GpuBackend`, both `IComputeBackend` registrations, and `IComputeDispatcher`. The dispatcher picks the accelerated backend when the probe succeeded.
+- `backs2.csproj` -- `<AllowUnsafeBlocks>true</AllowUnsafeBlocks>`, required by ComputeSharp's `[GeneratedComputeShaderDescriptor]` source generator (CMPS0052).
+
+### Measurement
+
+Workload: the Phase 29A configuration -- `EtWindow` on `GOLD.pro@30m`, 5,000 capital, static drawdown, 8% max loss, 4% daily loss, no profit target, block 5, 240 versions that actually run MC, 20 cores, `NVIDIA GeForce RTX 4060 Laptop GPU` (3,072 compute units, 8 GB). Coarse = 240 x 100 iterations; refine = 20 x 1,000 iterations. All figures below are from `f9d5dab`'s commit report.
+
+| Pass | CPU warm (ms) | GPU (ms) | Winner |
+|---|---|---|---|
+| Coarse MC, 240 x 100 iterations | 261-487 | 2,307-2,361 | CPU, by ~5x |
+| Refine MC, 20 x 1,000 iterations | 112-321 | 89-109 | GPU (narrowest comparable pass 92 ms GPU vs 114 ms CPU) |
+
+Per-dispatch cost inside the coarse pass: **~0.1 ms of kernel work against ~10 ms of slice mirroring, upload, readback and nine output-buffer allocations**. That puts the kernel share of a single dispatch at roughly `0.1 / 10 = 1%`, and against the measured GPU coarse wall (~2.3 s for 240 dispatches) at `0.1 / 2300 ≈ 0.004%` per dispatch. `f9d5dab`'s report states the phase-level split as **4.4% kernel work / 95.6% transfer and setup** (`0.1 / 2.3` per dispatch, `100 - 4.4 = 95.6`); that phase-level split is **not independently reconstructible** from the numbers in this entry -- the commit does not say whether it is thread time or wall time, and nothing in `logs/runtime-*.log` carries per-dispatch timing -- so it is recorded here as reported, `n/a -- not independently derivable`. What the numbers do support is the direction and the size: the fixed cost that surrounds each 100-iteration call dominates the kernel by orders of magnitude. The loss is structural, not a tuning gap -- the coarse pass is 240 separate tiny calls, and each one pays the whole fixed cost.
+
+Single-dispatch throughput, where that fixed cost does amortize:
+
+| Iterations per dispatch | GPU (ms) | CPU (ms) | Speedup |
+|---|---|---|---|
+| 1,000 | 21-26 | 45-56 | ~2x |
+| 10,000 | 42-51 | 426-477 | ~10x |
+| 100,000 | 480-519 | 6,392-6,714 | ~13-16x |
+
+So the kernel is **10-16x faster per iteration** and the workload shape is what decides the phase.
+
+Equivalence: GPU run-to-run identical for the same seed on 8/8 seeds across all nine output arrays; CPU vs GPU on 10,000 iterations x 1,796 slices equivalent for P(ruin), P(funded) and median terminal balance within 3 standard errors on 8/8 seeds. The GPU's seed-to-seed spread is the same size as the CPU-vs-GPU difference, so the residual is sampling noise, not a systematic bias.
+
+### Verdict
+
+**GPU loses on this workload as dispatched; the kernel itself wins; batching is the fix.**
+
+This phase's acceptance criteria explicitly treated "GPU loses" as a valid outcome -- the phase was scoped to port the kernel and measure it honestly, not to make the optimizer faster. The retrofit succeeded on its own terms: the kernel reproduces the state machine, the two backends agree statistically, the fallback is safe, and the phase measured a real structural limit instead of assuming one away. The coarse pass is 240 tiny dispatches, each of which pays ~10 ms of mirroring, upload, readback and output-buffer allocation against ~0.1 ms of kernel work; at 100 iterations a dispatch is far below the size where the device pays for itself. The refine pass, at 1,000 iterations per call, already flips to a GPU win, and a single 100,000-iteration dispatch wins by 13-16x. **Batching the coarse MC dispatches is the fix**, not a kernel change.
+
+### Caveats
+
+- **The 29A slice arrays were not reconstructible**, so the CPU-vs-GPU delta is like-for-like (same machine, same session, same slices, same parameters on both sides) but the absolute ms are **not** the archived 804 ms coarse / 933 ms refine baseline. The archived refine wall also contains the concurrent null pass, which makes 933 ms not a like-for-like refine baseline either. Absolute numbers in the tables above are this phase's own measurement, not the 29A archive.
+- **The 29A configuration is 100% timeout** (P(ruin) = P(funded) = 0 on both sides), so it populates no tail outcome and would make an equivalence check vacuous. The equivalence pass therefore widens the floors and adds a reachable profit target to populate both tails. The equivalence claim is made on that widened configuration, not on the 29A settings.
+- **`AllowUnsafeBlocks` was needed** -- ComputeSharp's `[GeneratedComputeShaderDescriptor]` source generator emits pointer-based interop for every `[Shader]` kernel (CMPS0052). It is on for the whole project, not scoped to the kernel file.
+- The two backends are **not bit-identical**: `System.Random` cannot exist in a shader, so the CPU stream and the Philox stream differ. The contract is statistical equivalence of aggregates plus run-to-run determinism *within* a backend. Chunk boundaries cannot move a result, because the RNG is derived from the absolute iteration index.
+- No timing instrumentation ships with this phase. The numbers above come from the harness's own passes; there is no `[29B]` log block, so a future run cannot reproduce them from `logs/runtime-*.log` alone. The single-dispatch throughput rows were measured out of process and are **not** captured in the runtime logs (`n/a -- not captured` there).
+- The GPU figures are one adapter on one machine (RTX 4060 Laptop, 8 GB). The verdict is about dispatch shape, which is adapter-independent; the absolute throughput is not.
+
+### Follow-up
+
+**Phase 29B.1 -- batch the Monte Carlo dispatches.** The optimizer's coarse pass issues one `MonteCarloEngine.Run` per version; batching those 240 x 100-iteration calls into dispatches of ~10,000 iterations is what lets the GPU path beat the CPU on the current optimizer workload. It requires restructuring the optimizer loop to collect a batch before dispatching, and it is **not yet scheduled**. It is a decision, not a commitment, and it is deliberately not specced as a numbered ROADMAP block. Until it lands, the CPU backend is the correct resolved backend for the coarse pass on this workload.
+
+### Rollback path
+
+Revert `f9d5dab`. The change is confined to `src/core/Computing/` (backends, dispatcher, result shape), `src/core/Overview/MonteCarloEngine.cs`, `App.axaml.cs`, and one `backs2.csproj` property, with no schema, persisted state, config key, or file format involved and no migration in either direction. Reverting restores `GpuBackend` as a probe plus a CPU delegation whose `IsAccelerated` stays `false`, so the app keeps working on CPU exactly as it did through Phase 28B. `git checkout 4dc2abf -- src/core/Computing/ src/core/Overview/MonteCarloEngine.cs App.axaml.cs backs2.csproj` restores the pre-29B surface. No data, cache, or log format changed.
 
 ## Phase 30: Roslyn Backtest Cost Investigation [COMPLETED]
 

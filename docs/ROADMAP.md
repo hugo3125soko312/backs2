@@ -394,11 +394,15 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 29A).
 - [x] Log these phases to `logs/runtime-*.log` and do not proceed to 29C until the I/O-bound vs CPU-bound split is mathematically proven.
 - Result: the split is proven **CPU-bound** (95.3% of a 20-core ceiling in thread-summed work, 97.3% cold), and Phase 22E's four suspects are all wrong. The backtest phase owns 66-81% of wall time; the disk read plus compile-cache lookup is under 1%; the coarse MC loop is not the serialized stage. 29B/29C proceed, but 29C is a placement change rather than a throughput one. Full numbers in the archive entry.
 
-### Phase 29B -- Monte Carlo Engine Retrofit (Replaces Phase 27)
+### Phase 29B -- Monte Carlo GPU Retrofit [COMPLETED]
+See `docs/ROADMAP_ARCHIVE.md` (Phase 29B).
+
 - **Size:** L · **Depends on:** 29A, 28B · **Succeeds when:** `MonteCarloEngine.SimulateOnce` executes via `IComputeDispatcher`, utilizing `ComputeSharp` `[Shader]` kernels when the worker holds the GPU, with results statistically identical to the pure CPU path.
-- [ ] Port the exact MTM-low vs max-DD floor state machine into a ComputeSharp kernel.
-- [ ] Enforce Phase 27 constraints: RNG seed splitting for determinism, 100k max iterations chunked under Windows TDR limits.
-- [ ] Parent process receives aggregated `MonteCarloResult` scalars back via IPC, never exceeding the 64 MB pipe cap.
+- [x] Port the exact MTM-low vs max-DD floor state machine into `SimulationKernelGpu` — one ComputeSharp `[Shader]` dispatch per chunk, one GPU thread per simulation, with Philox-4x32 seeded per thread from `(seed, absolute iteration)`. `MonteCarloEngine.SimulateOnce` moved verbatim into `SimulationKernelCpu`; the engine now keeps only parameter derivation, the `MaxIterations` clamp, the `MaxCurveCells` ceiling, aggregation and `BuildResult`.
+- [x] Enforce the Phase 27 determinism constraints: the RNG is split on the absolute iteration index so chunk boundaries never move a result, iteration counts are chunked at the scheduler's 10,000 (`GpuIterationBatch`) under the Windows TDR limit, and `MaxDegreeOfParallelism` survives end to end.
+- [x] Dispatch in process: `GpuBackend` probes DirectX 12 in its constructor, never throws, reports `IsAccelerated = true` only when a hardware device *and* the kernel were created, and re-runs a failing chunk on `CpuBackend` for the same absolute iteration range. No IPC, no worker round-trip.
+- [x] Widen the backend contract to the shipped result shape: `IComputeBackend` / `IComputeDispatcher` carry `MonteCarloDispatchResult` — nine parallel per-iteration arrays plus optional equity curves — instead of a `double[]` of terminal balances, and `backs2.csproj` gains `AllowUnsafeBlocks` for ComputeSharp's shader source generator (CMPS0052).
+- Result: **the GPU kernel is correct but loses the current optimizer workload as dispatched.** Per iteration the kernel is **10-16x faster** than the CPU path (100,000 iterations: 480-519 ms GPU vs 6,392-6,714 ms CPU); on the Phase 29A coarse pass (240 versions x 100 iterations) the GPU loses **~5x** (2,307-2,361 ms vs 261-487 ms warm), because the coarse pass is 240 separate tiny dispatches and only **4.4%** of the phase is kernel work — the other **95.6%** is slice mirroring, upload, readback and nine output-buffer allocations per call. GPU-vs-CPU is statistically equivalent within 3 standard errors on 8/8 seeds (10,000 iterations x 1,796 slices), so the loss is workload shape, not kernel quality. **Batching the coarse MC dispatches is the follow-up (Phase 29B.1, not yet scheduled).** Full numbers in the archive entry.
 
 ### Phase 29C -- Optimizer Backtest Retrofit
 - **Size:** M · **Depends on:** 29A, 28B · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
