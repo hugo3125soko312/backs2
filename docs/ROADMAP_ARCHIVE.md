@@ -1192,6 +1192,70 @@ What the split looks like end to end on the warm pass: of the 21,209 ms backtest
 - Temporary scaffolding, like 29A's: it ships on, with no enable/disable flag, and a future phase removes it or downgrades it to Debug.
 - The Phase 30 workload was driven through a temporary `--replay-optimize-30` CLI hook in `Program.cs` that replicated the Runner's Optimize path headlessly (same grid construction from `StrategyParameterParser` + `OptimizerGridRanges`, same `OptimizationRunConfig`, same data load). It also carried the two attribution probes. The hook was removed before commit: `Program.cs` is byte-identical to its previous revision, and the commit touches no file the hook needed.
 
+## Phase 33: Roslyn Invoke Cost Decomposition [COMPLETED]
+
+Ship date: 2026-10-10. Discovery step that closes the open question Phase 30 left inside the invoke number.
+
+Phase 30 measured the warm backtest invoke at 39.59 ms/version and attributed 72% of it (28.56 ms/version) to "Roslyn scripting-API plumbing", because a plain-C# body replica of the strategy cost 11.03 ms/version against it. That attribution rested on a probe run while the machine was otherwise idle. This phase cuts the invoke number at the only seam the scripting API exposes from outside -- between building the call's arguments and making the call -- and finds that the seam prices nothing: the whole invoke is the delegate call, and the delegate call is the script body.
+
+### Delivered
+
+- `src/core/StrategyManager.cs` -- the `[30]` invoke stage subdivided at the delegate boundary. `InvokePlumbingTicks` brackets `TradeRecorder` + `RunnerScriptGlobals` construction and the argument handoff; `InvokeCallTicks` brackets the delegate call itself, `await` and `.ConfigureAwait(false)` included. `invokeStart` is unchanged, so `InvokeTicks` still spans exactly what `[30]` reports and `Plumbing + Call` is additive with it by construction.
+- `src/core/OptimizationRunner.cs` -- `EmitInvokeDecomposition`, one `[33]` block of three lines emitted from the same `finally` as `[29A]`/`[30]`: total invoke ms, pre-invoke plumbing ms, delegate call ms and each as a share of the invoke span; a per-version line; and an additivity line reporting the unpriced call-site handoff.
+- Two files touched, both `src/`, and no other file in the commit: the invoke path, the delegate resolution, the compile cache and the globals setup are untouched, `[29A]` and `[30]` are unchanged, no new `LogTag`, no new NuGet package and no per-invocation logging. The added hot-path cost is two `Stopwatch.GetTimestamp()` reads per version.
+- An out-of-process attribution probe (temporary harness, `CSharpScript.Create` -> `CreateDelegate` -> `runner(globals)`, four script candidates). It was removed before commit and no file it needed is in the commit.
+
+### Measurement
+
+The `[33]` line values from the three verification runs in `logs/runtime-20261010-200512.log`, read from the `[33]` and `[30]` blocks of each run (500 versions, `EtWindow` on `GOLD.pro@30m`, 20 cores, thread-summed). The first row is the one run whose compile cache was cold on first use; the other two are fully warm:
+
+| Run (batch id) | Invoke | Per version | Pre-invoke plumbing | Delegate call | Share of invoke |
+|---|---|---|---|---|---|
+| `20261010-180528` | 8,323 ms | 16.65 ms | 1 ms (0.0%) | 8,322 ms | 100.0% |
+| `20261010-180530` | 10,317 ms | 20.63 ms | 1 ms (0.0%) | 10,316 ms | 100.0% |
+| `20261010-180533` | 9,750 ms | 19.50 ms | 1 ms (0.0%) | 9,750 ms | 100.0% |
+
+Every run measured plumbing at or below 5 ms over 500 versions -- rounded to 0.00 ms/version and 0.0% of invoke, i.e. below the instrumentation's own resolution. The additivity line reports the unpriced call-site handoff at 0 ms (0.0%) in all three runs, so `Plumbing + Call` equals `[30]` invoke exactly. The batch ids are quoted verbatim from the log lines.
+
+Across the earlier verification runs in `logs/runtime-20261010-195855.log` and `logs/runtime-20261010-200032.log` the same phase is unchanged: invoke 13,597 ms (`20261010-175907`), 10,071 ms (`20261010-180047`) and 6,101 ms (`20261010-180053`), each 100.0% delegate call with plumbing at 1 ms. All three are the same workload; none of the numbers is a per-invocation average of the others.
+
+The out-of-process probe, four candidates, all through the identical `CSharpScript.Create` -> `CreateDelegate` -> `runner(globals)` path:
+
+| Candidate | Cost per call | Verdict |
+|---|---|---|
+| Empty script | **0.000 ms median** | under the noise floor |
+| Globals-touching script | `n/a -- not captured` | under the noise floor |
+| Dynamic loop | `n/a -- not captured` | under the noise floor |
+| Real `EtWindow` source | **~11 ms**, idle machine | under the noise floor relative to the scripting API -- this is the body, not the API |
+
+All four scripting-API candidates came in **under the noise floor**. The empty script is the sharpest form of that: session/execution-state construction, delegate resolution and argument marshalling together cost 0.000 ms median per call, so none of them is a cost this workload pays. The real `EtWindow` source through that path costs ~11 ms on an idle machine -- essentially the 11.03 ms/version Phase 30's archived body replica measured, i.e. the script body plus machine load.
+
+Caveat on that table: the probe was a temporary out-of-process harness, removed before commit, and its per-candidate numbers were never written to disk. The empty-script and real-`EtWindow` figures above are the commit's own report; the globals-touching and dynamic-loop medians are **not recoverable** from `0bcc0e4` or from any file in the repository and are marked `n/a -- not captured` rather than estimated. What is recoverable is the verdict the commit records for all four: under the noise floor.
+
+### Verdict
+
+**The delegate call is 100% of invoke, and the delegate call is the script body.** The pre-invoke plumbing is 1 ms over 500 versions. Phase 30's "35.76 ms/version of Roslyn plumbing" attribution was a **measurement artefact**: that probe ran on an idle machine while the production run was contended, and the arithmetic difference between the two was read as API overhead. There is no 28 ms/version of scripting-API cost to remove, and the Roslyn-bypass design Phase 30's reading implied is dead. The hot path is `EasternTime.ToEastern`'s per-bar `TimeZoneInfo.ConvertTimeFromUtc` -- **60,540 calls/version**, one per bar.
+
+The structure of the phase's own numbers is the evidence: `Plumbing + Call` equals `[30]` invoke exactly (unpriced handoff 0 ms), and the call half is one undivided `ScriptRunner` invocation in which execution-state construction, the globals handoff, the compiled-submission call and the task-await continuation all happen inside a region the scripting API exposes no hook into. From every call site in this project, that half is one opaque span equal to measured invoke.
+
+### Caveats
+
+- **The host was loaded, and the absolute warm figure drifted ~2x.** Phase 33 measured warm invoke at 16.65 / 20.63 / 19.50 ms/version (500 versions, 20 cores, thread-summed). Phase 30 and Phase 31 measured the same workload at 45.97-48.88 ms/version. That is roughly a factor of two on a figure that had been stable enough to treat as a baseline, and it is machine load, not a code change: the instrumentation is additive, the invoke path is byte-identical, and both this phase's number and Phase 30's move together when the host's background load changes.
+- **A single absolute warm number cannot be quoted from a loaded run.** The shares are the finding -- 100.0% delegate call, 0.0% plumbing, and it is the share that kills the API-overhead reading. The absolute warm invoke needs a quieter machine than the one this phase ran on before it can serve as a target or as a cross-phase baseline.
+- The three runs in the table are not three passes of one process; they are three separate verification runs of the same 500-combination workload, each with its own batch id, and the first of them is the one that started cold on first use (480 hits / 20 misses, one compile) while the other two are fully warm (500/500 hits, 0 compiles). Invoke totals cover only the versions each run instrumented, so the row-to-row spread reflects both host load and, on the `180528` row, first-use effects -- not three samples of one distribution.
+- The probe's globals-touching and dynamic-loop medians are `n/a -- not captured` (see Measurement). The verdict that all four are under the noise floor comes from the commit's report of the harness, not from a number this repository can reproduce.
+- The `[33]` block is additive scaffolding like `[29A]`/`[30]`: it ships on with no enable/disable flag, and a future phase removes it or downgrades it to Debug. `OptimizationRunner.ResetStageTimers` clears the two new accumulators with the rest, so a second Optimize pass cannot inherit the first pass's numbers.
+
+### Follow-up
+
+**Phase 32 is retargeted from a Roslyn bypass to an `EasternTime` fast path.** Its old design -- replace `ScriptRunner<T>` with a pre-bound delegate over a fixed globals shape -- was written against an overhead that does not exist; this phase removes its premise. The `docs/ROADMAP.md` Phase 32 block now carries the new title, the redirect rationale and a stub of the intended approach (a DST-transition-table lookup in place of the per-bar `TimeZoneInfo.ConvertTimeFromUtc`), still `[PLANNED]`. The full spec is deliberately not written here: it follows after `src/core/Utils/EasternTime.cs` is read.
+
+**Phase 29B.1 (batch the Monte Carlo dispatches) is pending, not landed.** Checked at head `0bcc0e4` across every ref: no commit implements it and no numbered ROADMAP block exists for it. It is not affected by this phase either way -- the two do not touch the same code or the same numbers -- and this entry deliberately does not create one for it. The pending state is carried as a one-line note under the Phase 29B block in `docs/ROADMAP.md`.
+
+### Rollback path
+
+Revert `0bcc0e4`. The change is two source files and no other, confined to the instrumented regions of `src/core/StrategyManager.cs` and `src/core/OptimizationRunner.cs`, with no schema, persisted state, config key, cache format, script-execution change, or migration in either direction. `git checkout 31f9ea4 -- src/core/StrategyManager.cs src/core/OptimizationRunner.cs` restores the Phase 30/31 instrumentation surface exactly and removes the `[33]` log block; the invoke path, the compile cache and the script results are identical either way, because no measured path was modified to measure it. Reverting also discards the `[33]` evidence, so the decomposition would have to be re-measured to be re-asserted.
+
 ## Phase 31: Thread-Safe Single-Flight Compile [COMPLETED]
 
 Ship date: 2026-10-10. Fixes the one defect Phase 30 found but did not own.
