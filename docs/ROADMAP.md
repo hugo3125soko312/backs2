@@ -366,10 +366,12 @@ Introduces a central abstraction layer in `src/core/Computing/` for hybrid CPU/G
 - [ ] Define `IComputeDispatcher` with domain-specific methods: `DispatchMonteCarloAsync` and `DispatchBacktestBatchAsync`.
 - [ ] Implement the parent-side proxy that wraps these calls into `WorkerEnvelope` JSON payloads.
 
-### Phase 28B -- Worker-Side Hybrid Scheduler
-- **Size:** M · **Depends on:** 28A · **Succeeds when:** the worker can receive a dispatched job and route it to either a CPU fallback or a mock GPU backend.
-- [ ] Create `src/core/Computing/Backends/` containing `IComputeBackend`, `CpuBackend`, and `GpuBackend` (probing for a DirectX 12 device, falling back seamlessly).
-- [ ] Implement a cooperative work-stealing scheduler in the worker: large iteration counts are chunked (e.g. 10k), and available backends pull from the queue concurrently. Non-vectorizable workloads bypass the queue and route strictly to `CpuBackend`.
+### Phase 28B -- Parent-Process Hybrid Scheduler [COMPLETED]
+- **Size:** M · **Depends on:** 28A (shipped) · **Succeeds when:** the parent-process dispatcher executes a Monte Carlo workload with chunked work-stealing, with per-iteration seed determinism preserved across chunk boundaries.
+- [x] ~~Create `src/core/Computing/Backends/` containing `IComputeBackend`, `CpuBackend`, and `GpuBackend` (probing for a DirectX 12 device, falling back seamlessly).~~ Shipped in 28A.
+- [x] Implement a cooperative work-stealing scheduler in the parent process: `CpuComputeDispatcher` cuts an iteration count into 10k-iteration chunks, workers claim them off a `ConcurrentQueue<int>` until it is empty, and each chunk runs through `IComputeBackend.RunIterationsAsync` -- the new chunk-level backend seam -- so no caller-side branch decides CPU vs GPU. Non-vectorizable workloads bypass the queue and route strictly to `CpuBackend`.
+- [x] Per-iteration RNGs are split on the absolute iteration index (`new Random(seed + i)`), so the chunked path is bit-identical to `CpuBackend.RunSimulationsAsync` and survives chunk-boundary changes.
+- Moved to `docs/ROADMAP_ARCHIVE.md` (Phase 28B). Compute Worker Phase 3 is not a scheduled phase, so the worker migration is deferred to a later phase; the dispatcher surface is deliberately IPC-shaped so that move is wiring, not a redesign.
 
 **Rejection list** (explicitly out of scope for the computing subsystem):
 - **`IMetric.Calculate`** -- sequential time-series dependency chains (EMA, etc.); GPU cores would starve.
@@ -383,18 +385,18 @@ Introduces a central abstraction layer in `src/core/Computing/` for hybrid CPU/G
 Retrofits existing CPU-bound and parallel workloads onto the Phase 28 subsystem.
 
 ### Phase 29A -- Instrumentation & Bottleneck Verification
-- **Size:** S · **Depends on:** 28B · **Succeeds when:** telemetry conclusively identifies the serialized stage causing the 22% CPU average during Optimize runs (Phase 22E finding).
+- **Size:** S · **Depends on:** 28A (shipped) · **Succeeds when:** telemetry conclusively identifies the serialized stage causing the 22% CPU average during Optimize runs (Phase 22E finding).
 - [ ] Add granular `Stopwatch` metrics around the disk I/O, `StrategyManager` compile cache, and time-slice allocation phases of the Optimizer loop.
 - [ ] Log these phases to `logs/runtime-*.log` and do not proceed to 29C until the I/O-bound vs CPU-bound split is mathematically proven.
 
 ### Phase 29B -- Monte Carlo Engine Retrofit (Replaces Phase 27)
-- **Size:** L · **Depends on:** 29A · **Succeeds when:** `MonteCarloEngine.SimulateOnce` executes via `IComputeDispatcher`, utilizing `ComputeSharp` `[Shader]` kernels when the worker holds the GPU, with results statistically identical to the pure CPU path.
+- **Size:** L · **Depends on:** 29A, 28B · **Succeeds when:** `MonteCarloEngine.SimulateOnce` executes via `IComputeDispatcher`, utilizing `ComputeSharp` `[Shader]` kernels when the worker holds the GPU, with results statistically identical to the pure CPU path.
 - [ ] Port the exact MTM-low vs max-DD floor state machine into a ComputeSharp kernel.
 - [ ] Enforce Phase 27 constraints: RNG seed splitting for determinism, 100k max iterations chunked under Windows TDR limits.
 - [ ] Parent process receives aggregated `MonteCarloResult` scalars back via IPC, never exceeding the 64 MB pipe cap.
 
 ### Phase 29C -- Optimizer Backtest Retrofit
-- **Size:** M · **Depends on:** 29A · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
+- **Size:** M · **Depends on:** 29A, 28B · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
 - [ ] Wire `OptimizationRunner` to dispatch Roslyn script backtests in batches to the worker.
 - [ ] The worker routes these batches strictly to `CpuBackend` (Parallel.For), as strategy scripts are inherently non-vectorizable.
 

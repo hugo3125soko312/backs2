@@ -82,6 +82,35 @@ public sealed class GpuBackend : IComputeBackend
     }
 
     /// <summary>
+    /// Chunk-level passthrough (ROADMAP Phase 28B). This is deliberately a
+    /// delegation and not a second implementation: until the Phase 29B
+    /// <c>[Shader]</c> exists there is no accelerated chunk to run, so every
+    /// chunk goes to the same CPU backend that already carries
+    /// <see cref="RunSimulationsAsync"/>. When the shader lands, this is the one
+    /// place that changes.
+    /// </summary>
+    /// <inheritdoc cref="IComputeBackend.RunIterationsAsync"/>
+    public Task<double[]> RunIterationsAsync(
+        TimeSlice[] slices,
+        int targetDurationSlices,
+        int startIteration,
+        int iterationCount,
+        int? seed,
+        CancellationToken ct)
+    {
+        if (_device == null)
+            return _fallback.RunIterationsAsync(
+                slices, targetDurationSlices, startIteration, iterationCount, seed, ct);
+
+        LogManager.Debug(LogTag.MonteCarlo,
+            $"compute: GpuBackend has device '{_device.Name}' but no compiled kernel yet " +
+            $"(Phase 29B) — delegating chunk [{startIteration}, {startIteration + iterationCount}) to CPU");
+
+        return _fallback.RunIterationsAsync(
+            slices, targetDurationSlices, startIteration, iterationCount, seed, ct);
+    }
+
+    /// <summary>
     /// Probes for a DirectX 12 device. Returns null on any failure — a missing
     /// device must degrade the feature, never the process.
     /// </summary>

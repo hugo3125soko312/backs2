@@ -929,3 +929,35 @@ Gates the entire 26B execution pipeline: if the Roslyn-compiled `ScriptRunner` w
 
 ### Rollback path
 If a future strategy demonstrates a concurrency regression (compiled scripts are per-file cached, and a script that captures mutable state at compile time could theoretically diverge), flip `SerializeBacktests` back to `true` in the optimizer path and fall back to the two-pass MC strategy for speed. The verification flag (`--verify-strategy-parallelism`) remains as a regression canary.
+
+---
+
+## Phase 28B: Parent-Process Hybrid Scheduler [COMPLETED]
+
+Ship date: 2026-10-10. Shipped after 28A (compute abstractions + parent dispatcher).
+
+Scheduler for the `src/core/Computing/` subsystem. Phase 28B as originally written scoped this "in the worker", but Compute Worker Phase 3 is not a scheduled phase and does not exist, so parking the subsystem was the wrong trade. The scheduler ships in the parent process against the DI-resolved backend; the worker migration is deferred to a later phase. `IComputeDispatcher`, `IComputeBackend`, and the dispatcher's public signatures do not change when that move happens.
+
+### Scheduler
+- `CpuComputeDispatcher.DispatchMonteCarloAsync` now schedules instead of passing through: `iterations` is cut into `McChunkSize` (10,000) iteration chunks, one chunk is one unit of work.
+- Work-stealing is a `ConcurrentQueue<int>` of chunk indices and `Parallel.For(0, workerCount, ...)`; each worker loops on `TryDequeue` until the queue is dry. `workerCount = Math.Min(Environment.ProcessorCount, chunkCount)`, and a single-chunk batch runs `1` worker so small dispatches never pay ThreadPool overhead.
+- `IComputeBackend` gains `RunIterationsAsync(slices, targetDurationSlices, startIteration, iterationCount, seed, ct)`. The scheduler owns chunking, work-stealing and result placement; the backend owns how a contiguous iteration range executes. `CpuBackend` implements it as a sequential loop on the calling worker (the scheduler is the parallelism, so a nested `Parallel.For` would over-subscribe). `GpuBackend` implements it as a delegated passthrough to its CPU fallback -- the deliberate single change point for the Phase 29B `[Shader]`.
+- The dispatch loop is backend-agnostic: no caller-side branch decides CPU vs GPU, so chunks can be routed to `GpuBackend` once `IsAccelerated` becomes `true`.
+- `DispatchBacktestBatchAsync` keeps one combination per unit of work and `Parallel.For` across the batch at `Environment.ProcessorCount`. Backtests are Roslyn executions -- non-vectorizable, not chunkable -- and never enter the scheduler queue.
+- Chunk-dispatch decisions log at Debug under `LogTag.MonteCarlo` (one line for the schedule, one per completed chunk with its absolute iteration range). No new tag, no new package, no IPC dependency.
+
+### Determinism
+- The RNG for iteration `i` is `new Random(seed + i)` against the **absolute** index in `[0, iterations)`, never the chunk-local index, and the absolute index is also what reaches `ISimulationKernel.SimulateOnce`. This matches `MonteCarloEngine.Run`'s existing split, so results are stable when `McChunkSize` or the core count changes.
+- Verified out of process (reflection probe against the built `backs2.dll`, same pattern as the 28A verification): `CpuBackend.RunSimulationsAsync(slices, 100, 25_000, seed: 42)` and `CpuComputeDispatcher.DispatchMonteCarloAsync(slices, 100, 25_000, 42)` produced `SequenceEqual == true`, and the chunked call repeated with the same seed was identical. 25,000 iterations scheduled as exactly 3 chunks (10k + 10k + 5k).
+
+### Boundary behaviour
+- Cancellation returns the chunks that completed as a truncated `double[]` and never throws. A chunk is published only once it is demonstrably whole (`chunkResults.Length == iterationCount`), so a cancelled result is a sum of completed chunks (0/5k/10k/15k/20k/25k for a 25k batch) instead of an arbitrary iteration cut. Measured: 250,000 iterations full in ~61 ms, cancelled at 40 ms returned 190,000 = 19 whole chunks.
+- Degenerate input fails soft: `iterations == 0`, empty slices, non-positive `targetDurationSlices`, and a null request all return an empty array. `iterations < McChunkSize` is one chunk with no parallelism overhead; a non-divisible count leaves a short final chunk.
+- `seed == null` uses `Random.Shared`, matching `CpuBackend`.
+
+### Consequence
+- The chunked path is the default for `IComputeDispatcher` callers, and it is bit-identical to the whole-batch backend call, so 29B can retrofit `MonteCarloEngine.SimulateOnce` onto the dispatcher without a determinism story to re-derive.
+- The remaining worker migration is a wiring change behind `IComputeDispatcher`: the loop, the chunk size, and the backend seam do not move.
+
+### Rollback path
+`CpuComputeDispatcher.DispatchMonteCarloAsync` can return to a direct `_backend.RunSimulationsAsync` passthrough by deleting the chunk loop; `RunIterationsAsync` stays as an unused backend seam. Nothing else depends on the scheduler.

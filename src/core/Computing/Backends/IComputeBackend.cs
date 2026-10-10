@@ -13,8 +13,10 @@ namespace backs2.Core.Computing.Backends;
 /// specified by Phase 27 — boundary is TimeSlice[] in, terminal balances out.
 ///
 /// The long-term owner of a GPU device is the compute worker process
-/// (src/core/Compute/WorkerHost.cs), not the parent UI process. Phase 28B will
-/// resolve this interface inside the worker; the parent process stays CPU-only.
+/// (src/core/Compute/WorkerHost.cs), not the parent UI process. Phase 28B
+/// therefore schedules in the parent process against a CPU backend; migrating
+/// that scheduler into the worker is a later phase, and the parent process stays
+/// CPU-only until it lands.
 ///
 /// Contract:
 ///   - Implementations never throw for valid input; degenerate input yields an
@@ -55,6 +57,42 @@ public interface IComputeBackend
         TimeSlice[] slices,
         int targetDurationSlices,
         int iterations,
+        int? seed,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Runs one chunk of a chunked Monte Carlo batch — the unit of work the
+    /// parent-process scheduler claims off its queue (ROADMAP Phase 28B).
+    /// </summary>
+    /// <remarks>
+    /// This is the seam that lets <c>CpuComputeDispatcher</c> stay backend-agnostic:
+    /// the scheduler owns chunking, work-stealing, and result placement, while the
+    /// backend owns how a contiguous iteration range actually executes. The CPU
+    /// backend runs it on the calling worker thread; a future accelerated backend
+    /// dispatches it as one GPU wavefront.
+    ///
+    /// Determinism is the contract that makes chunking safe: the RNG for iteration
+    /// <c>startIteration + k</c> is derived from that absolute index
+    /// (<c>new Random(seed + (startIteration + k))</c>), never from a chunk-local
+    /// index, so results are bit-identical to the whole-batch call and do not move
+    /// when chunk boundaries move.
+    ///
+    /// <paramref name="startIteration"/> is also the iteration index handed to
+    /// <see cref="ISimulationKernel.SimulateOnce"/>, so a kernel that derives extra
+    /// entropy from the iteration number sees the same value either way.
+    /// </remarks>
+    /// <param name="slices">Source time slices. A null or empty array yields an empty result.</param>
+    /// <param name="targetDurationSlices">Slices each simulated run must produce. Non-positive yields an empty result.</param>
+    /// <param name="startIteration">Absolute index of this chunk's first iteration within the whole batch.</param>
+    /// <param name="iterationCount">Iterations in this chunk. Non-positive yields an empty result.</param>
+    /// <param name="seed">Seed for reproducible runs; null means non-deterministic.</param>
+    /// <param name="ct">Observed between iterations, exactly as the whole-batch entry point does.</param>
+    /// <returns>An array of length max(<paramref name="iterationCount"/>, 0), indexed locally from 0.</returns>
+    Task<double[]> RunIterationsAsync(
+        TimeSlice[] slices,
+        int targetDurationSlices,
+        int startIteration,
+        int iterationCount,
         int? seed,
         CancellationToken ct);
 }

@@ -56,8 +56,8 @@ public sealed class CpuBackend : IComputeBackend
         // DOP policy matches MonteCarloEngine.Run's default (-1): inner parallelism
         // is Environment.ProcessorCount. The explicit "outer orchestrator already
         // saturates the machine, use a sequential inner loop" knob is a Phase 28B
-        // concern — it arrives with the worker's chunked scheduler, which is the
-        // caller that actually knows the machine is busy.
+        // concern — it arrives with the chunked scheduler, whose per-chunk calls
+        // into RunIterationsAsync are deliberately sequential on the calling worker.
         var parallelOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = Environment.ProcessorCount,
@@ -66,7 +66,7 @@ public sealed class CpuBackend : IComputeBackend
 
         void RunIteration(int i)
         {
-            var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
+            var rng = CreateRng(seed, i);
 
             terminalBalances[i] = kernel.SimulateOnce(
                 slices,
@@ -93,6 +93,62 @@ public sealed class CpuBackend : IComputeBackend
 
         return Task.FromResult(terminalBalances);
     }
+
+    /// <summary>
+    /// Runs one chunk of a chunked batch (ROADMAP Phase 28B). The scheduler in
+    /// <see cref="CpuComputeDispatcher"/> claims chunks and calls this; on the CPU
+    /// backend a chunk is a plain loop on the calling worker thread, so the
+    /// scheduler — not this method — owns the parallelism.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="startIteration"/> is the absolute batch index, and it is
+    /// what seeds the per-iteration RNG (<c>new Random(seed + i)</c> with the
+    /// absolute <c>i</c>) and what reaches the kernel as the iteration number.
+    /// That is the whole determinism story: chunk boundaries can move without
+    /// changing a single result, and a chunked run is bit-identical to
+    /// <see cref="RunSimulationsAsync"/>.
+    /// </remarks>
+    /// <inheritdoc cref="IComputeBackend.RunIterationsAsync"/>
+    public Task<double[]> RunIterationsAsync(
+        TimeSlice[] slices,
+        int targetDurationSlices,
+        int startIteration,
+        int iterationCount,
+        int? seed,
+        CancellationToken ct)
+    {
+        // Fail soft at the boundary: degenerate input is an empty result, not a throw.
+        if (slices == null || slices.Length == 0 || targetDurationSlices <= 0 || iterationCount <= 0)
+            return Task.FromResult(Array.Empty<double>());
+
+        var kernel = _kernel;
+        var chunkResults = new double[iterationCount];
+
+        for (int local = 0; local < iterationCount; local++)
+        {
+            // Between iterations, never mid-iteration — the same cancellation
+            // granularity the whole-batch entry point documents.
+            ct.ThrowIfCancellationRequested();
+
+            int i = startIteration + local;
+
+            chunkResults[local] = kernel.SimulateOnce(
+                slices,
+                targetDurationSlices,
+                CreateRng(seed, i),
+                i);
+        }
+
+        return Task.FromResult(chunkResults);
+    }
+
+    /// <summary>
+    /// Splits per-iteration RNGs exactly as <c>MonteCarloEngine.Run</c> does:
+    /// <c>new Random(seed + i)</c> keyed on the <em>absolute</em> iteration index,
+    /// or the process-wide <see cref="Random.Shared"/> when unseeded.
+    /// </summary>
+    private static Random CreateRng(int? seed, int iteration)
+        => seed.HasValue ? new Random(seed.Value + iteration) : Random.Shared;
 
     /// <summary>
     /// Non-throwing stand-in used until Phase 29B ports the Monte Carlo state
