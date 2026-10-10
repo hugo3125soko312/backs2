@@ -1130,3 +1130,86 @@ What the split looks like end to end on the warm pass: of the 21,209 ms backtest
 - `OptimizationRunner.ResetStageTimers` also calls `StrategyManager.ResetInstrumentation()`, because the stage accumulators live on a DI singleton and a second Optimize pass would otherwise inherit the first pass's numbers. The UI runs one Optimize pass at a time behind `IsBusy`.
 - Temporary scaffolding, like 29A's: it ships on, with no enable/disable flag, and a future phase removes it or downgrades it to Debug.
 - The Phase 30 workload was driven through a temporary `--replay-optimize-30` CLI hook in `Program.cs` that replicated the Runner's Optimize path headlessly (same grid construction from `StrategyParameterParser` + `OptimizerGridRanges`, same `OptimizationRunConfig`, same data load). It also carried the two attribution probes. The hook was removed before commit: `Program.cs` is byte-identical to its previous revision, and the commit touches no file the hook needed.
+
+## Phase 31: Thread-Safe Single-Flight Compile [COMPLETED]
+
+Ship date: 2026-10-10. Fixes the one defect Phase 30 found but did not own.
+
+Phase 30 measured the cold Optimize path and found the compile cache correct but *stampeded*: on a 500-combination cold pass, 20 backtest workers started at the same instant, all 20 missed the cache for the same path before any of them published an entry, and all 20 compiled the same script. Twenty real compiles, 126,284 ms of compile thread time, 83.3% of the cold backtest thread span -- for one distinct script. The cache was right; its miss path was not synchronized. `GetOrCreateRunner` computed the key, read the dictionary, and constructed the runner with nothing between the read and the write, so `ConcurrentDictionary` bought concurrency on the hit path and nothing at all on the miss path.
+
+This phase makes that path single-flight per cache key. Nothing else changed: same key (the path, validated against last-write time and size), same cache instance, same eviction (none), same size cap (none), same compile-failure semantics, same script execution path, same instrumentation shape, same `OptimizationRunner`.
+
+### Mechanism
+
+- A second `ConcurrentDictionary<string, SemaphoreSlim>` -- `_compileGates`, one gate per cache key -- alongside the existing `_cache`. This shape rather than `ConcurrentDictionary<string, Lazy<ScriptRunner<object?>>>` because `Lazy` (with either thread-safety mode) caches a thrown exception for the lifetime of the entry, which would have changed compile-failure semantics: today a failed compile publishes nothing, so the next caller retries. The semaphore shape keeps the publish point exactly where it was -- after `CreateDelegate` returns -- so a failed compile still caches nothing, still retries, and leaves no gate held. No `Lazy<` existed anywhere in the codebase; `SemaphoreSlim` already did (`StrategyManager._throttle`, `Mt5TickServer._writeLock`), so this also mirrors the established pattern instead of introducing one.
+- `GetOrCreateRunner` became `GetOrCreateRunnerAsync`. The fast path is the same work as before, statement for statement: one `TryGetValue` plus the `LastWriteUtc` / `Size` validation, and a hit returns the cached `ScriptRunner<object?>` without touching a gate. Only a miss reaches the gate, which is why the warm path is unchanged by construction and not just by measurement.
+- The gate is awaited (`await gate.WaitAsync(ct)`), not blocked on, so a caller that lost the race yields its thread instead of parking one of the 20 backtest workers for the duration of another caller's compile. A cancellation observed before the gate is acquired leaves nothing held; `finally` releases the gate and then removes it from the map.
+- Inside the gate the cache is re-checked against the caller's own (path, last write, size). The winner compiles and publishes; every caller that arrives while that compile runs finds the entry on the double-check, logs `compile cache hit (single-flight)`, and returns the same delegate instance rather than compiling again.
+- The gates are per key, so distinct keys never contend: there is no global lock and no `lock (dict)`, and unrelated scripts still compile in parallel. The worst case for two distinct keys is the same as before the change.
+- The gate entry is dropped in `finally` once its compile completes, so the map holds "keys currently compiling", not "keys ever compiled". The publish happens-before the release, so a caller that took this gate before the removal and a caller that takes a fresh gate after it both re-check the cache and observe the entry; the removal itself cannot add a compile. On the exception path nothing was published and the gate is dropped anyway, which is what lets a retry proceed immediately.
+- Hits and misses are still classified by the *first* lookup, before the gate, so `hits + misses == versions` stays true (480/20 cold, 500/0 warm) and the cold row of Phase 30's table remains directly comparable. The double-check hit does not increment `CacheHits`; it is visible in the Debug log instead.
+
+### Numbers
+
+Workload is Phase 30's, unchanged: 500 combinations (`OptimizerMaxCombinations` 500, sampled with seed 42 from an `EtWindow` grid of 3,362 = Side 2 x StartMinute 41 x EndMinute 41), `OptimizerCoarseIterations` 100, `OptimizerRefineIterations` 1000, `OptimizerRefineTopN` 20, `GOLD.pro@30m` (60,540 bars), 20 cores. Two passes in one process: pass 1 cold (first Roslyn use in the process), pass 2 warm.
+
+Before and after were measured on the same machine in the same session through the same temporary `--replay-optimize-31` CLI hook. The "before" column is `33e7cee` with only the fix reverted (`git checkout 33e7cee -- src/core/StrategyManager.cs`) -- not the Phase 30 log -- so the two columns differ only by the change under test. That pre-fix re-measure reproduced Phase 30: 20 compiles and 126,017 ms of compile thread time, against the 126,284 ms / 83.3% the Phase 30 archive records for the same stage and the 126,985 ms / 82.4% this phase's brief quotes. All three are the same 20 concurrent compiles sampled on different passes.
+
+| Metric, cold pass | Before (`33e7cee`) | After | Delta |
+|---|---|---|---|
+| Real compiles | 20 | 1 | -19 |
+| Compile thread time | 126,017 ms | 5,377 ms | **-120,640 ms (-95.7%)** |
+| Compile share of backtest thread span | 83.4% | 4.0% | -79.4 pp |
+| Cache hits / misses | 480 / 20 | 480 / 20 | unchanged |
+| Backtest phase span, thread-summed | 151,115 ms | 133,442 ms | -17,673 ms |
+| of which invoke | 23,376 ms (46.75 ms/version) | 24,065 ms (48.13 ms/version) | noise |
+| of which unwrapped residual (now the single-flight wait) | 589 ms | 102,781 ms | +102,192 ms |
+| Total cold wall | 9,500 ms | 8,526 ms | **-974 ms (-10.3%)** |
+
+| Metric, warm pass | Before | After | Delta |
+|---|---|---|---|
+| Cache hits / misses | 500 / 0 | 500 / 0 | unchanged |
+| Real compiles | 0 | 0 | unchanged |
+| Compile thread time | 0 ms | 0 ms | unchanged |
+| Invoke | 24,442 ms (48.88 ms/version) | 22,986 ms (45.97 ms/version) | noise |
+| Total warm wall | 3,540 ms | 3,195 ms | noise |
+
+Warm per-version invoke is unchanged within run-to-run noise: 48.88 ms/version before, 45.97 and 46.80 ms/version in two post-fix cold+warm runs, against Phase 30's 39.59 ms/version archive figure and the 46.79 ms/version this phase's acceptance criteria cite. The spread across runs is larger than the difference between before and after -- which is the claim: the warm path never acquires a gate.
+
+The 19 eliminated compiles did not vanish from the backtest span, they became *waits*: 19 workers x ~5,410 ms = 102,781 ms, which is exactly the post-fix "unwrapped residual" in the [30] block ([29A]'s derived residual, version span minus script duration). That is the honest reading of the thread-summed span: it measures span, not work. The work eliminated is the 120,640 ms of compile thread time; the waiters still hold their version spans while they wait.
+
+### Log evidence
+
+Every count below comes from grepping the post-fix cold log; the pre-fix log was grepped the same way for comparison.
+
+- `Select-String 'single-flight compile'` -> **1 line** (one real compile). Pre-fix, the equivalent grep for the compile line returned 20 lines.
+- `Select-String 'compile cache miss'` -> 20 lines, the 20 first-wave lookups that found no entry. Classification unchanged from Phase 30.
+- `Select-String 'compile cache hit \(single-flight\)'` -> 19 lines, the workers that arrived during the compile and found the published entry.
+- `Select-String 'compile cache hit: '` -> 980 lines across both passes (480 cold + 500 warm), unchanged from before.
+
+The compile-start line is `LogManager.Debug(LogTag.Strategy, "single-flight compile: ...")`, emitted only once the gate has been acquired and the double-check has missed. The pre-existing per-miss line was reworded from `compile:` to `compile cache miss:` so that a grep for the compile itself is not confused with the 20 first-wave misses. No Info-level line was added, no `LogTag` was added, and the hit line is unchanged.
+
+### Verification
+
+- **Determinism.** All 500 versions of both post-fix passes were compared element-by-element against the archived 29A batch `batch_20261010-161522.json`: parameter name/value tuples in grid order, trade counts, and `NetPnl` as exact doubles. **Cold mismatches 0, warm mismatches 0.** The pre-fix re-measure also produced 0 mismatches, which is what makes the before/after comparison a comparison of the same workload.
+- **Same-key single-flight.** The cold 500-combination pass: 20 first-look misses, 1 compile, 19 single-flight hits, 480 later hits.
+- **Distinct keys still compile in parallel.** Probe on two copies of the strategy at two distinct paths (cache key is the path): two cold compiles run sequentially took **718 ms**; eight concurrent backtests spread over the same two keys took **342 ms**, with 2 compiles, 8 misses and 6 single-flight hits. A global lock would have left the concurrent case near the sequential wall (~718 ms), and no gate at all would have produced 8 compiles. This is the check that the fix is per key and not a global serialization.
+- **Warm path.** 500/500 hits, 0 compiles, per-version invoke within noise (table above).
+- **No poisoned state on failure.** Nothing is published until `CreateDelegate` returns, so a throwing compile leaves no cache entry, no cached exception, and no gate held.
+
+### Notes: what this does not change, and what it cannot see
+
+- **The stampede cost thread time and machine load, not wall.** Cold wall fell 9,500 -> 8,526 ms (-10.3%) while compile thread time fell 95.7%. Twenty compiles of one script overlap almost perfectly across 20 cores, so the cold backtest phase was already bounded by roughly one compile's duration; single-flight removed the other 19 compiles' CPU demand and let the surviving compile finish sooner (5,377 ms uncontended, against ~6,300 ms each under 20-way load). Phase 30's implication -- "removes ~126 s of thread time and ~6 s of wall" -- predicted the thread time exactly and the wall time optimistically. The durable win is the machine load: a cold Optimize no longer saturates all 20 cores compiling one script.
+- **One cold compile is mostly Roslyn first-use, not marginal compile cost.** Once the process had compiled a script, the probe compiled the same source at a fresh path in roughly 350 ms per key (718 ms for two sequential distinct-key compiles). The 5,377 ms cold figure is therefore the whole first compile in a process -- assembly loading, compilation machinery, emission -- not what a second, different strategy would cost. This is the same limit Phase 30 recorded: `ScriptRunner`'s internal work is invisible to `StrategyManager`.
+- **Instrumentation meaning.** The [30] stage timers keep their meaning and the cold hit/miss row stays comparable to Phase 30's; the number that changed is "Real compiles" (20 -> 1). The [29A] derived residual, however, is no longer a per-version overhead proxy on a cold pass, because it now absorbs the single-flight wait (102,781 ms of it). The [30] block is the honest number for that run.
+- **Untouched, deliberately.** No change to the cache key, eviction, size cap, or storage type beyond what the gate requires; no second cache; no change to `OptimizationRunner` (its `Parallel.ForEachAsync` with `MaxDegreeOfParallelism = backtestOuter = min(combinations, cores) = 20` is the contention shape this fix had to cover, and it was not modified); no new package; no new `LogTag`; no UI change; no change to compile-failure semantics.
+- **What this does not fix.** The warm invoke cost Phase 30 identified -- 72% of every invoke is Roslyn scripting-API plumbing -- is untouched. This phase shortens nothing on a warm run; it removes a cold-run defect that Phase 30 measured but deliberately did not own.
+
+### Rollback path
+
+Revert this commit. The change is one source file (`src/core/StrategyManager.cs`) plus the two roadmap docs, with no schema, persisted state, config key, or cache format involved and no migration in either direction. `git checkout 33e7cee -- src/core/StrategyManager.cs` restores the unsynchronized miss path and with it the 20-compile cold stampede; the cache, the key, and the script execution path are otherwise identical. The determinism check (`--replay-optimize-31`, temporary) would need to be re-added to re-confirm the baseline numbers after a revert, exactly as it was to produce them here.
+
+### Instrumentation shipped
+
+- No new instrumentation. The phase adds one Debug line and rewords one existing Debug line; the Phase 30 stage accumulators, the `[30]` summary block, and the `[29A]` block are all unchanged, so a Phase 31 log is directly comparable to a Phase 30 one.
+- The workload was driven through a temporary `--replay-optimize-31` CLI hook in `Program.cs` that replicated the Runner's Optimize path headlessly (same grid construction from `StrategyParameterParser` + the persisted `OptimizerGridRanges`, same `OptimizationRunConfig`, same cached data load), ran the cold and warm passes in one process, printed the `StrategyManager` snapshot after each pass, compared both passes against the archived batch, and carried the distinct-key parallelism probe. The hook was removed before commit: `Program.cs` is byte-identical to its `33e7cee` revision and the commit touches no file the hook needed.

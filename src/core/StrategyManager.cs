@@ -50,6 +50,19 @@ public class StrategyManager
     private sealed record CachedScript(DateTime LastWriteUtc, long Size, ScriptRunner<object?> Runner);
 
     // ------------------------------------------------------------------
+    // Phase 31 — single-flight gate for the compile-on-miss path.
+    //
+    // One gate per cache key, so the first caller to miss a key compiles it
+    // and every other caller already in flight for that same key waits and
+    // then reads the published entry. Distinct keys take distinct gates and
+    // still compile in parallel. The gate is dropped once its compile has
+    // completed (see GetOrCreateRunnerAsync), so the map does not grow one
+    // entry per key for the process lifetime.
+    // ------------------------------------------------------------------
+
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _compileGates = new(StringComparer.OrdinalIgnoreCase);
+
+    // ------------------------------------------------------------------
     // Phase 30 — Roslyn backtest cost instrumentation (temporary
     // scaffolding, observation only).
     //
@@ -198,7 +211,8 @@ public class StrategyManager
             var source = await System.IO.File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
             AddTicks(ref _stageSourceReadTicks, Stamp(), readStart);
 
-            var runner = GetOrCreateRunner(path, lastWriteUtc, size, source);
+            var runner = await GetOrCreateRunnerAsync(path, lastWriteUtc, size, source, ct)
+                .ConfigureAwait(false);
 
             long globalsStart = Stamp();
             var recorder = new TradeRecorder(data);
@@ -278,11 +292,33 @@ public class StrategyManager
         }
     }
 
-    private ScriptRunner<object?> GetOrCreateRunner(
+    /// <summary>
+    /// Phase 31 — single-flight compile-on-miss.
+    ///
+    /// The fast path is unchanged: one dictionary lookup, and a lookup that
+    /// finds the entry current for the caller's (path, last write, size)
+    /// returns without touching a gate. On a miss the compile is serialised
+    /// per cache key by <see cref="_compileGates"/> and the cache is
+    /// re-checked inside the gate, so N callers that miss the same key
+    /// concurrently produce one compile rather than N. Callers that arrive
+    /// while that compile runs observe the published entry and do not
+    /// compile at all -- which is why the cold pass still reports 20 misses
+    /// (one per first-wave lookup) but 1 compile.
+    ///
+    /// The gate is async: a waiting caller yields its thread instead of
+    /// holding one of the 20 backtest workers while another compiles.
+    ///
+    /// Compile failure semantics are unchanged: the entry is published only
+    /// after <c>CreateDelegate</c> returns, so a failed compile caches
+    /// nothing and the next caller retries (as it did before Phase 31),
+    /// rather than inheriting a cached exception.
+    /// </summary>
+    private async Task<ScriptRunner<object?>> GetOrCreateRunnerAsync(
         string path,
         DateTime lastWriteUtc,
         long size,
-        string source)
+        string source,
+        CancellationToken ct)
     {
         long lookupStart = Stamp();
         bool hit = _cache.TryGetValue(path, out var existing)
@@ -298,25 +334,56 @@ public class StrategyManager
         }
 
         Interlocked.Increment(ref _stageCacheMisses);
-        LogManager.Debug(LogTag.Strategy, $"compile: {System.IO.Path.GetFileName(path)}");
+        LogManager.Debug(LogTag.Strategy, $"compile cache miss: {System.IO.Path.GetFileName(path)}");
 
-        long compileStart = Stamp();
+        var gate = _compileGates.GetOrAdd(path, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Double-checked: a caller that lost the race to this key finds
+            // the winner's entry here and skips the compile entirely.
+            if (_cache.TryGetValue(path, out var published)
+                && published.LastWriteUtc == lastWriteUtc
+                && published.Size == size)
+            {
+                LogManager.Debug(LogTag.Strategy,
+                    $"compile cache hit (single-flight): {System.IO.Path.GetFileName(path)}");
+                return published.Runner;
+            }
 
-        var options = ScriptOptions.Default
-            .AddReferences(typeof(IMetric).Assembly)
-            .AddImports("backs2.Core.Metrics", "backs2.Core.Models", "backs2.Core.Runner");
+            LogManager.Debug(LogTag.Strategy,
+                $"single-flight compile: {System.IO.Path.GetFileName(path)}");
 
-        var script = CSharpScript.Create<object?>(
-            source,
-            options,
-            typeof(RunnerScriptGlobals));
+            long compileStart = Stamp();
 
-        var runner = script.CreateDelegate();
+            var options = ScriptOptions.Default
+                .AddReferences(typeof(IMetric).Assembly)
+                .AddImports("backs2.Core.Metrics", "backs2.Core.Models", "backs2.Core.Runner");
 
-        Interlocked.Increment(ref _stageCompileCalls);
-        AddTicks(ref _stageCompileTicks, Stamp(), compileStart);
+            var script = CSharpScript.Create<object?>(
+                source,
+                options,
+                typeof(RunnerScriptGlobals));
 
-        _cache[path] = new CachedScript(lastWriteUtc, size, runner);
-        return runner;
+            var runner = script.CreateDelegate();
+
+            Interlocked.Increment(ref _stageCompileCalls);
+            AddTicks(ref _stageCompileTicks, Stamp(), compileStart);
+
+            _cache[path] = new CachedScript(lastWriteUtc, size, runner);
+            return runner;
+        }
+        finally
+        {
+            // Release, then drop the gate. On the success path the publish
+            // above happens-before both, so a caller that took this gate
+            // before the removal and one that takes a fresh gate after it
+            // both re-check the cache and see the entry; removing the gate
+            // cannot add a compile. On the exception path nothing was
+            // published and the gate is dropped anyway, so a failed compile
+            // leaves nothing held and the next caller retries immediately.
+            gate.Release();
+            _compileGates.TryRemove(new KeyValuePair<string, SemaphoreSlim>(path, gate));
+        }
     }
 }
