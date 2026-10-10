@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using backs2.Core.Computing;
 
 namespace backs2.Core.Overview;
 
@@ -20,6 +21,19 @@ public sealed class MonteCarloEngine
     private const int OutcomeBlown = MonteCarloOutcome.Blown;
     private const int OutcomeFunded = MonteCarloOutcome.Funded;
     private const int OutcomeTimeout = MonteCarloOutcome.Timeout;
+
+    private readonly IComputeDispatcher _dispatcher;
+
+    /// <param name="dispatcher">
+    /// The compute façade that actually executes the simulations. It owns backend
+    /// selection (CPU vs the DirectX 12 kernel) and chunking, so this class owns
+    /// only the aggregation half: parameter derivation, the curve-retention
+    /// ceiling, and the statistics.
+    /// </param>
+    public MonteCarloEngine(IComputeDispatcher dispatcher)
+    {
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+    }
 
     /// <summary>
     /// Runs N iterations of the time-domain bootstrap.
@@ -72,20 +86,8 @@ public sealed class MonteCarloEngine
         if (expectedBlockSize < 1) expectedBlockSize = 1;
         if (bestDayRulePercent < 0) bestDayRulePercent = 0;
 
-        int n = slices.Length;
-
         long curveCells = (long)iterations * targetDurationSlices;
         bool keepCurves = retainCurves && curveCells <= MaxCurveCells;
-
-        var terminalBalances = new double[iterations];
-        var outcomes = new byte[iterations];
-        var slicesElapsed = new int[iterations];
-        var maxDrawdowns = new double[iterations];
-        var equityCurves = keepCurves ? new double[iterations][] : Array.Empty<double[]>();
-        var bestDayRatios = new double[iterations];
-        var longestLosingStreaks = new int[iterations];
-        var longestFlatStretches = new int[iterations];
-        var ruinCauses = new byte[iterations];
 
         int dailyFloorLoss = (int)Math.Round(startingCapital * (maxDailyLossPercent / 100.0));
         int maxFloorLoss = (int)Math.Round(startingCapital * (maxLossPercent / 100.0));
@@ -94,95 +96,62 @@ public sealed class MonteCarloEngine
         bool trailingEod = string.Equals(drawdownType, "trailing-eod", StringComparison.OrdinalIgnoreCase);
         bool trailingIntraday = string.Equals(drawdownType, "trailing-intraday", StringComparison.OrdinalIgnoreCase);
 
-        int completed = 0;
-        int progressStep = Math.Max(1, iterations / 20);
+        var simulation = new MonteCarloSimulationRequest(
+            TargetDurationSlices: targetDurationSlices,
+            StartingCapital: startingCapital,
+            DailyFloorLoss: dailyFloorLoss,
+            MaxFloorLoss: maxFloorLoss,
+            ProfitTarget: profitTarget,
+            ExpectedBlockSize: expectedBlockSize,
+            TrailingEod: trailingEod,
+            TrailingIntraday: trailingIntraday);
 
-        // Normalize the DOP:
-        //   1       -> sequential fast-path
-        //   >1      -> exact thread count
-        //   <=0 (-1) -> Environment.ProcessorCount (current default)
-        int dop = maxDegreeOfParallelism == 1
-            ? 1
-            : maxDegreeOfParallelism > 1
-                ? maxDegreeOfParallelism
-                : Environment.ProcessorCount;
+        var dispatch = new MonteCarloDispatchRequest(
+            Simulation: simulation,
+            Slices: slices,
+            Iterations: iterations,
+            Seed: seed,
+            RetainCurves: keepCurves,
+            MaxDegreeOfParallelism: maxDegreeOfParallelism);
 
-        var parallelOptions = new ParallelOptions
+        var computed = _dispatcher
+            .DispatchMonteCarloAsync(dispatch, cancellationToken)
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+
+        int completed = computed.Count;
+
+        // A cancelled dispatch returns the chunks that finished, so the arrays
+        // below are truncated rather than padded — the result describes exactly
+        // the iterations that ran. Reporting stays at the requested cadence and
+        // never claims a completion that did not happen.
+        if (progress != null && completed > 0)
         {
-            MaxDegreeOfParallelism = dop,
-            CancellationToken = cancellationToken
-        };
+            int progressStep = Math.Max(1, iterations / 20);
+            for (int reported = progressStep; reported <= completed; reported += progressStep)
+                progress.Report(reported);
 
-        // Shared iteration body. Captured by both the sequential loop and
-        // the Parallel.For below. Local function so the body lives once.
-        void RunIteration(int i)
-        {
-            var rng = seed.HasValue ? new Random(seed.Value + i) : Random.Shared;
-
-            double[]? curve = keepCurves ? new double[targetDurationSlices] : null;
-
-            SimulateOnce(
-                slices,
-                n,
-                targetDurationSlices,
-                startingCapital,
-                dailyFloorLoss,
-                maxFloorLoss,
-                profitTarget,
-                trailingEod,
-                trailingIntraday,
-                expectedBlockSize,
-                rng,
-                curve,
-                out var terminal,
-                out var outcome,
-                out var elapsed,
-                out var maxDd,
-                out var bestDayRatio,
-                out var longestLosing,
-                out var longestFlat,
-                out var ruinCause);
-
-            terminalBalances[i] = terminal;
-            outcomes[i] = outcome;
-            slicesElapsed[i] = elapsed;
-            maxDrawdowns[i] = maxDd;
-            if (keepCurves) equityCurves[i] = curve!;
-            bestDayRatios[i] = bestDayRatio;
-            longestLosingStreaks[i] = longestLosing;
-            longestFlatStretches[i] = longestFlat;
-            ruinCauses[i] = ruinCause;
-
-            if (progress != null)
-            {
-                int current = Interlocked.Increment(ref completed);
-                if (current % progressStep == 0 || current == iterations)
-                    progress.Report(current);
-            }
+            if (completed == iterations)
+                progress.Report(completed);
         }
 
-        try
-        {
-            if (dop == 1)
-            {
-                for (int i = 0; i < iterations; i++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    RunIteration(i);
-                }
-            }
-            else
-            {
-                Parallel.For(0, iterations, parallelOptions, RunIteration);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
+        var terminalBalances = computed.TerminalBalances;
+        var outcomes = computed.Outcomes;
+        var slicesElapsed = computed.SlicesElapsed;
+        var maxDrawdowns = computed.MaxDrawdowns;
+        var equityCurves = keepCurves && computed.CurvesRetained
+            ? computed.EquityCurves
+            : Array.Empty<double[]>();
+        var bestDayRatios = computed.BestDayRatios;
+        var longestLosingStreaks = computed.LongestLosingStreaks;
+        var longestFlatStretches = computed.LongestFlatStretches;
+        var ruinCauses = computed.RuinCauses;
 
-        long curveBytes = keepCurves
-            ? (long)iterations * targetDurationSlices * sizeof(double)
+        bool curvesRetained = keepCurves && computed.CurvesRetained;
+
+        long curveBytes = curvesRetained
+            ? (long)completed * targetDurationSlices * sizeof(double)
             : 0L;
 
         return BuildResult(
@@ -195,171 +164,14 @@ public sealed class MonteCarloEngine
             longestLosingStreaks,
             longestFlatStretches,
             ruinCauses,
-            iterations,
+            completed,
             expectedBlockSize,
             startingCapital,
             targetDurationSlices,
             drawdownType ?? "static",
             bestDayRulePercent,
             curveBytes,
-            keepCurves);
-    }
-
-    private static void SimulateOnce(
-        TimeSlice[] slices,
-        int n,
-        int targetDurationSlices,
-        double startingCapital,
-        int dailyFloorLoss,
-        int maxFloorLoss,
-        int profitTarget,
-        bool trailingEod,
-        bool trailingIntraday,
-        int expectedBlockSize,
-        Random rng,
-        double[]? curve,
-        out double terminalBalance,
-        out byte outcome,
-        out int slicesElapsed,
-        out double maxDrawdownPercent,
-        out double bestDayRatio,
-        out int longestLosingStreak,
-        out int longestFlatStretch,
-        out byte ruinCause)
-    {
-        double balance = startingCapital;
-        double hwm = startingCapital;
-        double dayStartBalance = startingCapital;
-        double peak = startingCapital;
-        double maxDd = 0;
-
-        double dayRealized = 0;
-        double maxDayRealized = 0;
-
-        int losingStreak = 0;
-        int longestLosing = 0;
-
-        int flatStretch = 0;
-        int longestFlat = 0;
-
-        byte cause = MonteCarloRuinCause.None;
-
-        int elapsed = 0;
-        byte result = OutcomeTimeout;
-
-        int produced = 0;
-        double p = 1.0 / expectedBlockSize;
-
-        while (produced < targetDurationSlices)
-        {
-            int start = rng.Next(n);
-
-            int blockLen = 1;
-            while (rng.NextDouble() > p && blockLen < n)
-                blockLen++;
-
-            for (int k = 0; k < blockLen && produced < targetDurationSlices; k++, produced++)
-            {
-                var s = slices[(start + k) % n];
-
-                if (s.IsEod)
-                {
-                    if (dayRealized > maxDayRealized) maxDayRealized = dayRealized;
-                    dayRealized = 0;
-
-                    dayStartBalance = balance;
-
-                    if (trailingEod && balance > hwm) hwm = balance;
-                }
-
-                double mtmBalance = balance + s.MtmLow;
-
-                double dailyFloor = dayStartBalance - dailyFloorLoss;
-
-                double maxFloor;
-                if (trailingIntraday)
-                    maxFloor = hwm - maxFloorLoss;
-                else if (trailingEod)
-                    maxFloor = hwm - maxFloorLoss;
-                else
-                    maxFloor = startingCapital - maxFloorLoss;
-
-                bool dailyHit = mtmBalance <= dailyFloor;
-                bool maxHit = mtmBalance <= maxFloor;
-
-                if (dailyHit || maxHit)
-                {
-                    double worst = Math.Min(dailyFloor, maxFloor);
-                    balance = worst;
-                    if (curve != null) curve[produced] = balance;
-                    result = OutcomeBlown;
-                    elapsed = produced + 1;
-
-                    if (dailyHit && maxHit)
-                        cause = dailyFloor >= maxFloor ? MonteCarloRuinCause.DailyFloor : MonteCarloRuinCause.MaxFloor;
-                    else if (dailyHit)
-                        cause = MonteCarloRuinCause.DailyFloor;
-                    else
-                        cause = MonteCarloRuinCause.MaxFloor;
-
-                    goto done;
-                }
-
-                double peakBefore = peak;
-                double mtmHigh = balance + s.MtmHigh;
-                if (mtmHigh > peak) peak = mtmHigh;
-
-                balance += s.RealizedPnl;
-                dayRealized += s.RealizedPnl;
-
-                if (s.RealizedPnl < 0)
-                {
-                    losingStreak++;
-                    if (losingStreak > longestLosing) longestLosing = losingStreak;
-                }
-                else if (s.RealizedPnl > 0)
-                {
-                    losingStreak = 0;
-                }
-
-                if (peak > peakBefore)
-                    flatStretch = 0;
-                else
-                    flatStretch++;
-                if (flatStretch > longestFlat) longestFlat = flatStretch;
-
-                if (trailingIntraday && balance > hwm) hwm = balance;
-
-                double dd = peak > 0 ? (peak - balance) / peak : 0;
-                if (dd > maxDd) maxDd = dd;
-
-                if (curve != null) curve[produced] = balance;
-
-                if (profitTarget > 0 && balance - startingCapital >= profitTarget)
-                {
-                    result = OutcomeFunded;
-                    elapsed = produced + 1;
-                    goto done;
-                }
-            }
-        }
-
-        elapsed = targetDurationSlices;
-
-    done:
-        if (dayRealized > maxDayRealized) maxDayRealized = dayRealized;
-
-        terminalBalance = balance;
-        outcome = result;
-        slicesElapsed = elapsed;
-        maxDrawdownPercent = maxDd * 100.0;
-
-        double profit = terminalBalance - startingCapital;
-        bestDayRatio = (profit > 0 && maxDayRealized > 0) ? maxDayRealized / profit : 0.0;
-
-        longestLosingStreak = longestLosing;
-        longestFlatStretch = longestFlat;
-        ruinCause = cause;
+            curvesRetained);
     }
 
     private static MonteCarloResult BuildResult(

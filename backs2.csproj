@@ -15,6 +15,11 @@
          -p:RunAnalyzersDuringBuild=true. -->
     <EmitCompilerGeneratedFiles>false</EmitCompilerGeneratedFiles>
     <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+
+    <!-- Phase 29B — ComputeSharp's [GeneratedComputeShaderDescriptor] source
+         generator emits pointer-based interop code for every [Shader] kernel
+         (CMPS0052). Required by the Monte Carlo GPU path. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

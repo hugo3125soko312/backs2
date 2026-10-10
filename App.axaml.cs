@@ -121,11 +121,19 @@ public partial class App : Application
         // Compute worker: process-isolated strategy / Monte Carlo execution.
         services.AddSingleton<ComputeWorkerManager>();
 
-        // Unified computing subsystem (Phase 28A). The parent process registers the
-        // CPU backend only — GpuBackend is never registered here, because the parent
-        // UI process must not hold the GPU. Phase 28B resolves GpuBackend inside the
-        // worker process, where the device belongs.
-        services.AddSingleton<IComputeBackend, CpuBackend>();
+        // Unified computing subsystem (Phase 28A, GPU path Phase 29B). The
+        // dispatcher resolves every registered backend and picks the accelerated
+        // one when the device probe succeeded, so CPU-vs-GPU selection lives in
+        // the dispatcher rather than in every caller. Both backends share the one
+        // SimulationKernelCpu instance: it is stateless, so a fresh instance
+        // would only add a second copy of the same object.
+        services.AddSingleton<SimulationKernelCpu>();
+        services.AddSingleton<CpuBackend>(sp =>
+            new CpuBackend(sp.GetRequiredService<SimulationKernelCpu>()));
+        services.AddSingleton<GpuBackend>(sp =>
+            new GpuBackend(sp.GetRequiredService<CpuBackend>()));
+        services.AddSingleton<IComputeBackend>(sp => sp.GetRequiredService<CpuBackend>());
+        services.AddSingleton<IComputeBackend>(sp => sp.GetRequiredService<GpuBackend>());
         services.AddSingleton<IComputeDispatcher, CpuComputeDispatcher>();
 
         // Data Automation

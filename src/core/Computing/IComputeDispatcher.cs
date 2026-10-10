@@ -12,15 +12,29 @@ namespace backs2.Core.Computing;
 /// JSON. Keeping it a plain data record means phase 28B can serialize it without
 /// reshaping this surface.
 /// </summary>
+/// <param name="Simulation">Per-run simulation parameters (floors, target, block size, drawdown type).</param>
 /// <param name="Slices">Source time slices.</param>
-/// <param name="TargetDurationSlices">Slices each simulated run must produce.</param>
 /// <param name="Iterations">Number of independent runs.</param>
 /// <param name="Seed">Seed for reproducible runs; null means non-deterministic.</param>
+/// <param name="RetainCurves">
+/// True when the caller consumes one equity curve per iteration. False for
+/// passes that only read scalars — it is the difference between a 43 MB output
+/// and a few hundred kilobytes on the Phase 29A workload.
+/// </param>
+/// <param name="MaxDegreeOfParallelism">
+/// Upper bound on concurrently executing iterations, normalized exactly as
+/// <c>MonteCarloEngine.Run</c> normalizes its inner degree: 1 is the sequential
+/// fast-path for a caller that already saturates the machine from outside, N &gt; 1
+/// is an exact thread count, and any non-positive value is
+/// Environment.ProcessorCount.
+/// </param>
 public sealed record MonteCarloDispatchRequest(
+    MonteCarloSimulationRequest Simulation,
     TimeSlice[] Slices,
-    int TargetDurationSlices,
     int Iterations,
-    int? Seed = null);
+    int? Seed = null,
+    bool RetainCurves = false,
+    int MaxDegreeOfParallelism = -1);
 
 /// <summary>
 /// Parent-process façade over the unified computing subsystem (ROADMAP Phase 28A).
@@ -39,14 +53,15 @@ public sealed record MonteCarloDispatchRequest(
 public interface IComputeDispatcher
 {
     /// <summary>
-    /// Dispatches a Monte Carlo workload and returns one terminal balance per iteration.
+    /// Dispatches a Monte Carlo workload and returns its complete per-iteration
+    /// results — the nine parallel arrays plus the optional equity curves.
     /// </summary>
     /// <returns>
-    /// An array of length <c>request.Iterations</c>, or empty when the request is
-    /// degenerate. Indexed by iteration — the retry/aggregation shape stays the
-    /// caller's business.
+    /// A result carrying <c>request.Iterations</c> iterations, or fewer when the
+    /// dispatch was cancelled or degenerate. Results are truncated at a chunk
+    /// boundary, never padded, so every entry is a simulation that ran.
     /// </returns>
-    Task<double[]> DispatchMonteCarloAsync(
+    Task<MonteCarloDispatchResult> DispatchMonteCarloAsync(
         MonteCarloDispatchRequest request,
         CancellationToken ct);
 

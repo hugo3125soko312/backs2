@@ -1,35 +1,50 @@
 using System;
-using System.Threading;
+using backs2.Core.Computing;
 using backs2.Core.Overview;
 
 namespace backs2.Core.Computing.Backends;
 
 /// <summary>
-/// The per-iteration kernel a backend schedules. This is the seam that keeps the
-/// parallel skeleton (<see cref="CpuBackend"/>) separate from the Monte Carlo state
-/// machine: Phase 29B supplies the real port of <c>MonteCarloEngine.SimulateOnce</c>
-/// through this interface (or an equivalent ComputeSharp <c>[Shader]</c> kernel on
-/// the GPU side), and nothing in this folder needs to change.
+/// The per-iteration kernel a backend schedules — the seam that keeps the
+/// parallel skeleton (<see cref="CpuBackend"/>) separate from the Monte Carlo
+/// state machine, and that lets the same state machine exist twice: once as
+/// <see cref="SimulationKernelCpu"/> and once as the ComputeSharp
+/// <see cref="SimulationKernelGpu"/> shader.
 ///
-/// Implementations must be:
-///   - pure with respect to their inputs — no shared mutable state, never static
-///     state that assumes a single thread;
-///   - safe to invoke concurrently from many threads (T)Parallel.For;
-///   - deterministic for a given (<paramref name="rng"/>, iteration index), which
-///     is why the RNG is injected per iteration rather than captured.
+/// <para><b>Contract.</b> An implementation must be pure with respect to its
+/// inputs — no shared mutable state, no static state that assumes a single
+/// thread — safe to invoke concurrently from many threads, and deterministic for
+/// a given (<paramref name="rng"/> state, <paramref name="iteration"/>) pair.
+/// The RNG is injected per iteration rather than captured for exactly that
+/// reason.</para>
+///
+/// <para><b>Why the RNG is not <c>System.Random</c>.</b> The CPU kernel splits
+/// RNGs exactly the way <c>MonteCarloEngine.Run</c> always has
+/// (<c>new Random(seed + i)</c>). A GPU shader cannot instantiate
+/// <c>System.Random</c>, so the shader uses a counter-based Philox-4x32 PRNG
+/// seeded from the same (seed, iteration) pair. The two streams are therefore
+/// <em>not</em> bit-identical; the contract is statistical equivalence of the
+/// aggregates, not bit-exactness across backends. Within one backend, the same
+/// seed always produces the same result.</para>
 /// </summary>
 public interface ISimulationKernel
 {
     /// <summary>
-    /// Simulates exactly one run and returns its terminal balance.
+    /// Simulates exactly one run and returns its complete outcome.
     /// </summary>
-    /// <param name="slices">Source slices.</param>
-    /// <param name="targetDurationSlices">Slices to produce for this run.</param>
+    /// <param name="slices">Source slices. Never null or empty; the backend rejects degenerate input first.</param>
+    /// <param name="request">Per-batch simulation parameters.</param>
     /// <param name="rng">The RNG dedicated to this iteration; never shared across iterations.</param>
-    /// <param name="iteration">Zero-based iteration index, for kernels that derive extra entropy from it.</param>
-    double SimulateOnce(
+    /// <param name="iteration">Absolute iteration index within the batch, for kernels that derive entropy from it.</param>
+    /// <param name="curve">
+    /// Optional per-run equity curve of length <c>request.TargetDurationSlices</c>.
+    /// When non-null the kernel writes the running balance into it at the same
+    /// point the engine does; when null the kernel writes nothing.
+    /// </param>
+    MonteCarloIterationOutcome Simulate(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest request,
         Random rng,
-        int iteration);
+        int iteration,
+        double[]? curve);
 }

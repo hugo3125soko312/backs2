@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using backs2.Core.Computing;
 using backs2.Core.Overview;
 
 namespace backs2.Core.Computing.Backends;
@@ -8,25 +9,28 @@ namespace backs2.Core.Computing.Backends;
 /// <summary>
 /// Backend abstraction for time-domain bootstrap simulations (ROADMAP Phase 28).
 ///
-/// Two implementations exist: <see cref="CpuBackend"/> (System.Threading.Tasks.Parallel)
-/// and <see cref="GpuBackend"/> (ComputeSharp / DirectX 12). The signature is the one
-/// specified by Phase 27 — boundary is TimeSlice[] in, terminal balances out.
-///
-/// The long-term owner of a GPU device is the compute worker process
-/// (src/core/Compute/WorkerHost.cs), not the parent UI process. Phase 28B
-/// therefore schedules in the parent process against a CPU backend; migrating
-/// that scheduler into the worker is a later phase, and the parent process stays
-/// CPU-only until it lands.
+/// Two implementations exist: <see cref="CpuBackend"/> (Parallel.For over the
+/// iteration range) and <see cref="GpuBackend"/> (ComputeSharp / DirectX 12, one
+/// GPU thread per simulation). The scheduler in
+/// <see cref="CpuComputeDispatcher"/> picks between them by
+/// <see cref="IsAccelerated"/>, so callers never name a device.
 ///
 /// Contract:
 ///   - Implementations never throw for valid input; degenerate input yields an
-///     empty result rather than an exception.
+///     empty result rather than an exception, and a mid-chunk device failure
+///     falls back rather than propagating.
 ///   - Cancellation is observed between iterations, never mid-iteration, so a
 ///     cancelled call leaves no partial state behind.
 ///   - Given the same (slices, targetDurationSlices, iterations, seed) the result
-///     is reproducible on both backends.
-///   - The result array is always of length max(iterations, 0) and is indexed by
-///     iteration number; the caller owns it outright.
+///     is reproducible on both backends. The two backends do not share an RNG
+///     implementation (System.Random vs a GPU PRNG), so reproducibility is
+///     within a backend; across backends the aggregates are statistically
+///     equivalent, not bit-identical.
+///   - The result carries exactly max(iterations, 0) entries and is indexed by
+///     iteration number starting at zero; the caller owns it outright.
+///   - RNG split: the RNG for iteration <c>i</c> is derived from the
+///     <em>absolute</em> batch index, never a chunk-local one, so chunk
+///     boundaries never move a result.
 /// </summary>
 public interface IComputeBackend
 {
@@ -45,19 +49,28 @@ public interface IComputeBackend
 
     /// <summary>
     /// Runs <paramref name="iterations"/> independent bootstrap simulations and
-    /// returns one terminal balance per iteration.
+    /// returns their complete per-iteration results.
     /// </summary>
     /// <param name="slices">Source time slices to resample from. A null or empty array yields an empty result.</param>
-    /// <param name="targetDurationSlices">Number of slices each simulated run must produce. Non-positive yields an empty result.</param>
+    /// <param name="request">Per-batch simulation parameters. <c>TargetDurationSlices</c> or less yields an empty result.</param>
     /// <param name="iterations">Number of independent runs. Non-positive yields an empty result.</param>
-    /// <param name="seed">Seed for reproducible runs; null means non-deterministic. When supplied, per-iteration
-    /// RNGs are split exactly as MonteCarloEngine does it (<c>new Random(seed + i)</c>).</param>
+    /// <param name="seed">Seed for reproducible runs; null means non-deterministic.</param>
+    /// <param name="retainCurves">True to produce one equity curve per iteration (the caller's retained-curve path).</param>
+    /// <param name="maxDegreeOfParallelism">
+    /// Upper bound on concurrently executing iterations: 1 is the sequential
+    /// fast-path for callers already saturating the machine from outside, -1 (or
+    /// any non-positive value) is Environment.ProcessorCount. Always 1 on the CPU
+    /// backend; a GPU backend is free to interpret it as a launch bound because
+    /// its concurrency comes from the device, not from threads.
+    /// </param>
     /// <param name="ct">Observed between iterations.</param>
-    Task<double[]> RunSimulationsAsync(
+    Task<MonteCarloDispatchResult> RunSimulationsAsync(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest request,
         int iterations,
         int? seed,
+        bool retainCurves,
+        int maxDegreeOfParallelism,
         CancellationToken ct);
 
     /// <summary>
@@ -68,31 +81,32 @@ public interface IComputeBackend
     /// This is the seam that lets <c>CpuComputeDispatcher</c> stay backend-agnostic:
     /// the scheduler owns chunking, work-stealing, and result placement, while the
     /// backend owns how a contiguous iteration range actually executes. The CPU
-    /// backend runs it on the calling worker thread; a future accelerated backend
-    /// dispatches it as one GPU wavefront.
+    /// backend runs it on the calling worker thread; the GPU backend dispatches it
+    /// as one wavefront.
     ///
     /// Determinism is the contract that makes chunking safe: the RNG for iteration
-    /// <c>startIteration + k</c> is derived from that absolute index
-    /// (<c>new Random(seed + (startIteration + k))</c>), never from a chunk-local
-    /// index, so results are bit-identical to the whole-batch call and do not move
-    /// when chunk boundaries move.
+    /// <c>startIteration + k</c> is derived from that absolute index, never from a
+    /// chunk-local index, so results are reproducible and do not move when chunk
+    /// boundaries move.
     ///
     /// <paramref name="startIteration"/> is also the iteration index handed to
-    /// <see cref="ISimulationKernel.SimulateOnce"/>, so a kernel that derives extra
+    /// <see cref="ISimulationKernel.Simulate"/>, so a kernel that derives extra
     /// entropy from the iteration number sees the same value either way.
     /// </remarks>
     /// <param name="slices">Source time slices. A null or empty array yields an empty result.</param>
-    /// <param name="targetDurationSlices">Slices each simulated run must produce. Non-positive yields an empty result.</param>
+    /// <param name="request">Per-batch simulation parameters.</param>
     /// <param name="startIteration">Absolute index of this chunk's first iteration within the whole batch.</param>
     /// <param name="iterationCount">Iterations in this chunk. Non-positive yields an empty result.</param>
     /// <param name="seed">Seed for reproducible runs; null means non-deterministic.</param>
+    /// <param name="retainCurves">True to produce one equity curve per iteration in this chunk.</param>
     /// <param name="ct">Observed between iterations, exactly as the whole-batch entry point does.</param>
-    /// <returns>An array of length max(<paramref name="iterationCount"/>, 0), indexed locally from 0.</returns>
-    Task<double[]> RunIterationsAsync(
+    /// <returns>A result carrying exactly max(<paramref name="iterationCount"/>, 0) entries, indexed locally from 0.</returns>
+    Task<MonteCarloDispatchResult> RunIterationsAsync(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest request,
         int startIteration,
         int iterationCount,
         int? seed,
+        bool retainCurves,
         CancellationToken ct);
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using backs2.Core;
+using backs2.Core.Computing;
 using backs2.Core.Overview;
 
 namespace backs2.Core.Computing.Backends;
@@ -9,27 +9,27 @@ namespace backs2.Core.Computing.Backends;
 /// <summary>
 /// CPU backend: <see cref="Parallel.For"/> over iterations (ROADMAP Phase 28).
 ///
-/// This file is deliberately only the parallel skeleton. It does not duplicate
-/// <c>MonteCarloEngine.SimulateOnce</c> — the per-iteration state machine arrives
-/// through the constructor as an <see cref="ISimulationKernel"/>. Phase 29B wires
-/// the real engine kernel in; until then the placeholder kernel below keeps the
-/// subsystem resolvable and non-throwing.
+/// This file is deliberately only the parallel skeleton. It does not contain the
+/// Monte Carlo state machine — the per-iteration body arrives through the
+/// constructor as an <see cref="ISimulationKernel"/> and defaults to
+/// <see cref="SimulationKernelCpu"/>, which is the ported
+/// <c>MonteCarloEngine.SimulateOnce</c>.
 ///
 /// Determinism: RNGs are split identically to <c>MonteCarloEngine.Run</c>
-/// (<c>new Random(seed + i)</c> when a seed is supplied, <c>Random.Shared</c>
-/// otherwise), so a seeded dispatch is reproducible run over run.
+/// (<c>new Random(seed + i)</c> with the absolute iteration index when a seed is
+/// supplied, <c>Random.Shared</c> otherwise), so a seeded dispatch is
+/// reproducible run over run and chunk boundaries never move a result.
 /// </summary>
 public sealed class CpuBackend : IComputeBackend
 {
     private readonly ISimulationKernel _kernel;
 
     /// <param name="kernel">
-    /// Per-iteration simulation kernel. Defaults to <see cref="PlaceholderKernel"/>
-    /// so the type is constructible before Phase 29B wires the real engine in.
+    /// Per-iteration simulation kernel. Defaults to <see cref="SimulationKernelCpu"/>.
     /// </param>
     public CpuBackend(ISimulationKernel? kernel = null)
     {
-        _kernel = kernel ?? PlaceholderKernel.Instance;
+        _kernel = kernel ?? SimulationKernelCpu.Instance;
     }
 
     /// <inheritdoc/>
@@ -39,59 +39,71 @@ public sealed class CpuBackend : IComputeBackend
     public bool IsAccelerated => false;
 
     /// <inheritdoc/>
-    public Task<double[]> RunSimulationsAsync(
+    public Task<MonteCarloDispatchResult> RunSimulationsAsync(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest request,
         int iterations,
         int? seed,
+        bool retainCurves,
+        int maxDegreeOfParallelism,
         CancellationToken ct)
     {
         // Fail soft at the boundary: degenerate input is an empty result, not a throw.
-        if (slices == null || slices.Length == 0 || targetDurationSlices <= 0 || iterations <= 0)
-            return Task.FromResult(Array.Empty<double>());
+        if (slices == null || slices.Length == 0 || request.TargetDurationSlices <= 0 || iterations <= 0)
+            return Task.FromResult(MonteCarloDispatchResult.Empty);
 
-        var kernel = _kernel;
-        var terminalBalances = new double[iterations];
+        // DOP policy matches MonteCarloEngine.Run's normalization: 1 is the
+        // sequential fast-path for an outer orchestrator that already saturates
+        // the machine, >1 is an exact bound, <=0 is Environment.ProcessorCount.
+        int dop = maxDegreeOfParallelism == 1
+            ? 1
+            : maxDegreeOfParallelism > 1
+                ? maxDegreeOfParallelism
+                : Environment.ProcessorCount;
 
-        // DOP policy matches MonteCarloEngine.Run's default (-1): inner parallelism
-        // is Environment.ProcessorCount. The explicit "outer orchestrator already
-        // saturates the machine, use a sequential inner loop" knob is a Phase 28B
-        // concern — it arrives with the chunked scheduler, whose per-chunk calls
-        // into RunIterationsAsync are deliberately sequential on the calling worker.
-        var parallelOptions = new ParallelOptions
-        {
-            MaxDegreeOfParallelism = Environment.ProcessorCount,
-            CancellationToken = ct
-        };
+        var accumulated = new IterationAccumulator(iterations, request.TargetDurationSlices, retainCurves);
 
         void RunIteration(int i)
         {
             var rng = CreateRng(seed, i);
 
-            terminalBalances[i] = kernel.SimulateOnce(
-                slices,
-                targetDurationSlices,
-                rng,
-                i);
+            // Each iteration owns its curve slot; no two threads share one.
+            var curve = retainCurves ? new double[request.TargetDurationSlices] : null;
+
+            accumulated.Store(
+                i,
+                _kernel.Simulate(slices, request, rng, i, curve),
+                curve);
         }
 
-        if (iterations == 1)
+        if (dop == 1 || iterations == 1)
         {
-            // One iteration: ThreadPool dispatch costs more than the work itself.
-            ct.ThrowIfCancellationRequested();
-            RunIteration(0);
+            // One iteration, or a caller that already saturates the machine:
+            // ThreadPool dispatch costs more than the work itself.
+            for (int i = 0; i < iterations; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                RunIteration(i);
+            }
         }
         else
         {
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = dop,
+                CancellationToken = ct
+            };
+
             Parallel.For(0, iterations, parallelOptions, RunIteration);
         }
 
         LogManager.Debug(LogTag.MonteCarlo,
-            $"compute: CpuBackend ran {iterations} iteration(s) x {targetDurationSlices} slice(s) " +
-            $"over {slices.Length} source slice(s) with DOP={parallelOptions.MaxDegreeOfParallelism}" +
-            (seed.HasValue ? $" (seed={seed.Value})" : " (unseeded)"));
+            $"compute: CpuBackend ran {iterations} iteration(s) x {request.TargetDurationSlices} slice(s) " +
+            $"over {slices.Length} source slice(s) with DOP={dop}" +
+            (seed.HasValue ? $" (seed={seed.Value})" : " (unseeded)") +
+            (retainCurves ? " retaining curves" : ""));
 
-        return Task.FromResult(terminalBalances);
+        return Task.FromResult(accumulated.ToResult());
     }
 
     /// <summary>
@@ -105,41 +117,42 @@ public sealed class CpuBackend : IComputeBackend
     /// what seeds the per-iteration RNG (<c>new Random(seed + i)</c> with the
     /// absolute <c>i</c>) and what reaches the kernel as the iteration number.
     /// That is the whole determinism story: chunk boundaries can move without
-    /// changing a single result, and a chunked run is bit-identical to
-    /// <see cref="RunSimulationsAsync"/>.
+    /// changing a single result.
     /// </remarks>
     /// <inheritdoc cref="IComputeBackend.RunIterationsAsync"/>
-    public Task<double[]> RunIterationsAsync(
+    public Task<MonteCarloDispatchResult> RunIterationsAsync(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest request,
         int startIteration,
         int iterationCount,
         int? seed,
+        bool retainCurves,
         CancellationToken ct)
     {
         // Fail soft at the boundary: degenerate input is an empty result, not a throw.
-        if (slices == null || slices.Length == 0 || targetDurationSlices <= 0 || iterationCount <= 0)
-            return Task.FromResult(Array.Empty<double>());
+        if (slices == null || slices.Length == 0 || request.TargetDurationSlices <= 0 || iterationCount <= 0)
+            return Task.FromResult(MonteCarloDispatchResult.Empty);
 
-        var kernel = _kernel;
-        var chunkResults = new double[iterationCount];
+        var accumulated = new IterationAccumulator(iterationCount, request.TargetDurationSlices, retainCurves);
 
         for (int local = 0; local < iterationCount; local++)
         {
             // Between iterations, never mid-iteration — the same cancellation
-            // granularity the whole-batch entry point documents.
+            // granularity the whole-batch entry point documents. A cancelled
+            // chunk returns a short array rather than a padded one, which is what
+            // makes the scheduler's whole-chunk-or-nothing rule safe.
             ct.ThrowIfCancellationRequested();
 
             int i = startIteration + local;
+            var curve = retainCurves ? new double[request.TargetDurationSlices] : null;
 
-            chunkResults[local] = kernel.SimulateOnce(
-                slices,
-                targetDurationSlices,
-                CreateRng(seed, i),
-                i);
+            accumulated.Store(
+                local,
+                _kernel.Simulate(slices, request, CreateRng(seed, i), i, curve),
+                curve);
         }
 
-        return Task.FromResult(chunkResults);
+        return Task.FromResult(accumulated.ToResult());
     }
 
     /// <summary>
@@ -151,27 +164,59 @@ public sealed class CpuBackend : IComputeBackend
         => seed.HasValue ? new Random(seed.Value + iteration) : Random.Shared;
 
     /// <summary>
-    /// Non-throwing stand-in used until Phase 29B ports the Monte Carlo state
-    /// machine. It consumes the RNG exactly as the real kernel will and derives a
-    /// deterministic terminal balance from it, which keeps seeded dispatches
-    /// reproducible but carries no simulation meaning.
+    /// Collects per-iteration kernel outputs into the parallel arrays a
+    /// <see cref="MonteCarloDispatchResult"/> is made of. One instance per
+    /// call/chunk, written at distinct indices, so no synchronization is needed.
     /// </summary>
-    private sealed class PlaceholderKernel : ISimulationKernel
+    private sealed class IterationAccumulator
     {
-        public static readonly PlaceholderKernel Instance = new();
+        private readonly double[] _terminalBalances;
+        private readonly byte[] _outcomes;
+        private readonly int[] _slicesElapsed;
+        private readonly double[] _maxDrawdowns;
+        private readonly double[] _bestDayRatios;
+        private readonly int[] _longestLosingStreaks;
+        private readonly int[] _longestFlatStretches;
+        private readonly byte[] _ruinCauses;
+        private readonly double[][] _equityCurves;
 
-        public double SimulateOnce(
-            TimeSlice[] slices,
-            int targetDurationSlices,
-            Random rng,
-            int iteration)
+        public IterationAccumulator(int count, int targetDurationSlices, bool retainCurves)
         {
-            double realizedPnl = 0;
-
-            for (int produced = 0; produced < targetDurationSlices; produced++)
-                realizedPnl += slices[rng.Next(slices.Length)].RealizedPnl;
-
-            return realizedPnl;
+            _terminalBalances = new double[count];
+            _outcomes = new byte[count];
+            _slicesElapsed = new int[count];
+            _maxDrawdowns = new double[count];
+            _bestDayRatios = new double[count];
+            _longestLosingStreaks = new int[count];
+            _longestFlatStretches = new int[count];
+            _ruinCauses = new byte[count];
+            _equityCurves = retainCurves ? new double[count][] : Array.Empty<double[]>();
         }
+
+        public void Store(int index, MonteCarloIterationOutcome outcome, double[]? curve)
+        {
+            _terminalBalances[index] = outcome.TerminalBalance;
+            _outcomes[index] = outcome.Outcome;
+            _slicesElapsed[index] = outcome.SlicesElapsed;
+            _maxDrawdowns[index] = outcome.MaxDrawdownPercent;
+            _bestDayRatios[index] = outcome.BestDayRatio;
+            _longestLosingStreaks[index] = outcome.LongestLosingStreak;
+            _longestFlatStretches[index] = outcome.LongestFlatStretch;
+            _ruinCauses[index] = outcome.RuinCause;
+
+            if (curve != null)
+                _equityCurves[index] = curve;
+        }
+
+        public MonteCarloDispatchResult ToResult() => new(
+            _terminalBalances,
+            _outcomes,
+            _slicesElapsed,
+            _maxDrawdowns,
+            _bestDayRatios,
+            _longestLosingStreaks,
+            _longestFlatStretches,
+            _ruinCauses,
+            _equityCurves);
     }
 }

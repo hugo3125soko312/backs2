@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using backs2.Core;
@@ -10,9 +11,10 @@ namespace backs2.Core.Computing;
 
 /// <summary>
 /// In-process dispatcher (ROADMAP Phase 28A) and the parent-process hybrid
-/// scheduler (Phase 28B). Resolves <see cref="IComputeBackend"/> from DI, splits a
-/// Monte Carlo dispatch into fixed-size chunks, and hands those chunks to
-/// available workers that claim them off a shared queue until it runs dry.
+/// scheduler (Phase 28B). Resolves <see cref="IComputeBackend"/> from DI, picks
+/// the accelerated backend when one is available (Phase 29B), splits a Monte
+/// Carlo dispatch into fixed-size chunks, and hands those chunks to available
+/// workers that claim them off a shared queue until it runs dry.
 ///
 /// <para><b>Why this lives in the parent process.</b> Phase 28B as originally
 /// scoped said "in the worker", but Compute Worker Phase 3 is not scheduled and
@@ -23,11 +25,12 @@ namespace backs2.Core.Computing;
 ///
 /// <para><b>Determinism.</b> The only detail that can silently corrupt a seeded
 /// run is how per-iteration RNGs are split. The RNG for iteration <c>i</c> is
-/// always <c>new Random(seed + i)</c> with <c>i</c> the <em>absolute</em> index in
-/// <c>[0, iterations)</c> — never the chunk-local index — so a chunked dispatch
-/// produces a <c>double[]</c> bit-identical to
-/// <see cref="CpuBackend.RunSimulationsAsync"/> and stays stable when
-/// <see cref="McChunkSize"/> or the machine's core count changes. This mirrors
+/// always keyed on the <em>absolute</em> index in <c>[0, iterations)</c> — never
+/// the chunk-local index — so a chunked dispatch stays stable when
+/// <see cref="McChunkSize"/> or the machine's core count changes. On the CPU
+/// backend that key is <c>new Random(seed + i)</c>, bit-identical to
+/// <see cref="CpuBackend.RunSimulationsAsync"/>; on the GPU backend it is a
+/// Philox counter derived from the same pair. This mirrors
 /// <c>MonteCarloEngine.Run</c>'s existing split semantics.</para>
 ///
 /// <para><b>Cancellation.</b> <c>ct</c> reaches every worker through
@@ -47,9 +50,34 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
 
     private readonly IComputeBackend _backend;
 
-    public CpuComputeDispatcher(IComputeBackend backend)
+    /// <param name="backends">
+    /// Every backend the process can resolve. The dispatcher picks the
+    /// accelerated one when a device is available and the first registered one
+    /// otherwise, so CPU-vs-GPU selection stays on this side of the DI surface
+    /// instead of leaking into every caller. One registration is a valid
+    /// collection: a deployment with no GPU registers only the CPU backend.
+    /// </param>
+    public CpuComputeDispatcher(IEnumerable<IComputeBackend> backends)
     {
-        _backend = backend;
+        if (backends == null)
+            throw new ArgumentNullException(nameof(backends));
+
+        IComputeBackend? first = null;
+        IComputeBackend? accelerated = null;
+
+        foreach (var backend in backends)
+        {
+            if (backend == null) continue;
+
+            first ??= backend;
+            if (accelerated == null && backend.IsAccelerated) accelerated = backend;
+        }
+
+        _backend = accelerated ?? first ?? new CpuBackend();
+
+        LogManager.Debug(LogTag.MonteCarlo,
+            $"compute: dispatcher resolved {_backend.Name} " +
+            $"({(accelerated != null ? "accelerated" : "no accelerated backend available")})");
     }
 
     /// <summary>
@@ -58,42 +86,53 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     public IComputeBackend Backend => _backend;
 
     /// <inheritdoc/>
-    public async Task<double[]> DispatchMonteCarloAsync(
+    public async Task<MonteCarloDispatchResult> DispatchMonteCarloAsync(
         MonteCarloDispatchRequest request,
         CancellationToken ct)
     {
         if (request == null)
-            return Array.Empty<double>();
+            return MonteCarloDispatchResult.Empty;
 
         if (request.Iterations <= 0 || request.Slices == null || request.Slices.Length == 0 ||
-            request.TargetDurationSlices <= 0)
+            request.Simulation.TargetDurationSlices <= 0)
         {
             LogManager.Debug(LogTag.MonteCarlo,
                 "compute: MonteCarlo dispatch is degenerate — returning empty result");
-            return Array.Empty<double>();
+            return MonteCarloDispatchResult.Empty;
         }
 
         var slices = request.Slices;
         int iterations = request.Iterations;
-        int sliceCount = request.TargetDurationSlices;
         int? seed = request.Seed;
+        bool retainCurves = request.RetainCurves;
 
         int chunkSize = McChunkSize;
         int chunkCount = (iterations + chunkSize - 1) / chunkSize;
 
+        // The requested inner degree is the worker count, normalized exactly as
+        // MonteCarloEngine.Run normalizes it: an outer orchestrator that already
+        // saturates the machine asks for 1 so the scheduler does not oversubscribe
+        // it with a second layer of threads.
+        int requestedDop = request.MaxDegreeOfParallelism;
+        int dop = requestedDop == 1
+            ? 1
+            : requestedDop > 1
+                ? requestedDop
+                : Environment.ProcessorCount;
+
         // Degenerate/cheap shapes never pay for the scheduler: one unit of work
         // claimed by one worker is exactly the sequential loop.
-        int workerCount = chunkCount == 1
-            ? 1
-            : Math.Min(Environment.ProcessorCount, chunkCount);
+        int workerCount = chunkCount == 1 ? 1 : Math.Min(dop, chunkCount);
 
         LogManager.Debug(LogTag.MonteCarlo,
             $"compute: schedule MonteCarlo {iterations} iteration(s) as {chunkCount} chunk(s) " +
             $"of <= {chunkSize}, {workerCount} worker(s), backend={_backend.Name}" +
-            $"{(seed.HasValue ? $" (seed={seed.Value})" : " (unseeded, Random.Shared)")}");
+            $"{(seed.HasValue ? $" (seed={seed.Value})" : " (unseeded, Random.Shared)")}" +
+            (retainCurves ? " retaining curves" : ""));
 
         return await RunChunkedAsync(
-            slices, sliceCount, iterations, seed, chunkCount, chunkSize, workerCount, ct)
+            slices, request.Simulation, iterations, seed, retainCurves,
+            chunkCount, chunkSize, workerCount, ct)
             .ConfigureAwait(false);
     }
 
@@ -161,11 +200,12 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// is a genuinely truncated array: it never carries trailing or interior zeros
     /// that a caller could mistake for simulated balances.
     /// </remarks>
-    private async Task<double[]> RunChunkedAsync(
+    private async Task<MonteCarloDispatchResult> RunChunkedAsync(
         TimeSlice[] slices,
-        int targetDurationSlices,
+        MonteCarloSimulationRequest simulation,
         int iterations,
         int? seed,
+        bool retainCurves,
         int chunkCount,
         int chunkSize,
         int workerCount,
@@ -177,8 +217,8 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
 
         // Each worker drops its chunk here once it holds the whole chunk. Nothing
         // is published mid-chunk, so a cancelled run's residue is always a set of
-        // complete, bit-exact chunks.
-        var completedChunks = new ConcurrentDictionary<int, double[]>();
+        // complete chunks.
+        var completedChunks = new ConcurrentDictionary<int, MonteCarloDispatchResult>();
 
         var parallelOptions = new ParallelOptions
         {
@@ -200,24 +240,27 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
                     int startIteration = chunk * chunkSize;
                     int iterationCount = Math.Min(chunkSize, iterations - startIteration);
 
-                    // Backend-agnostic on purpose: this is the call that reaches a
-                    // GPU queue once GpuBackend.IsAccelerated is true. No caller-side
-                    // branch decides CPU vs GPU — the backend contract does.
+                    // Backend-agnostic on purpose: this is the call that reaches the
+                    // GPU queue when the resolved backend is accelerated. No
+                    // caller-side branch decides CPU vs GPU — the backend contract
+                    // does.
                     var chunkResults = _backend
-                        .RunIterationsAsync(slices, targetDurationSlices, startIteration, iterationCount, seed, ct)
+                        .RunIterationsAsync(
+                            slices, simulation, startIteration, iterationCount,
+                            seed, retainCurves, ct)
                         .GetAwaiter()
                         .GetResult();
 
                     // A chunk only counts once it is demonstrably whole. A backend
-                    // that observed cancellation mid-chunk returns a short array,
+                    // that observed cancellation mid-chunk returns a short result,
                     // and admitting it would publish a truncated chunk under a full
                     // chunk's identity — the "truncated result" then lands on an
                     // arbitrary iteration instead of a chunk boundary.
-                    if (chunkResults.Length != iterationCount)
+                    if (chunkResults.Count != iterationCount)
                     {
                         LogManager.Debug(LogTag.MonteCarlo,
                             $"compute: chunk #{chunk} abandoned mid-run " +
-                            $"({chunkResults.Length}/{iterationCount} iteration(s)) on {_backend.Name}");
+                            $"({chunkResults.Count}/{iterationCount} iteration(s)) on {_backend.Name}");
                         return;
                     }
 
@@ -240,28 +283,18 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
                 "chunk(s) — returning the chunks that completed");
         }
 
-        // Stitch the surviving chunks back together in batch order. The array is
+        // Stitch the surviving chunks back together in batch order. Everything is
         // indexed by absolute iteration, which is exactly what the whole-batch
         // entry point would have returned for those iterations.
         var chunkIds = new int[completedChunks.Count];
         completedChunks.Keys.CopyTo(chunkIds, 0);
         Array.Sort(chunkIds);
 
-        int availableIterations = 0;
+        var ordered = new List<MonteCarloDispatchResult>(chunkIds.Length);
         foreach (int chunk in chunkIds)
-            availableIterations += completedChunks[chunk].Length;
+            ordered.Add(completedChunks[chunk]);
 
-        var terminalBalances = new double[availableIterations];
-        int offset = 0;
-
-        foreach (int chunk in chunkIds)
-        {
-            var chunkResults = completedChunks[chunk];
-            Array.Copy(chunkResults, 0, terminalBalances, offset, chunkResults.Length);
-            offset += chunkResults.Length;
-        }
-
-        return terminalBalances;
+        return MonteCarloDispatchResult.Concat(ordered);
     }
 
     /// <summary>
