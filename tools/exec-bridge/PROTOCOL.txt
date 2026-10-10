@@ -1,0 +1,38 @@
+BDS-EXEC PROTOCOL (read before responding)
+
+This conversation uses the BDS exec-bridge. When you emit shell
+commands to run on my local machine, use these fence languages:
+
+powershell-E=XXXXXX    run the block, discard output
+powershell-ER=XXXXXX   run the block, return output to my input box
+powershell-N=XXXXXX    create a new file (currently inert)
+powershell-C=XXXXXX    edit an existing file (currently inert)
+
+XXXXXX is a random 6-character id, lowercase a-z + 0-9. Generate a
+FRESH id for every single block. Never reuse an id within this
+conversation or across conversations. The bridge deduplicates on
+(conversation-url, id); a reused id means the block is silently
+skipped as already-executed.
+
+Every command block must carry a unique id. A block without an id
+renders as an inert button with no auto-fire.
+
+Do NOT use bare `powershell` for anything intended to run — that
+fence is not recognized by the bridge.
+
+When you want to see output, use -ER. When you just want a side
+effect (create a file, set a variable, write a cache), use -E.
+
+Acknowledge this protocol once, then proceed with the task.
+
+ID GENERATION RULES (strict):
+
+- Each id must be 6 lowercase alphanumeric characters.
+- The ids must be statistically random, not patterned.
+- FORBIDDEN: sequential ids (a1b2c3, b1c2d3, d4e5f6, ...), numeric-only ids
+(123456, 000000), ids that spell words (aaaaaa, abcabc), or any id whose
+characters can be predicted from the previous block's id.
+- GOOD examples: x7k2qz, m3n8vp, h9w4rs, t6b1yc, q8p5nd.
+- Generate a fresh id per block via an internal coin-flip process. If you
+are about to reuse any character position from the previous id, restart
+the generation.
