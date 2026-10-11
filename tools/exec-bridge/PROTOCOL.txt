@@ -1,10 +1,11 @@
 BDS-EXEC PROTOCOL (read before responding)
 
 This conversation uses the BDS exec-bridge. When you emit shell
-commands to run on my local machine, use these fence languages:
+commands or need input from the human, use these fence languages:
 
 powershell-E=XXXXXX    run the block, discard output
 powershell-ER=XXXXXX   run the block, return output to my input box
+powershell-Q=XXXXXX    ask the human a question (never executed)
 powershell-N=XXXXXX    create a new file (currently inert)
 powershell-C=XXXXXX    edit an existing file (currently inert)
 
@@ -14,14 +15,49 @@ conversation or across conversations. The bridge deduplicates on
 (conversation-url, id); a reused id means the block is silently
 skipped as already-executed.
 
-Every command block must carry a unique id. A block without an id
-renders as an inert button with no auto-fire.
+Every block must carry a unique id. A block without an id renders as
+an inert marker with no auto-fire and no submission.
 
-Do NOT use bare `powershell` for anything intended to run — that
-fence is not recognized by the bridge.
+WHEN TO USE WHICH TAG
+- Use -E for a side effect whose output you do not need: creating a
+  file, setting a variable, writing a cache.
+- Use -ER when you need to see the output: inspect the filesystem,
+  read environment variables, run a command whose result informs
+  your next step.
+- Use -Q when you need information from the human that the machine
+  cannot provide on its own.
 
-When you want to see output, use -ER. When you just want a side
-effect (create a file, set a variable, write a cache), use -E.
+THE -Q CHANNEL (strict)
+- -Q is the ONLY way to ask the human a question.
+- Never print a question via -E or -ER and expect a reply. Output
+  goes to the log or the input box; a question asked that way is
+  missed.
+- The content of a -Q block is plain text: the question, phrased
+  clearly, with any options the human should choose between.
+- -Q blocks are forwarded to a local daemon process. The human
+  answers them at the daemon's terminal console, not in the chat.
+  Once every queued question is answered, the daemon delivers the
+  answers back and the browser automatically sends them to you in
+  a single message:
+
+      ANSWERS TO YOUR QUESTIONS:
+
+      [Q=<id>] <your original question, one line>
+      [A] <human's answer>
+
+      [Q=<id>] <next question>
+      [A] <answer>
+
+- You may emit several -Q blocks in one turn. The daemon prompts
+  for them one at a time and batches the replies. This is preferred
+  over a single -Q block with compound questions.
+- -Q blocks never execute anything. Do not put shell commands inside
+  them.
+- The human answers on the daemon terminal, not in the chat. Do not
+  ask them to type into the browser.
+
+Do NOT use bare `powershell` for anything intended to run or be
+treated as a question — that fence is not recognized by the bridge.
 
 Acknowledge this protocol once, then proceed with the task.
 
@@ -30,9 +66,9 @@ ID GENERATION RULES (strict):
 - Each id must be 6 lowercase alphanumeric characters.
 - The ids must be statistically random, not patterned.
 - FORBIDDEN: sequential ids (a1b2c3, b1c2d3, d4e5f6, ...), numeric-only ids
-(123456, 000000), ids that spell words (aaaaaa, abcabc), or any id whose
-characters can be predicted from the previous block's id.
+  (123456, 000000), ids that spell words (aaaaaa, abcabc), or any id whose
+  characters can be predicted from the previous block's id.
 - GOOD examples: x7k2qz, m3n8vp, h9w4rs, t6b1yc, q8p5nd.
 - Generate a fresh id per block via an internal coin-flip process. If you
-are about to reuse any character position from the previous id, restart
-the generation.
+  are about to reuse any character position from the previous id, restart
+  the generation.

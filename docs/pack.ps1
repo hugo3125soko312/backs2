@@ -52,6 +52,7 @@ try {
         'AGENT_RULES.md',
         'ROADMAP.md',
         'LONGWORK_FORMAT.md',
+        'PROTOCOL.txt',
         'watch_downloads.go'
     )
     $guideNames = @(
@@ -77,8 +78,18 @@ try {
                 $_.FullName -notmatch '\\(bin|obj)\\' -and
                 $_.Name -notin $excludeNames -and
                 ($textExtensions -contains $_.Extension.ToLower())
-            } | Sort-Object FullName
+            }
     )
+
+    # Extra files outside docs/ that belong in the bundle context.
+    # Currently: the BDS exec-bridge protocol, which teaches the model
+    # the fence tags used by the browser userscript.
+    $externalIncludePaths = @('tools\exec-bridge\PROTOCOL.txt')
+    foreach ($extPath in $externalIncludePaths) {
+        if (Test-Path $extPath) { $allDocs += Get-Item $extPath }
+    }
+
+    $allDocs = @($allDocs | Sort-Object FullName)
 
     $docs = if ($Full) { $allDocs }
             else        { @($allDocs | Where-Object { $_.Name -in $includeNames }) }
@@ -103,7 +114,9 @@ try {
     [void]$sb.AppendLine('  4. docs\AGENT_RULES.md governs every response (Output Contract).')
     [void]$sb.AppendLine('  5. Docs not bundled are listed at the end with request-on-demand commands.')
     [void]$sb.AppendLine('  6. If any doc conflicts with the starting prompt, the prompt wins.')
-    [void]$sb.AppendLine('  7. Before doing any work, summarize what you read in <=10 bullets.')
+    [void]$sb.AppendLine('  7. If the request needs project context, summarize what you read in <=5 bullets.')
+    [void]$sb.AppendLine('  8. Do not analyze this bundle unless the request requires it. Keep initial')
+    [void]$sb.AppendLine('     reasoning short; respond to the user directly.')
     [void]$sb.AppendLine('###################################################################')
     [void]$sb.AppendLine()
 
@@ -225,25 +238,43 @@ finally {
     Pop-Location
 }
 
-# --- 7. Optional: launch the unzipper watcher in a new window ---
+# --- 7. Rebuild and launch the exec-bridge daemon + Q&A terminal ---
 Write-Host
-Write-Host 'Press ENTER to launch the unzipper watcher in a new PowerShell window, or type anything and press ENTER to exit:' -ForegroundColor Cyan
+Write-Host 'Press ENTER to rebuild and launch the exec-bridge daemon + Q&A terminal, or type anything and press ENTER to exit:' -ForegroundColor Cyan
 $response = Read-Host
 if ([string]::IsNullOrWhiteSpace($response)) {
-    $exePath = Join-Path $root 'tools\unzipper\watch_downloads.exe'
-    if (-not (Test-Path $exePath)) {
-        Write-Host 'watch_downloads.exe not found; building from source...' -ForegroundColor Yellow
-        Push-Location (Join-Path $root 'tools\unzipper')
+    $bridgeDir = Join-Path $root 'tools\exec-bridge'
+    $exePath   = Join-Path $bridgeDir 'exec_bridge.exe'
+
+    if (-not (Test-Path $bridgeDir)) {
+        Write-Host "Bridge directory not found: $bridgeDir" -ForegroundColor Red
+    } else {
+        $running = Get-Process exec_bridge -ErrorAction SilentlyContinue
+        if ($running) {
+            Write-Host ("Stopping running exec_bridge (PID {0})..." -f (($running | ForEach-Object { $_.Id }) -join ', ')) -ForegroundColor Yellow
+            $running | Stop-Process -Force
+            Start-Sleep -Milliseconds 400
+        }
+
+        Write-Host 'Rebuilding exec_bridge.exe from source...' -ForegroundColor Yellow
+        Push-Location $bridgeDir
         try {
-            go build -o watch_downloads.exe
+            go build -o exec_bridge.exe
             if ($LASTEXITCODE -ne 0) { Write-Host "go build exited with code $LASTEXITCODE" -ForegroundColor Red }
         } finally { Pop-Location }
-    }
-    if (Test-Path $exePath) {
-        $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { 'pwsh.exe' } else { 'powershell.exe' }
-        Start-Process -FilePath $shellExe -ArgumentList '-NoExit', '-NoProfile', '-Command', "& '$exePath'"
-        Write-Host 'Launched unzipper watcher in a new window.' -ForegroundColor Green
-    } else {
-        Write-Host 'Build failed; unzipper not launched.' -ForegroundColor Red
+
+        if (Test-Path $exePath) {
+            $shellExe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { 'pwsh.exe' } else { 'powershell.exe' }
+
+            Start-Process -FilePath $shellExe -ArgumentList '-NoExit', '-NoProfile', '-Command', "& '$exePath'" | Out-Null
+            Write-Host '  daemon (logging) launched' -ForegroundColor Green
+
+            Start-Sleep -Milliseconds 800
+
+            Start-Process -FilePath $shellExe -ArgumentList '-NoExit', '-NoProfile', '-Command', "& '$exePath' -qterm" | Out-Null
+            Write-Host '  Q&A terminal launched' -ForegroundColor Green
+        } else {
+            Write-Host 'Build failed; daemon not launched.' -ForegroundColor Red
+        }
     }
 }
