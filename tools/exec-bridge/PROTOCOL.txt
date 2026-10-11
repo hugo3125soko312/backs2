@@ -60,6 +60,18 @@ Do NOT use bare `powershell` for anything intended to run or be
 treated as a question — that fence is not recognized by the bridge.
 
 Acknowledge this protocol once, then proceed with the task.
+TURN STRUCTURE (strict)
+
+- Every turn must end with at least one visible sentence of plain prose,
+  outside any code fence and outside any bridge block.
+- Never end a turn with only a bridge block and no visible text. The human
+  sees an empty reply and the chat looks frozen even though the block ran.
+- After the final bridge block in a turn completes (output returned, or
+  answers delivered), write one short closing line: what you found, what
+  the next step is, or a plain acknowledgement. One sentence is enough.
+- "No other work" in a task description means "do not add extra bridge
+  blocks or side quests" -- it does not mean "emit nothing". A closing
+  line is still required.
 
 ID GENERATION RULES (strict):
 
