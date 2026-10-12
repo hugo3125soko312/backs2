@@ -399,6 +399,19 @@ func handleQuestionAnswer(w http.ResponseWriter, r *http.Request, qq *questionQu
     writeJSON(w, map[string]any{"ok": true})
 }
 
+func handleQuestionBatch(w http.ResponseWriter, r *http.Request, qq *questionQueue) {
+    url := r.URL.Query().Get("url")
+    qq.mu.Lock()
+    pending := 0
+    for _, item := range qq.pending {
+        if url == "" || item.URL == url {
+            pending++
+        }
+    }
+    qq.mu.Unlock()
+    writeJSON(w, map[string]any{"pending_count": pending})
+}
+
 func handleListAnswers(w http.ResponseWriter, r *http.Request, qq *questionQueue) {
     url := r.URL.Query().Get("url")
     ready, items := qq.Ready(url)
@@ -737,6 +750,9 @@ func main() {
     }))
     mux.HandleFunc("/question/answer", cors(func(w http.ResponseWriter, r *http.Request) {
         handleQuestionAnswer(w, r, qq)
+    }))
+    mux.HandleFunc("/question/batch", cors(func(w http.ResponseWriter, r *http.Request) {
+        handleQuestionBatch(w, r, qq)
     }))
     mux.HandleFunc("/answers", cors(func(w http.ResponseWriter, r *http.Request) {
         if r.Method == http.MethodGet { handleListAnswers(w, r, qq); return }
