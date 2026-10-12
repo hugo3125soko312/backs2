@@ -84,7 +84,7 @@ try {
     # Extra files outside docs/ that belong in the bundle context.
     # Currently: the BDS exec-bridge protocol, which teaches the model
     # the fence tags used by the browser userscript.
-    $externalIncludePaths = @('tools\exec-bridge\PROTOCOL.txt', 'tools\exec-bridge\TOOLCALLS.txt')
+    $externalIncludePaths = @('tools\exec-bridge\README.md', 'tools\exec-bridge\PROTOCOL.txt', 'tools\exec-bridge\TOOLCALLS.txt')
     foreach ($extPath in $externalIncludePaths) {
         if (Test-Path $extPath) { $allDocs += Get-Item $extPath }
     }
@@ -158,20 +158,44 @@ try {
         Add-Section $rel $body
     }
 
-    # --- 3. Project tree ---
-    [void]$sb.AppendLine('================= PROJECT STRUCTURE =================')
-    Get-ChildItem -Recurse -File |
-        Where-Object {
-            $_.FullName -notmatch '\\(bin|obj|\.git|\.vs|\.vscode)\\' -and
-            $_.Name -notlike '*.g.cs' -and
-            ($_.Extension -in '.cs', '.axaml', '.csproj', '.ps1' -or $_.Name -like '.env*')
-        } |
-        Resolve-Path -Relative |
-        Sort-Object |
-        ForEach-Object { [void]$sb.AppendLine($_) }
-    [void]$sb.AppendLine()
+    # --- 3a. Markdown docs tree ---
+[void]$sb.AppendLine('================= MARKDOWN DOCS TREE =================')
+Get-ChildItem -Recurse -File -Filter *.md |
+    Where-Object {
+        $_.FullName -notmatch '\\(bin|obj|\.git|\.vs|\.vscode|node_modules|logs)\\' -and
+        $_.FullName -notmatch '\\data\\(cache|shots|parsed|ticks|optimizations)\\'
+    } |
+    Resolve-Path -Relative |
+    Sort-Object |
+    ForEach-Object { [void]$sb.AppendLine($_) }
+[void]$sb.AppendLine()
 
-    # --- 4. Docs not bundled ---
+# --- 3b. Code tree ---
+[void]$sb.AppendLine('================= CODE TREE =================')
+$codeExt = @(
+    '.cs', '.axaml', '.csproj', '.sln', '.ps1', '.psm1',
+    '.go', '.js', '.ts', '.tsx', '.jsx', '.html', '.css',
+    '.mql5', '.py', '.sh', '.bat', '.cmd',
+    '.yml', '.yaml', '.xml', '.config', '.toml', '.ini',
+    '.json', '.editorconfig'
+)
+Get-ChildItem -Recurse -File |
+    Where-Object {
+        $_.FullName -notmatch '\\(bin|obj|\.git|\.vs|\.vscode|node_modules|logs)\\' -and
+        $_.FullName -notmatch '\\data\\(cache|shots|parsed|ticks|optimizations)\\' -and
+        $_.Name -notlike '*.g.cs' -and
+        (
+            $codeExt -contains $_.Extension.ToLower() -or
+            $_.Name -like '.env*' -or
+            $_.Name -eq '.gitignore' -or
+            $_.Name -eq '.gitattributes'
+        )
+    } |
+    Resolve-Path -Relative |
+    Sort-Object |
+    ForEach-Object { [void]$sb.AppendLine($_) }
+[void]$sb.AppendLine()
+# --- 4. Docs not bundled ---
     # Each request command is emitted inside a ```powershell fenced block so
     # the AI reading this bundle sees the correct pattern (see AGENT_RULES §1
     # and §3). Do not switch to indented text or inline backticks here — that
