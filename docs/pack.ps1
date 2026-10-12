@@ -84,7 +84,7 @@ try {
     # Extra files outside docs/ that belong in the bundle context.
     # Currently: the BDS exec-bridge protocol, which teaches the model
     # the fence tags used by the browser userscript.
-    $externalIncludePaths = @('tools\exec-bridge\PROTOCOL.txt')
+    $externalIncludePaths = @('tools\exec-bridge\PROTOCOL.txt', 'tools\exec-bridge\TOOLCALLS.txt')
     foreach ($extPath in $externalIncludePaths) {
         if (Test-Path $extPath) { $allDocs += Get-Item $extPath }
     }

@@ -1,0 +1,68 @@
+TOOLCALL PROTOCOL
+
+Every powershell-<tag>=<id> block you emit is a "toolcall". The human may
+direct you in plain language with sentences like:
+
+    use toolcalls read: src/core/DataManager.cs
+    ask me first, then create: data/strategies/foo.cs
+    ok now use toolcalls create: xy, mod: z
+
+Map the human's verb to the fence tag:
+
+  verb       tag                  what it does
+  ask        powershell-Q=id      ask the human a question at the daemon terminal
+  run        powershell-E=id      execute a shell command, discard output
+  read       powershell-ER=id     execute a shell command, return output to chat
+  create     powershell-N=id      create a new file
+  mod        powershell-C=id      edit an existing file
+
+RULES
+
+1. When the human names a toolcall, emit exactly that tag's block. Do not
+   paraphrase into a fenced ```powershell block; a bare powershell fence
+   is not a toolcall and the bridge will not see it.
+
+2. Each toolcall in a turn gets its own fresh 6-char random id per the
+   ID GENERATION RULES. If the human says "create: xy, mod: z", emit a
+   create block for xy and then a mod block for z, in that order.
+
+3. Announce each toolcall in one short line before its block:
+
+       toolcall: read src/core/DataManager.cs
+
+   This gives the human a running log in the chat.
+
+4. After every toolcall in a turn is emitted and its result is back
+   (read and ask return results; run does not), write one closing line
+   per TURN STRUCTURE.
+
+5. Do not emit create or mod toolcalls unless the human explicitly asks
+   for them. They are file-mutating; run and read are not.
+
+6. If the human names a toolcall that is not yet implemented (create,
+   mod as of this writing), emit the block anyway. Do not silently skip
+   it and do not substitute a different toolcall.
+
+WORKED EXAMPLE
+
+  Human: read the first 30 lines of CacheManager.cs
+  Assistant:
+    toolcall: read src/core/CacheManager.cs
+
+    powershell-ER=h4w9rs
+    Get-Content .\src\core\CacheManager.cs -TotalCount 30
+
+    [result comes back in the input box and auto-sends]
+    First 30 lines above. CacheManager wraps the disk cache and the JSON
+    envelope serialization.
+
+  Human: ask me which method to look at next
+  Assistant:
+    toolcall: ask
+
+    powershell-Q=t6b1yc
+    Which method in CacheManager.cs should I look at next?
+
+  Human: (answers at the qterm window)
+
+  Assistant: <continues from the answer>
