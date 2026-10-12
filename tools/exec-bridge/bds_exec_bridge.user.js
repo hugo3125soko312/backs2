@@ -687,6 +687,29 @@
           if (opts.msgSt) maybeSendMessage(opts.msgSt);
           return;
         }
+        if (resp.denied_by_filter) {
+          sendLog(
+            "info",
+            "exec DENIED by filter rule=" +
+              resp.denied_by_filter +
+              " id=" +
+              opts.id,
+          );
+          btn.textContent = "denied";
+          btn.style.background = "rgba(245,158,11,0.35)";
+          if (opts.blockRef) {
+            if (opts.postOutput)
+              opts.blockRef.output =
+                "```\n$ denied by filter: " + resp.denied_by_filter + "\n```\n";
+            opts.blockRef.done = true;
+          }
+          setTimeout(function () {
+            btn.textContent = original;
+            btn.style.background = "";
+          }, 3000);
+          if (opts.msgSt) maybeSendMessage(opts.msgSt);
+          return;
+        }
         sendLog(
           "info",
           "exec DONE exit=" +
@@ -728,7 +751,9 @@
         }, 3000);
         if (opts.blockRef) {
           opts.blockRef.done = true;
-          opts.blockRef.output = "(exec error: " + String(e) + ")";
+          if (opts.postOutput)
+            opts.blockRef.output =
+              "```\n$ exec error: " + String(e) + "\n```\n";
         }
         if (opts.msgSt) maybeSendMessage(opts.msgSt);
       });
