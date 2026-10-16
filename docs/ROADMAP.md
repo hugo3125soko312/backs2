@@ -4,6 +4,147 @@ Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
 ---
 
+## Phase 35: exec-bridge Production Hardening [PLANNED]
+
+Redesign of the exec-bridge from a chat-to-shell prototype into a
+controlled execution service. Source: internal design review, not
+bundled.
+
+Current state: raw `exec.CommandContext` in the daemon process, regex
+approval filter, in-memory question/approval queues, single-file JSON
+dedup. Adequate for one user on one machine; not for anything else.
+
+The redesign is staged. Each sub-phase leaves the bridge working. No
+big-bang rewrite.
+
+Priority order: sandboxed worker -> typed command API -> GUI approval
+-> job persistence -> auth/audit -> observability/streaming.
+
+### Phase 35A -- Sandboxed Worker Boundary [PLANNED]
+
+Move command execution out of the daemon process. Even without a full
+sandbox, separating the worker bounds the blast radius.
+
+- □ New `exec_bridge_worker.exe`: reads a `JobSpec` JSON on stdin,
+  runs the command, writes a `JobResult` JSON on stdout.
+- □ Daemon spawns the worker per job (or keeps a small pool),
+  dispatches, collects, reaps.
+- □ Worker enforces a per-job memory cap (Win32 Job Object on Windows,
+  cgroups v2 on Linux) and a CPU/wall timeout.
+- □ Worker's filesystem view: only `$Root` and its descendants.
+- □ No host network by default; opt-in per job via `JobSpec.AllowNetwork`.
+- □ Daemon stops importing `os/exec` entirely; only the worker does.
+- □ `-qterm` approvals unchanged; this phase is execution-side only.
+
+### Phase 35B -- Typed Command Registry [PLANNED]
+
+Regex gating becomes defense-in-depth; the primary gate is a typed
+command registry.
+
+- □ `CommandKind` enum: `ShellCommand`, `ReadFile`, `WriteFile`,
+  `ListDir`, `GitStatus`, `GitDiff`, `GitLog`, `RunTests`, `Build`.
+- □ `CommandSpec` struct: kind, args, cwd, targetPaths, timeout,
+  requestedBy, idempotencyKey.
+- □ Registry maps each kind to an executor. Unknown kinds refused.
+- □ New fence tags map to kinds:
+  `powershell-read=id` -> `ReadFile`,
+  `powershell-write=id` -> `WriteFile`, etc.
+  `powershell-E` / `-ER` remain but as `ShellCommand` kind.
+- □ File ops use `os` APIs, never a shell. No string interpolation
+  into a command line.
+- □ Approval policy by kind: `ReadFile` / `ListDir` / `GitStatus` are
+  pre-approved; `WriteFile` and `ShellCommand` require approval;
+  destructive targets escalate.
+
+### Phase 35C -- Job Model & Persistence [PLANNED]
+
+- □ `Job`: id, kind, spec, status, timestamps, caller, approval state,
+  result refs.
+- □ Status machine: `queued -> awaiting-approval -> running ->
+  completed | failed | cancelled | denied`. Illegal transitions
+  rejected.
+- □ Persist to `data/jobs/{job_id}.json`. Output to
+  `data/jobs/{job_id}.out` and `.err`.
+- □ Retention: prune jobs older than N days (default 30, configurable).
+- □ History endpoint: `GET /jobs?limit=50&status=failed`.
+- □ Retry: rerun a failed job under a new id with a parent reference.
+- □ Idempotency: `idempotency-key` header replaces the current
+  `(url, id)` dedup. The JSON state file becomes legacy.
+
+### Phase 35D -- Approval UI [PLANNED]
+
+Terminal stays as admin fallback. Add a GUI on the existing HTTP
+server.
+
+- □ Static page at `GET /` (localhost-only). Vanilla JS, no build step.
+- □ Shows pending approval: normalized command, kind, cwd, target
+  paths, risk class, timeout, requested-by.
+- □ Buttons: `Allow once`, `Allow for session`, `Block forever`.
+- □ Command history view, filterable by status.
+- □ Live output tail for running jobs (see 35F).
+- □ `-qterm` remains for headless / scripted use.
+
+### Phase 35E -- Structured Risk Classification [PLANNED]
+
+Replace single-tier regex with a classification layer.
+
+- □ `RiskClass` enum: `safe`, `warning`, `destructive`, `critical`.
+- □ Shell commands: tokenize, classify by first-word and flag
+  combinations -- not blind regex.
+- □ File kinds: target inside `$Root` = `warning`; outside =
+  `destructive`; `.git/` or mass-delete patterns = `critical`.
+- □ Approval UI shows the class with a color and the reason
+  ("touches .git/", "outside working directory", "force flag").
+- □ `destructive` and `critical` require typing the command back
+  (not just Enter).
+- □ Regex rules survive as an additional signal, not the sole gate.
+
+### Phase 35F -- Streaming Output & Cancellation [PLANNED]
+
+- □ Worker streams stdout/stderr as length-prefixed JSON frames
+  instead of buffering. Daemon relays via Server-Sent Events.
+- □ `POST /jobs/{id}/cancel` sends interrupt, then kills after a
+  grace period.
+- □ Job log persistence writes streaming output to disk live.
+- □ Approval UI subscribes to `/jobs/{id}/stream` for live tail.
+- □ Remove `strings.Builder` accumulation from the daemon hot path.
+
+### Phase 35G -- Observability [PLANNED]
+
+- □ Structured logs: one JSON line per event with `ts`, `job_id`,
+  `kind`, `status`, `dur_ms`, `exit_code`, `risk_class`.
+- □ Counters: `jobs_total{kind,status}`, `approvals_total{decision}`,
+  `exec_duration_ms`, `approval_latency_ms`.
+- □ `GET /metrics` in Prometheus text format.
+- □ Optional: `data/metrics.json` snapshot for offline inspection.
+
+### Phase 35H -- Auth & Remote Hardening [DEFERRED]
+
+Needed only if the bridge ever goes multi-user or remote. Loopback-only
+today, so deferred until there's a reason.
+
+- □ HMAC-signed request envelope, key from `ConfigManager`.
+- □ Optional mTLS for remote callers.
+- □ Per-user identity via `X-Bridge-User`, mapped to a policy.
+- □ Audit log: every approval and execution with the acting user.
+
+### Out of scope
+
+- Full container / microVM isolation. Phase 35A's OS-level restrictions
+  are the stopping point for now.
+- Replacing the browser userscript. Tags keep working; changes are
+  server-side.
+
+### Deferred to later
+
+- Removing `powershell-E` / `-ER` in favor of only typed kinds.
+  Depends on how the model handles the new tags in practice.
+- Unifying with the Compute Worker IPC pattern (Phases 27-28). Same
+  shape; worth consolidating eventually.
+
+---
+
+
 ## Phase 17: Startup Path Optimization [COMPLETED]
 
 See `docs/ROADMAP_ARCHIVE.md`.
