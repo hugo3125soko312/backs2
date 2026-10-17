@@ -219,16 +219,24 @@ threshold, anchoring on a stable substring is cheaper than shipping the whole
 body. Under 350 lines, the full emission is safer: no anchor drift, no
 partial-patch risk, and the reader sees the whole file in one place.
 
-### A. New or standalone file -> LONG_WORK zip
+### A. New or standalone file -> paste-CLI: markdown block + PowerShell write
 
-When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit it inside a BDS:LONG_WORK block wrapping one or more BDS:create_file tags. The chat extension collects them into a single .zip that `tools/unzipper/watch_downloads.go` extracts into the repository root, overwriting in place.
+When the change is a new file, or a file that can be fully replaced without preserving a stable anchor, emit the full content in a fenced block tagged with the file's language, then a `powershell` block that writes it to disk. The user copies the content block via the chat UI's copy button, runs the PowerShell block, and the file lands on disk.
+
+Pattern, in order:
+
+1. Emit the file content inside an outer fence of FOUR backticks, tagged with the file's language (`markdown`, `csharp`, `json`, `powershell`, etc.). Four is mandatory — it is the only fence length that survives the chat renderer when the file itself contains triple-backtick runs.
+2. Emit a `powershell` block with:
+   - `Set-Location <repo-root>`
+   - `New-Item -ItemType Directory -Path <parent> -Force | Out-Null` — only when the parent does not exist yet
+   - `Get-Clipboard -Raw | Set-Content <path> -NoNewline`
+   - `Get-Item <path> | Select-Object Name, Length` for verification
 
 Rules:
-- **Exact relative project paths** in the create_file `fileName` (e.g. `src/core/Foo.cs`, never an absolute path). The watcher extracts relative to repo root, so a leading slash or a drive letter breaks it.
-- **One file per create_file tag.** Do not concatenate multiple files.
-- **Full file content, not a diff.** The zip overwrites, it does not merge.
-- **No prose inside the LONG_WORK block.** A one-line summary after the closing tag is the only allowed commentary.
-- **Renderer-safe C#.** The chat's Markdown/LaTeX pipeline eats `$"...{x}..."` interpolations and mangles `<` / `>` inside inline code. Convert interpolated strings to `+` concatenation, escape `<` / `>` in XML doc comments as `&lt;` / `&gt;`, and never put a bare `$` immediately before a quote. A file that arrives mangled from the ZIP is worse than a clean patch.
+- **Full file content, never a diff.** The write overwrites; it does not merge.
+- **No prose inside the content block.** A one-line summary after the PowerShell block is the only allowed commentary.
+- **Renderer-safe C#.** Same hazards as the patch pattern: the chat's Markdown/LaTeX pipeline eats `$"...{x}..."` interpolations and mangles `<` / `>` inside inline code. Convert interpolated strings to `+` concatenation, escape `<` / `>` in XML doc comments as `&lt;` / `&gt;`, and never put a bare `$` immediately before a quote.
+- **Verification.** After the write, verify the length or line count matches the expected shape. The user pastes the output back; sanity-check before proceeding.
 
 ### B. Targeted change to an existing file -> PowerShell patch
 
@@ -241,9 +249,9 @@ When the change is one or a few anchored edits inside an existing file, emit a s
 5. Writes with `Set-Content <path> -Value $c -NoNewline`.
 6. Ends with **one** build command (see the Build Protocol below), never `build` followed by `run`.
 
-The patch pattern is preferred when the file is large, when only a few lines change, and when a stable anchor can be trusted. If no anchor exists — the region has drifted across prior commits — fall back to the LONG_WORK pattern and re-emit the whole file.
+The patch pattern is preferred when the file is large, when only a few lines change, and when a stable anchor can be trusted. If no anchor exists — the region has drifted across prior commits — fall back to pattern A (paste-CLI full-file emit) and re-emit the whole file.
 
-When a new file is small and self-contained (a helper script, a config sample), it may also be written via `Set-Content` with a here-string rather than routed through the ZIP pipeline. Use your judgement: the ZIP is for code the user will open and edit; `Set-Content` is for small fixtures and utilities.
+When a new file is small and self-contained (a helper script, a config sample), it may also be written via `Set-Content` with a here-string rather than routed through the paste-CLI full-file pattern. Use your judgement: the ZIP is for code the user will open and edit; `Set-Content` is for small fixtures and utilities.
 
 ## Completion Protocol (applies to EVERY unit of work)
 This protocol fires whenever ANY of the following is completed:
