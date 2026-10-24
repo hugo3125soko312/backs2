@@ -65,6 +65,12 @@ Environment.ExitCode = VerifyMonteCarloAsync(args).GetAwaiter().GetResult();
 return;
 }
 
+if (args.Length > 0 && args[0] == "--et-verify")
+{
+Console.WriteLine("ET mismatches: " + backs2.Core.Utils.EasternTime.VerifyAgainstFramework(500000, 42));
+return;
+}
+
 try
 {
 LogManager.Initialize();
