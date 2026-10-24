@@ -681,9 +681,21 @@ The contract every backend implements. Two methods, both returning a `MonteCarlo
 
 ### Architectural note: GPU dispatch pattern (Phase 29B finding)
 
-- The GPU backend exists and is correct; the coarse-MC dispatch pattern is per-version and therefore does not amortize fixed per-dispatch cost. Batching (Phase 29B.1) is required for the GPU path to win on the current optimizer workload. Measured on the Phase 29A workload (`EtWindow` on `GOLD.pro@30m`, 240 versions that run MC, 20 cores, RTX 4060 Laptop): the kernel itself is 10-16x faster per iteration (100,000 iterations: 480-519 ms GPU vs 6,392-6,714 ms CPU), but the coarse pass (240 x 100 iterations) loses ~5x to the CPU (2,307-2,361 ms vs 261-487 ms warm) because only 4.4% of the phase is kernel work and 95.6% is the slice mirroring, upload, readback and nine output-buffer allocations that each tiny dispatch pays. The refine pass (20 x 1,000 iterations) already flips to a GPU win (89-109 ms vs 112-321 ms). The verdict is about dispatch shape, not kernel capability.
+- The GPU backend exists and is correct; the coarse-MC dispatch pattern is per-version and therefore does not amortize fixed per-dispatch cost. Batching landed in Phase 29B.1 (see the note below) and removes that fixed cost; the note records why the per-version pattern lost. Measured on the Phase 29A workload (`EtWindow` on `GOLD.pro@30m`, 240 versions that run MC, 20 cores, RTX 4060 Laptop): the kernel itself is 10-16x faster per iteration (100,000 iterations: 480-519 ms GPU vs 6,392-6,714 ms CPU), but the coarse pass (240 x 100 iterations) loses ~5x to the CPU (2,307-2,361 ms vs 261-487 ms warm) because only 4.4% of the phase is kernel work and 95.6% is the slice mirroring, upload, readback and nine output-buffer allocations that each tiny dispatch pays. The refine pass (20 x 1,000 iterations) already flips to a GPU win (89-109 ms vs 112-321 ms). The verdict is about dispatch shape, not kernel capability.
 
-### Cross-tab navigation message
+Batched Monte Carlo dispatch (Phase 29B.1)
+
+IComputeDispatcher.DispatchMonteCarloBatchAsync takes a list of MonteCarloDispatchRequest and returns an index-aligned MonteCarloDispatchResult array. Each item is internally complete; a cancelled batch returns the same length with unfinished items empty, never padded or shifted. Per-request semantics are identical to DispatchMonteCarloAsync; batching changes scheduling only.
+
+MonteCarloEngine.CreateRequest builds a dispatch request without running it; RunBatch dispatches and aggregates each item through the same BuildResult the single-request path uses. Run is unchanged.
+
+CpuComputeDispatcher tries the GPU batch first when every request shares one MonteCarloSimulationRequest and iteration count and no request retains curves. On refusal it runs the flat CPU pool: one Parallel.For over all versions, longest-first by slice count, each item calling the unchanged DispatchMonteCarloAsync with MaxDegreeOfParallelism = 1 so the outer pool owns the parallelism.
+
+The GPU kernel gained a batch mode rather than a second shader. SimulationKernelGpuUniforms.BatchMode switches Execute from "my slices are the whole buffer" to "my slices are a sub-range of one flat buffer". Three per-thread index buffers carry the per-version slice base, count and seed; the flat GpuTimeSlice buffer is uploaded once and the nine output buffers are sized versions x iterations and read back once. GpuBackend.RunBatchAsync declines when there is no kernel, curves are requested, or the batch exceeds 1,000,000 total iterations.
+
+Determinism: batch mode keys Philox on the version seed and the iteration index within the version, never the flat batch index. The --batch-verify hook compares batched against per-version dispatch over 24 heterogeneous versions and all nine arrays: 0 mismatches on both backends. Because the CPU and GPU RNGs cannot produce identical doubles, a zero-mismatch GPU run proves both paths executed the same kernel.
+
+Curves are never retained in batch mode. The optimizer coarse pass is the intended caller; the refine pass keeps per-version dispatch because its 1,000-iteration dispatches already amortize fixed cost and it may retain curves.
 
 - `NavigateToTradeMessage` (`src/gui/Messages/NavigateToTradeMessage.cs`) — `record(string Symbol, string Timeframe, DateTime TargetTime)`. Broadcast via `WeakReferenceMessenger.Default` (CommunityToolkit.Mvvm). No static, no DI registration — the messenger singleton is the transport.
 - Publisher: `MonteCarloViewModel.Cluster.cs` (see §14). Receiver wiring:
