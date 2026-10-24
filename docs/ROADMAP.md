@@ -260,7 +260,7 @@ Fallback: if detection fails, fall back to the saved click point and the existin
 
 See `docs/ROADMAP_ARCHIVE.md` (Phase 18A).
 
-### Phase 18B -- Data tab first-click latency
+### Phase 18B -- Data tab first-click latency [INSTRUMENTED] -- 2026-10-25 (7f661e4): both optimizations this phase proposed were already present (fire-and-forget ctor refresh, Parallel.For inside Task.Run). Added the instrumentation the phase asks for first: a refresh now logs its scan time and total under LogTag.Data. Baseline still unmeasured, so no further optimization is justified until that number exists.
 
 The Data tab is the first tab a user interacts with after startup, and its ViewModel is now constructed lazily (Phase 17) — the ~450 ms `AccountService` cost is gone, but `DataViewModel` construction still does a synchronous `RefreshData()` inside its ctor. On a cache with many files, `_dataManager.GetAvailableData()` reads and parses metadata for every `*.json` under `data/cache/`, blocking the UI thread on first tab open.
 
@@ -520,7 +520,7 @@ Acceptance: incremental loop < 4s, `--no-incremental` < 15s. If Phase 23 lands, 
 
 ---
 
-### Phase 22E -- Runtime diagnostic baseline [IN PROGRESS] -- MEASURED 2026-10-25 post-23A: incremental 3.62-4.47s (was 7.14s), CoreCompile skipped on no-op builds, remainder is MSBuild evaluation plus package-target overhead (181 imports, 1.72 MB evaluated XML, ONNX/Vortice/ComputeSharp/RapidOcr); bare evaluation alone 2.7-3.9s so two-second target is blocked by package surface, not compilation.
+### Phase 22E -- Runtime diagnostic baseline [GUI THROTTLE SHIPPED 2026-10-25] -- MEASURED 2026-10-25 post-23A: incremental 3.62-4.47s (was 7.14s), CoreCompile skipped on no-op builds, remainder is MSBuild evaluation plus package-target overhead (181 imports, 1.72 MB evaluated XML, ONNX/Vortice/ComputeSharp/RapidOcr); bare evaluation alone 2.7-3.9s so two-second target is blocked by package surface, not compilation.
 
 Captures CPU / GC / allocation numbers on the current build so Phase 23's impact on runtime is provable, not just its impact on build time. No code changes -- measurements only.
 
@@ -738,7 +738,7 @@ Verification: `--mc-verify --backend=Auto --dispatches=8 --iterations=100` (no w
 - The throughput delta on the full 500-combination workload is **not** measured in this phase — correctness and control are the deliverables; Phase 29B.1 remains the throughput lever.
 - Note: `--mc-verify` stays in tree as a diagnostics hook (mirrors `--verify-strategy-parallelism` and `--compute-selftest`). Full numbers in the archive entry.
 
-### Phase 29C -- Optimizer Backtest Retrofit
+### Phase 29C -- Optimizer Backtest Retrofit [COMPLETED] -- shipped 2026-10-25 (709fe31): new DispatchBacktestBatchAsync overload takes the per-job body as a Func so the dispatcher owns scheduling and the caller owns the work; the original skeleton took only a count and could not express what a job is. One flat Parallel.ForEachAsync pool, CPU path only, since Roslyn backtests are neither chunkable nor vectorizable. OptimizationRunner injects IComputeDispatcher and its backtest phase dispatches through it. Worker-process migration not done -- that is wiring behind the interface.
 
 - **Size:** M · **Depends on:** 29A, 28B · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
 - □  
