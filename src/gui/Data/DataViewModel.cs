@@ -25,6 +25,7 @@ public partial class DataViewModel : ObservableObject
     // the ctor-triggered refresh is still in flight, the newer one cancels
     // the older one instead of racing it.
     private CancellationTokenSource? _refreshCts;
+    private CancellationTokenSource? _filterCts;
 
     public ObservableCollection<DataRowViewModel> Rows { get; } = new();
     public ObservableCollection<string> AvailableTimeframes { get; } = new();
@@ -271,13 +272,33 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
         OpenQueueRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    partial void OnFilterSymbolChanged(string value)    => ApplyView();
-    partial void OnFilterTimeframeChanged(string value) => ApplyView();
-    partial void OnFilterTierChanged(string value)      => ApplyView();
-    partial void OnFilterProviderChanged(string value)  => ApplyView();
-    partial void OnFilterSizeChanged(string value)      => ApplyView();
-    partial void OnFilterModifiedChanged(string value)  => ApplyView();
-    partial void OnFilterPathChanged(string value)      => ApplyView();
+    partial void OnFilterSymbolChanged(string value)    => ScheduleApplyView();
+    partial void OnFilterTimeframeChanged(string value) => ScheduleApplyView();
+    partial void OnFilterTierChanged(string value)      => ScheduleApplyView();
+    partial void OnFilterProviderChanged(string value)  => ScheduleApplyView();
+    partial void OnFilterSizeChanged(string value)      => ScheduleApplyView();
+    partial void OnFilterModifiedChanged(string value)  => ScheduleApplyView();
+    partial void OnFilterPathChanged(string value)      => ScheduleApplyView();
+
+    /// <summary>
+    /// Coalesces filter keystrokes into one rebuild. ApplyView clears and
+    /// repopulates Rows, firing a collection-changed notification per row, so
+    /// running it on every character made typing a 6-character filter trigger
+    /// six full grid rebuilds.
+    /// </summary>
+    private void ScheduleApplyView()
+    {
+        var prev = _filterCts;
+        _filterCts = new CancellationTokenSource();
+        prev?.Cancel();
+        var ct = _filterCts.Token;
+
+        _ = Task.Delay(150, ct).ContinueWith(t =>
+        {
+            if (t.IsCanceled) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(ApplyView);
+        }, TaskScheduler.Default);
+    }
 
     partial void OnSortColumnChanged(string value) => RaiseSortGlyphs();
     partial void OnSortAscendingChanged(bool value) => RaiseSortGlyphs();
@@ -375,7 +396,7 @@ var groupedRows = query
         return -1;
     }
 
-    partial void OnFilterRangeChanged(string value) => ApplyView();
+    partial void OnFilterRangeChanged(string value) => ScheduleApplyView();
 
     private IOrderedEnumerable<DataRowViewModel> OrderWithinGroup(
         IGrouping<string, DataRowViewModel> g)

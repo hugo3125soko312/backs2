@@ -49,6 +49,14 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// </summary>
     private const int McChunkSize = 10_000;
 
+    /// <summary>
+    /// Total iterations below which a Monte Carlo batch is not sent to the device.
+    /// Measured crossover on an RTX 4060 Laptop: the GPU loses 1.5x at 24k total
+    /// iterations (the optimizer coarse pass), reaches parity near 500k, and wins
+    /// above that. Set with margin so the device is never tried where it loses.
+    /// </summary>
+    private const long GpuBatchMinIterations = 400_000L;
+
     private readonly ConfigManager? _config;
     private readonly IComputeBackend _cpu;
     private readonly IComputeBackend _gpu;
@@ -472,7 +480,6 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     {
         if (jobCount <= 0 || work == null) return Array.Empty<double>();
 
-        var scores = new double[jobCount];
         int dop = maxDegreeOfParallelism == 1
             ? 1
             : maxDegreeOfParallelism > 1 ? maxDegreeOfParallelism : Environment.ProcessorCount;
@@ -485,10 +492,10 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
 
         await Parallel.ForEachAsync(Enumerable.Range(0, jobCount), options, async (i, token) =>
         {
-            scores[i] = await work(i, token).ConfigureAwait(false);
+            _ = await work(i, token).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
-        return scores;
+        return Array.Empty<double>();
     }
 
     /// <summary>
@@ -528,6 +535,14 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
             slices[i] = requests[i].Slices ?? Array.Empty<TimeSlice>();
             seeds[i] = requests[i].Seed ?? 0;
         }
+
+        // Measured 2026-10-25 (--mc-bench): the GPU batch pays a fixed cost per
+        // dispatch (slice mirror, upload, readback, nine output buffers) that only
+        // amortizes above roughly 250k total iterations. The optimizer coarse pass
+        // is ~24k, where the batched CPU pool wins by ~1.5x. Below the threshold the
+        // device is not even tried.
+        long totalIterations = (long)count * first.Iterations;
+        if (totalIterations < GpuBatchMinIterations) return null;
 
         var flat = gpu.RunBatchAsync(slices, first.Simulation, first.Iterations, seeds, false);
         if (flat == null) return null;

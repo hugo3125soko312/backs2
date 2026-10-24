@@ -17,6 +17,16 @@ public class CacheManager
 {
     private readonly string _cacheDir = "data/cache";
 
+    /// <summary>
+    /// Memoized metadata keyed on (path, last-write ticks, length).
+    /// ReadCacheMetadata parses the whole JSON and enumerates every bar, so a
+    /// 600k-bar 1m file costs a full parse per call — and the Data tab, the
+    /// Providers tab and every refresh each call it for every file. The key
+    /// includes the file stamp, so a rewritten cache invalidates itself and no
+    /// explicit clear is needed anywhere.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Stamp, CacheMetadata? Meta)> _metaCache = new();
+
     public CacheManager()
     {
         Directory.CreateDirectory(_cacheDir);
@@ -150,6 +160,26 @@ public class CacheManager
         try
         {
             if (!File.Exists(path)) return null;
+
+            var info = new FileInfo(path);
+            long stamp = info.LastWriteTimeUtc.Ticks ^ info.Length;
+            if (_metaCache.TryGetValue(path, out var hit) && hit.Stamp == stamp)
+                return hit.Meta;
+
+            var parsed = ParseCacheMetadata(path);
+            _metaCache[path] = (stamp, parsed);
+            return parsed;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private CacheMetadata? ParseCacheMetadata(string path)
+    {
+        try
+        {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
             using var doc = JsonDocument.Parse(fs);

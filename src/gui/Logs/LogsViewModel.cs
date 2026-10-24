@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -14,7 +15,8 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     private const int MaxDisplayLines = 2000;
 
     private readonly object _gate = new();
-    private readonly StringBuilder _buffer = new();
+    private readonly Queue<string> _lines = new(MaxDisplayLines + 16);
+    private bool _flushScheduled;
     private readonly DataManager _data;
     private readonly ConfigManager _config;
     private bool _disposed;
@@ -40,6 +42,17 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     private void OnLogged(object? sender, LogManager.LogEntry entry)
     {
         AppendLine(FormatEntry(entry));
+
+        // One pending flush at a time. A burst of N log lines (the optimizer
+        // emits thousands per run) used to post N dispatcher callbacks, each
+        // rebuilding the whole LogText string. Now the burst coalesces into a
+        // single post that snapshots whatever accumulated.
+        lock (_gate)
+        {
+            if (_flushScheduled) return;
+            _flushScheduled = true;
+        }
+
         Dispatcher.UIThread.Post(Flush);
     }
 
@@ -73,15 +86,8 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     {
         lock (_gate)
         {
-            _buffer.AppendLine(line);
-
-            var text = _buffer.ToString();
-            var lines = text.Split('\n');
-            if (lines.Length > MaxDisplayLines)
-            {
-                _buffer.Clear();
-                _buffer.Append(string.Join('\n', lines, lines.Length - MaxDisplayLines, MaxDisplayLines));
-            }
+            _lines.Enqueue(line);
+            while (_lines.Count > MaxDisplayLines) _lines.Dequeue();
         }
     }
 
@@ -90,7 +96,9 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         string snapshot;
         lock (_gate)
         {
-            snapshot = _buffer.ToString();
+            _flushScheduled = false;
+            if (_lines.Count == 0) { return; }
+            snapshot = string.Join(Environment.NewLine, _lines);
         }
         LogText = snapshot;
     }
@@ -98,7 +106,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void Refresh()
     {
-        lock (_gate) { _buffer.Clear(); }
+        lock (_gate) { _lines.Clear(); }
 
         var path = LogManager.CurrentLogFilePath;
         if (!string.IsNullOrEmpty(path) && File.Exists(path))
@@ -123,7 +131,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ClearView()
     {
-        lock (_gate) { _buffer.Clear(); }
+        lock (_gate) { _lines.Clear(); }
         LogText = "";
     }
 
