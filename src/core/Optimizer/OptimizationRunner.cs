@@ -35,6 +35,7 @@ public sealed class OptimizationRunner
     private readonly StrategyManager _strat;
     private readonly MonteCarloEngine _mc;
     private readonly OptimizationStore _store;
+    private readonly IComputeDispatcher _dispatcher;
 
     // ------------------------------------------------------------------
     // Phase 29A — stage instrumentation (temporary scaffolding).
@@ -113,11 +114,12 @@ public sealed class OptimizationRunner
     private long _cacheMisses;
     private long _instrumentedVersions;
 
-    public OptimizationRunner(StrategyManager strat, MonteCarloEngine mc, OptimizationStore store)
+    public OptimizationRunner(StrategyManager strat, MonteCarloEngine mc, OptimizationStore store, IComputeDispatcher dispatcher)
     {
         _strat = strat;
         _mc = mc;
         _store = store;
+        _dispatcher = dispatcher;
     }
 
     public async Task<OptimizationBatch> RunAsync(
@@ -221,9 +223,8 @@ public sealed class OptimizationRunner
                 CancellationToken = ct
             };
 
-            await Parallel.ForEachAsync(
-                Enumerable.Range(0, comboCount),
-                parallelOptions,
+            await _dispatcher.DispatchBacktestBatchAsync(
+                comboCount,
                 async (i, token) =>
                 {
                     var paramSet = gridResult.Combinations[i];
@@ -283,7 +284,11 @@ public sealed class OptimizationRunner
                         "Backtest", done, comboCount,
                         $"Backtest {done}/{comboCount}",
                         eta.Remaining()));
-                }).ConfigureAwait(false);
+
+                    return netPnl;
+                },
+                maxDegreeOfParallelism: backtestOuter,
+                ct).ConfigureAwait(false);
         }
         finally
         {

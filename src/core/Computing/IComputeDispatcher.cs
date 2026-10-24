@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -77,6 +78,24 @@ public interface IComputeDispatcher
     /// </summary>
     Task<double[]> DispatchBacktestBatchAsync(
         int jobCount,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Dispatches a batch of independent backtest jobs whose per-job body is
+    /// supplied by the caller (ROADMAP Phase 29C). The dispatcher owns the
+    /// scheduling; the caller owns the work.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="work"/> receives the job index and a token and returns the
+    /// job score. Backtests are Roslyn executions with no shared resampling, so
+    /// they are neither chunkable nor vectorizable: this routes strictly to the CPU
+    /// path and never enters the device queue. Moving it into a worker process is
+    /// wiring behind this method, not a caller-side change.
+    /// </remarks>
+    Task<double[]> DispatchBacktestBatchAsync(
+        int jobCount,
+        Func<int, CancellationToken, Task<double>> work,
+        int maxDegreeOfParallelism,
         CancellationToken ct);
 
     /// <summary>

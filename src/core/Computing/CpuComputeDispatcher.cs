@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using backs2.Core;
@@ -455,6 +456,39 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
             default:
                 return false;
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// One flat pool over the job indices, each job calling the caller-supplied
+    /// body. No device involvement: a Roslyn backtest is not vectorizable and has
+    /// no resampling to chunk.
+    /// </remarks>
+    public async Task<double[]> DispatchBacktestBatchAsync(
+        int jobCount,
+        Func<int, CancellationToken, Task<double>> work,
+        int maxDegreeOfParallelism,
+        CancellationToken ct)
+    {
+        if (jobCount <= 0 || work == null) return Array.Empty<double>();
+
+        var scores = new double[jobCount];
+        int dop = maxDegreeOfParallelism == 1
+            ? 1
+            : maxDegreeOfParallelism > 1 ? maxDegreeOfParallelism : Environment.ProcessorCount;
+
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Min(dop, jobCount),
+            CancellationToken = ct
+        };
+
+        await Parallel.ForEachAsync(Enumerable.Range(0, jobCount), options, async (i, token) =>
+        {
+            scores[i] = await work(i, token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
+        return scores;
     }
 
     /// <summary>
