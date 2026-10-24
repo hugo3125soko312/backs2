@@ -28,3 +28,4 @@
 tools/unzipper/*.exe
 tools/exec-bridge/*.exe
 tools/exec-bridge/data/*.json
+.execbridge-*.tmp
