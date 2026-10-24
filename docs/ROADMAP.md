@@ -2,6 +2,85 @@
 
 Active work only. Completed phases are in `docs/ROADMAP_ARCHIVE.md`.
 
+## Pending User Testing [BLOCKING]
+
+Thirteen commits landed between 4327e85 and 45e0eb2 without a runtime check. Every one built clean; none has been exercised. Listed newest-first, with what to click and what would count as a failure.
+
+### 1. Log O(n^2) and flush coalescing -- 45e0eb2
+
+What changed: LogsViewModel.AppendLine did a StringBuilder.ToString() and a Split on the whole buffer for every single line, and OnLogged posted a dispatcher callback per line. Now a bounded Queue with one coalesced flush.
+
+Test: open the Logs tab, run an Optimize pass, watch it live.
+
+Pass: log lines appear promptly and in order, the UI stays responsive during the run, no missing or duplicated lines at the end.
+
+Fail: logs stop updating, lines arrive out of order, the tail is truncated below 2000, or the tab freezes.
+
+Also check: Clear View empties the pane and the next log line reappears. Refresh re-reads the file without duplicating existing lines.
+
+### 2. Cache metadata memoization -- 45e0eb2
+
+What changed: ReadCacheMetadata memoized on (path, mtime, length).
+
+Test: open the Data tab, then Providers, then Data again. Then fetch a new symbol and return to Data.
+
+Pass: second and third visits are visibly faster. A newly fetched file appears immediately with correct Volume, Size, Modified and Total Range.
+
+Fail: a stale row persists after a refetch, a new file is missing, or metadata (especially Has Volume and Total Range) disagrees with the actual file.
+
+### 3. Data tab filter debounce -- 45e0eb2
+
+What changed: filter handlers debounced 150 ms instead of rebuilding the grid per keystroke.
+
+Pass: typing in any filter box feels smooth and the grid settles within about 200 ms of the last keystroke.
+
+Fail: the grid never updates, updates with a stale filter value, or the final state does not match the text in the box.
+
+Also check: clearing a filter restores all rows. Combining two filters (Symbol plus Range) still intersects correctly.
+
+### 4. GPU batch threshold -- 45e0eb2
+
+What changed: GPU Monte Carlo batches below 400k total iterations now skip the device.
+
+Pass: an Optimize run at default settings completes normally, and the log shows no GPU dispatch for the coarse pass.
+
+Fail: Optimize errors out, or coarse MC produces empty or degenerate summaries.
+
+### 5. Optimizer progress throttle -- 7f661e4 (Phase 22E)
+
+What changed: Progress replaced with ThrottledProgress at 100 ms.
+
+Test: the same Optimize run.
+
+Pass: progress bar advances smoothly, ETA text updates, status line shows the current phase, and the UI no longer stutters.
+
+Fail: progress bar freezes or jumps backwards, ETA shows garbage, the final state never reaches 100 percent, or the status line sticks on a stale phase.
+
+### 6. Backtest dispatch through IComputeDispatcher -- 709fe31 (Phase 29C)
+
+What changed: the backtest phase now dispatches through IComputeDispatcher.DispatchBacktestBatchAsync with a caller-supplied body.
+
+Pass: Optimize produces the same version count, the same trade counts and the same Net PnL as before this commit. The 29A, 30 and 33 instrumentation blocks still print with sane numbers.
+
+Fail: fewer versions than the grid size, zero trades everywhere, or the instrumentation blocks vanish.
+
+### 7. Data tab refresh instrumentation -- 7f661e4 (Phase 18B)
+
+What changed: an 18B log line with scan vs total time.
+
+Pass: the line appears in the log on Data tab open with plausible numbers.
+
+Also record: the actual numbers, so the 18B acceptance target (interactive within 100 ms, grid populated within 500 ms on a warm cache) can finally be checked.
+
+### 8. In-group column sorting -- fa63e26
+
+Pass: every non-Symbol column header reorders rows inside each ticker group and the glyph flips asc/desc. Symbol still controls group order.
+
+### 9. Avalonia 11.3 upgrade -- eb1c666 (Phase 23B, still outstanding)
+
+Test: full click-through of DataGrid grouping and header checkboxes, colour picker modal, ScottPlot candlestick and MC plots, every ComboBox popup, live theme change, every menu item, every left-rail node, and cross-tab cluster-plot navigation.
+
+Fail: any visual regression, popup that does not open, or plot that does not render. Revert to 11.0.11 and record the blocker.
 ---
 
 ## Phase 35: exec-bridge Production Hardening [PLANNED]
