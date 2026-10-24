@@ -207,6 +207,9 @@ using var flatBuffer = _device.AllocateReadWriteBuffer<int>(iterationCount);
 using var causeBuffer = _device.AllocateReadWriteBuffer<int>(iterationCount);
 using var curveBuffer = _device.AllocateReadWriteBuffer<double>(
 retainCurves ? iterationCount * request.TargetDurationSlices : 1);
+using var dummyStartBuffer = _device.AllocateReadOnlyBuffer<int>(new[] { 0 });
+using var dummyCountBuffer = _device.AllocateReadOnlyBuffer<int>(new[] { 0 });
+using var dummySeedBuffer = _device.AllocateReadOnlyBuffer<int>(new[] { 0 });
 
 DispatchToDevice(() => _device.For(
 iterationCount,
@@ -221,6 +224,9 @@ ratioBuffer,
 losingBuffer,
 flatBuffer,
 causeBuffer,
+dummyStartBuffer,
+dummyCountBuffer,
+dummySeedBuffer,
 uniforms)));
 
 return new MonteCarloDispatchResult(
@@ -257,6 +263,96 @@ slices, request, startIteration, iterationCount, seed, retainCurves, default)
 /// <c>GpuBackend.RunIterationsAsync</c>, so eight workers hitting the same
 /// collision produce one stack trace rather than eight.
 /// </summary>
+public MonteCarloDispatchResult? RunBatch(
+TimeSlice[][] perVersionSlices,
+MonteCarloSimulationRequest request,
+int iterationsPerVersion,
+int[] seeds,
+CpuBackend fallback)
+{
+if (perVersionSlices == null || perVersionSlices.Length == 0) return null;
+if (iterationsPerVersion <= 0 || request.TargetDurationSlices <= 0) return null;
+int versions = perVersionSlices.Length;
+int total = versions * iterationsPerVersion;
+var starts = new int[total];
+var counts = new int[total];
+var seedBuf = new int[total];
+int flatLength = 0;
+for (int v = 0; v < versions; v++) flatLength += perVersionSlices[v]?.Length ?? 0;
+var flat = new GpuTimeSlice[flatLength];
+int baseIndex = 0;
+for (int v = 0; v < versions; v++)
+{
+var slices = perVersionSlices[v] ?? Array.Empty<TimeSlice>();
+var mirrored = GpuTimeSlice.From(slices);
+Array.Copy(mirrored, 0, flat, baseIndex, mirrored.Length);
+int sBase = baseIndex;
+int sCount = slices.Length;
+int sSeed = (seeds != null && v < seeds.Length) ? seeds[v] : 0;
+int from = v * iterationsPerVersion;
+for (int k = 0; k < iterationsPerVersion; k++)
+{
+starts[from + k] = sBase;
+counts[from + k] = sCount;
+seedBuf[from + k] = sSeed;
+}
+baseIndex += mirrored.Length;
+}
+try
+{
+var uniforms = new SimulationKernelGpuUniforms
+{
+TargetDurationSlices = request.TargetDurationSlices,
+StartingCapital = request.StartingCapital,
+DailyFloorLoss = request.DailyFloorLoss,
+MaxFloorLoss = request.MaxFloorLoss,
+ProfitTarget = request.ProfitTarget,
+ExpectedBlockSize = request.ExpectedBlockSize,
+TrailingEod = request.TrailingEod ? 1 : 0,
+TrailingIntraday = request.TrailingIntraday ? 1 : 0,
+Seed = 0,
+StartIteration = 0,
+RetainCurve = 0,
+BatchMode = 1,
+IterationsPerVersion = iterationsPerVersion
+};
+using var sliceBuffer = _device.AllocateReadOnlyBuffer(flat);
+using var startBuffer = _device.AllocateReadOnlyBuffer(starts);
+using var countBuffer = _device.AllocateReadOnlyBuffer(counts);
+using var seedBuffer = _device.AllocateReadOnlyBuffer(seedBuf);
+using var terminalBuffer = _device.AllocateReadWriteBuffer<double>(total);
+using var outcomeBuffer = _device.AllocateReadWriteBuffer<int>(total);
+using var elapsedBuffer = _device.AllocateReadWriteBuffer<int>(total);
+using var drawdownBuffer = _device.AllocateReadWriteBuffer<double>(total);
+using var ratioBuffer = _device.AllocateReadWriteBuffer<double>(total);
+using var losingBuffer = _device.AllocateReadWriteBuffer<int>(total);
+using var flatBuffer = _device.AllocateReadWriteBuffer<int>(total);
+using var causeBuffer = _device.AllocateReadWriteBuffer<int>(total);
+using var curveBuffer = _device.AllocateReadWriteBuffer<double>(1);
+DispatchToDevice(() => _device.For(
+total,
+new MonteCarloSimulationShader(
+sliceBuffer, curveBuffer, terminalBuffer, outcomeBuffer, elapsedBuffer,
+drawdownBuffer, ratioBuffer, losingBuffer, flatBuffer, causeBuffer,
+startBuffer, countBuffer, seedBuffer, uniforms)));
+return new MonteCarloDispatchResult(
+CopyBack(terminalBuffer, total),
+CopyBackAsBytes(outcomeBuffer, total),
+CopyBack(elapsedBuffer, total),
+CopyBack(drawdownBuffer, total),
+CopyBack(ratioBuffer, total),
+CopyBack(losingBuffer, total),
+CopyBack(flatBuffer, total),
+CopyBackAsBytes(causeBuffer, total),
+Array.Empty<double[]>());
+}
+catch (Exception ex)
+{
+RecordFallback(ex.GetType().Name + ": " + ex.Message, "batch x" + versions, ex);
+return null;
+}
+}
+
 private void RecordFallback(string detail, string range, Exception ex)
 {
 LogManager.LogOnce.RecordFallback(detail);
@@ -435,6 +531,8 @@ public int TrailingIntraday;
 public int Seed;
 public int StartIteration;
 public int RetainCurve;
+public int BatchMode;
+public int IterationsPerVersion;
 public double StartingCapital;
 }
 
@@ -457,6 +555,9 @@ ReadWriteBuffer<double> bestDayRatios,
 ReadWriteBuffer<int> longestLosingStreaks,
 ReadWriteBuffer<int> longestFlatStretches,
 ReadWriteBuffer<int> ruinCauses,
+ReadOnlyBuffer<int> versionSliceStart,
+ReadOnlyBuffer<int> versionSliceCount,
+ReadOnlyBuffer<int> versionSeed,
 SimulationKernelGpuUniforms u) : IComputeShader
 {
 // MonteCarloOutcome / MonteCarloRuinCause codes, mirrored so the shader does
@@ -481,21 +582,25 @@ private const uint WeylB = 0xBB67AE85u;
 public void Execute()
 {
 int t = ThreadIds.X;
-int n = slices.Length;
+bool batchMode = u.BatchMode != 0;
+int sliceBase = batchMode ? versionSliceStart[t] : 0;
+int seedVal = batchMode ? versionSeed[t] : u.Seed;
+int n = batchMode ? versionSliceCount[t] : slices.Length;
 int targetDurationSlices = u.TargetDurationSlices;
 
 // ---- Philox-4x32 state, seeded from (seed, absolute iteration) ----
 // Mixing the iteration into every counter word keeps neighbouring threads
 // in unrelated stream positions; a plain seed+iteration counter would put
 // them one draw apart on the first block.
-uint h = Mix((uint)(u.StartIteration + t) ^ (uint)u.Seed);
+int absIter = batchMode ? (t % u.IterationsPerVersion) : (u.StartIteration + t);
+uint h = Mix((uint)absIter ^ (uint)seedVal);
 
 uint counterX = h;
 uint counterY = Mix(h ^ 0x9E3779B9u);
 uint counterZ = Mix(h ^ 0x85EBCA6Bu);
 uint counterW = Mix(h ^ 0xC2B2AE35u);
-uint keyX = Mix((uint)u.Seed ^ 0x27D4EB2Fu);
-uint keyY = Mix((uint)u.Seed ^ 0x165667B1u);
+uint keyX = Mix((uint)seedVal ^ 0x27D4EB2Fu);
+uint keyY = Mix((uint)seedVal ^ 0x165667B1u);
 
 // The four words of the current block and the lane within it.
 uint wordX = 0;
@@ -550,7 +655,7 @@ blockLen++;
 
 for (int k = 0; k < blockLen && produced < targetDurationSlices; k++, produced++)
 {
-var s = slices[(start + k) % n];
+var s = slices[sliceBase + ((start + k) % n)];
 
 if (s.IsEodReset != 0u)
 {
@@ -581,7 +686,7 @@ if (dailyHit || maxHit)
 {
 double worst = dailyFloor < maxFloor ? dailyFloor : maxFloor;
 balance = worst;
-if (u.RetainCurve != 0) curves[t * targetDurationSlices + produced] = balance;
+if (u.RetainCurve != 0 && !batchMode) curves[t * targetDurationSlices + produced] = balance;
 result = OutcomeBlown;
 elapsed = produced + 1;
 
@@ -624,7 +729,7 @@ if (u.TrailingIntraday != 0 && balance > hwm) hwm = balance;
 double dd = peak > 0 ? (peak - balance) / peak : 0;
 if (dd > maxDd) maxDd = dd;
 
-if (u.RetainCurve != 0) curves[t * targetDurationSlices + produced] = balance;
+if (u.RetainCurve != 0 && !batchMode) curves[t * targetDurationSlices + produced] = balance;
 
 if (u.ProfitTarget > 0 && balance - startingCapital >= u.ProfitTarget)
 {

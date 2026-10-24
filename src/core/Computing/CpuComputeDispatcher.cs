@@ -457,6 +457,76 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         }
     }
 
+    /// <summary>
+    /// Attempts the whole batch as one device dispatch (ROADMAP Phase 29B.1).
+    /// Returns null — meaning "use the CPU path" — when the batch is not
+    /// uniform, retains curves, or the device declined. A null return is not an
+    /// error: the caller simply falls through to the flat CPU pool.
+    /// </summary>
+    private MonteCarloDispatchResult[]? TryGpuBatch(
+        GpuBackend gpu,
+        IReadOnlyList<MonteCarloDispatchRequest> requests,
+        CancellationToken ct)
+    {
+        int count = requests.Count;
+        var first = requests[0];
+        if (first == null) return null;
+        if (first.RetainCurves) return null;
+        if (first.Iterations <= 0) return null;
+
+        // Uniformity gate: one simulation shape, one iteration count. Anything
+        // else is a caller bug the per-version path still handles correctly.
+        for (int i = 1; i < count; i++)
+        {
+            var r = requests[i];
+            if (r == null) return null;
+            if (r.RetainCurves) return null;
+            if (r.Iterations != first.Iterations) return null;
+            if (!r.Simulation.Equals(first.Simulation)) return null;
+        }
+
+        if (ct.IsCancellationRequested) return null;
+
+        var slices = new TimeSlice[count][];
+        var seeds = new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            slices[i] = requests[i].Slices ?? Array.Empty<TimeSlice>();
+            seeds[i] = requests[i].Seed ?? 0;
+        }
+
+        var flat = gpu.RunBatchAsync(slices, first.Simulation, first.Iterations, seeds, false);
+        if (flat == null) return null;
+
+        int per = first.Iterations;
+        var results = new MonteCarloDispatchResult[count];
+        for (int i = 0; i < count; i++)
+        {
+            int from = i * per;
+            results[i] = new MonteCarloDispatchResult(
+                Slice(flat.TerminalBalances, from, per),
+                Slice(flat.Outcomes, from, per),
+                Slice(flat.SlicesElapsed, from, per),
+                Slice(flat.MaxDrawdowns, from, per),
+                Slice(flat.BestDayRatios, from, per),
+                Slice(flat.LongestLosingStreaks, from, per),
+                Slice(flat.LongestFlatStretches, from, per),
+                Slice(flat.RuinCauses, from, per),
+                Array.Empty<double[]>());
+        }
+        LogManager.Debug(LogTag.MonteCarlo,
+            "compute: GPU batch " + count + " version(s) x " + per + " iteration(s) in one dispatch");
+        return results;
+    }
+
+    private static T[] Slice<T>(T[] source, int from, int length)
+    {
+        if (source == null || from < 0 || from + length > source.Length) return Array.Empty<T>();
+        var dst = new T[length];
+        Array.Copy(source, from, dst, 0, length);
+        return dst;
+    }
+
     /// <inheritdoc/>
     public async Task<MonteCarloDispatchResult[]> DispatchMonteCarloBatchAsync(
         IReadOnlyList<MonteCarloDispatchRequest> requests,
@@ -478,6 +548,15 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         // Resolve once for the whole batch, exactly as the single-request path
         // resolves once per dispatch: one batch never straddles two backends.
         _backend = ResolveBackend();
+
+        // GPU batch path: one device dispatch for the whole pass. It is only
+        // usable when every version shares the same simulation parameters (the
+        // optimizer coarse pass always does) and no curves are retained.
+        if (_backend is GpuBackend gpu)
+        {
+            var gpuResult = TryGpuBatch(gpu, requests, ct);
+            if (gpuResult != null) return gpuResult;
+        }
 
         // Longest-first ordering so the tail is short. Each version carries a
         // different slice count, so an unordered queue lets a heavy version start

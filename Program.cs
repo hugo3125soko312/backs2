@@ -98,8 +98,12 @@ public static AppBuilder BuildAvaloniaApp()
 
 private static Task<int> VerifyBatchAsync()
 {
-var backends = new List<IComputeBackend> { new CpuBackend(new SimulationKernelCpu()) };
-var dispatcher = new CpuComputeDispatcher(backends, null);
+var cpuBackend = new CpuBackend(new SimulationKernelCpu());
+var backends = new List<IComputeBackend> { cpuBackend, new GpuBackend(cpuBackend) };
+var cfg = new ConfigManager();
+cfg.Settings.MonteCarloBackend = "Auto";
+var dispatcher = new CpuComputeDispatcher(backends, cfg);
+Console.WriteLine("resolved backend: " + dispatcher.Backend.Name);
 var rng = new Random(7);
 var requests = new List<MonteCarloDispatchRequest>();
 for (int v = 0; v < 24; v++)
@@ -115,6 +119,7 @@ var sim = new MonteCarloSimulationRequest(180, 100_000, 3_000, 10_000, 8_000, 5,
 requests.Add(new MonteCarloDispatchRequest(sim, slices, 100, Seed: 1234, RetainCurves: false, MaxDegreeOfParallelism: -1));
 }
 int mismatches = BatchDeterminismCheck.Run(dispatcher, requests, 1234);
+Console.WriteLine("backend after run: " + dispatcher.Backend.Name);
 Console.WriteLine("batch determinism mismatches: " + mismatches);
 return Task.FromResult(mismatches == 0 ? 0 : 1);
 }

@@ -172,6 +172,39 @@ public sealed class GpuBackend : IComputeBackend
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Runs many versions in one device dispatch (ROADMAP Phase 29B.1). Returns
+    /// null when the batch cannot be served on this device — no kernel, a curve
+    /// request, or a device failure — so the dispatcher can fall back to
+    /// per-version dispatch without a partial result.
+    /// </summary>
+    public MonteCarloDispatchResult? RunBatchAsync(
+        TimeSlice[][] perVersionSlices,
+        MonteCarloSimulationRequest request,
+        int iterationsPerVersion,
+        int[] seeds,
+        bool retainCurves)
+    {
+        if (retainCurves) return null;
+        if (perVersionSlices == null || perVersionSlices.Length == 0) return null;
+
+        var kernel = _kernel.Value;
+        if (kernel == null) return null;
+
+        long total = (long)perVersionSlices.Length * iterationsPerVersion;
+        if (total <= 0 || total > 1_000_000L) return null;
+
+        LogManager.LogOnce.RecordDispatch();
+        try
+        {
+            return kernel.RunBatch(perVersionSlices, request, iterationsPerVersion, seeds, _fallback);
+        }
+        finally
+        {
+            LogManager.LogOnce.FlushFallbackSummary();
+        }
+    }
+
     /// <inheritdoc cref="IComputeBackend.RunIterationsAsync"/>
     /// <remarks>
     /// One chunk, one device dispatch (unless the chunk exceeds
