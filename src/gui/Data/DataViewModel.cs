@@ -36,6 +36,7 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private string _filterSize = "";
     [ObservableProperty] private string _filterModified = "";
     [ObservableProperty] private string _filterPath = "";
+[ObservableProperty] private string _filterRange = "";
 
     [ObservableProperty] private string _sortColumn = "Symbol";
     [ObservableProperty] private bool _sortAscending = true;
@@ -59,6 +60,7 @@ public partial class DataViewModel : ObservableObject
     public string ModifiedSortGlyph  => GlyphFor("LastModifiedLocal");
     public string PathSortGlyph      => GlyphFor("Path");
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
+public string RangeSortGlyph => GlyphFor("RangeTicks");
 
     public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config)
     {
@@ -284,6 +286,7 @@ public partial class DataViewModel : ObservableObject
         OnPropertyChanged(nameof(ModifiedSortGlyph));
         OnPropertyChanged(nameof(PathSortGlyph));
         OnPropertyChanged(nameof(HasVolumeSortGlyph));
+OnPropertyChanged(nameof(RangeSortGlyph));
     }
 
     private string GlyphFor(string column)
@@ -312,15 +315,15 @@ public partial class DataViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(FilterPath))
             query = query.Where(e => Contains(e.Path, FilterPath));
 
-        var groupedRows = query
+        if (!string.IsNullOrWhiteSpace(FilterRange))
+query = query.Where(e => Contains(e.RangeDisplay, FilterRange));
+
+var groupedRows = query
             .GroupBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(g => new
             {
                 Symbol = g.Key,
-                Rows = g
-                    .OrderByDescending(r => TimeframeOrder(r.Timeframe))
-                    .ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
-                    .ToList()
+                Rows = OrderWithinGroup(g).ToList()
             });
 
         bool symbolSort = string.Equals(SortColumn, "Symbol", StringComparison.OrdinalIgnoreCase);
@@ -366,6 +369,20 @@ public partial class DataViewModel : ObservableObject
         return -1;
     }
 
-    private static bool Contains(string haystack, string needle)
+    partial void OnFilterRangeChanged(string value) => ApplyView();
+
+    private IOrderedEnumerable<DataRowViewModel> OrderWithinGroup(
+        IGrouping<string, DataRowViewModel> g)
+    {
+        if (string.Equals(SortColumn, "RangeTicks", StringComparison.OrdinalIgnoreCase))
+            return SortAscending
+                ? g.OrderBy(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+                : g.OrderByDescending(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase);
+
+        return g.OrderByDescending(r => TimeframeOrder(r.Timeframe))
+                .ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase);
+    }
+
+private static bool Contains(string haystack, string needle)
         => haystack?.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
 }

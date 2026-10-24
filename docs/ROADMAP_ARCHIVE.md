@@ -426,3 +426,15 @@ Revert this commit. The change is two source files, no schema, no persisted
 state, no cache format, no script-execution change. `git checkout HEAD~1 --
 src/core/Optimizer/EtaEstimator.cs src/core/Optimizer/OptimizationRunner.cs`
 restores the frozen-countdown estimator and its five hardcoded constants.
+---
+
+## Phase 18A: Data Total Range Column [COMPLETED]
+
+Adds a `Total Range` column to the Data tab grid showing the span covered by each cached dataset.
+
+- `DataEntry` (`src/core/DataManager.cs`) gains `MinT` / `MaxT` (default `0`). Both are populated in `DataManager.BuildEntries` from `CacheManager.ReadCacheMetadata`, so the synchronous `GetAvailableData` and the parallel `GetAvailableDataAsync` path both carry them.
+- `DataRowViewModel` gains `RangeTicks` (`long`; `MaxT - MinT`, or `0` when `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT`) and `RangeDisplay` (formatted through `ProviderDatasetRow.FormatDuration`, same style as the Providers tab). Rows with `RangeTicks == 0` render an em dash (U+2014); group-header rows render the em dash too.
+- `DataView.axaml` inserts a `Total Range` `DataGridTemplateColumn` between `Modified` and `Path`. The header button routes through the existing `SortByCommand` with `CommandParameter="RangeTicks"`, and the Row 2 filter grid grows a ninth column for `FilterRange`.
+- `DataViewModel` gains `FilterRange`, `RangeSortGlyph`, and the `OnFilterRangeChanged` partial, all wired into `ApplyView`. Member-row ordering inside a ticker group is delegated to a new `OrderWithinGroup` helper: when `SortColumn == "RangeTicks"` it sorts on the numeric `RangeTicks` (ascending or descending), otherwise it keeps the pre-existing timeframe-descending order. Group order remains alphabetical by Symbol.
+- Sparse-data edge case: a dataset with `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT` renders the em dash and its `RangeTicks` is `0`, so it sorts to the bottom of either direction.
+- Verified: `dotnet build --no-incremental` succeeds with 0 errors (1 pre-existing warning in `MonteCarloViewModel.Cluster.cs`).

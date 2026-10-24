@@ -19,7 +19,9 @@ public record DataEntry(
     string Path,
     long SizeBytes,
     DateTime LastModifiedLocal,
-    bool HasVolume)
+    bool HasVolume,
+long MinT = 0,
+long MaxT = 0)
 {
     public string SizeDisplay => FormatSize(SizeBytes);
 
@@ -274,7 +276,9 @@ public class DataManager
                 Path: info.FullName,
                 SizeBytes: info.Length,
                 LastModifiedLocal: info.LastWriteTime,
-                HasVolume: meta?.HasVolume ?? false));
+                HasVolume: meta?.HasVolume ?? false,
+MinT: meta?.MinT ?? 0,
+MaxT: meta?.MaxT ?? 0));
         }
 
         if (Directory.Exists("data"))

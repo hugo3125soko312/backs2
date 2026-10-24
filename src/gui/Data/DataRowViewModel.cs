@@ -23,6 +23,8 @@ public partial class DataRowViewModel : ObservableObject
     public System.DateTime LastModifiedLocal { get; }
     public string Path { get; }
     public bool HasVolume { get; }
+public long RangeTicks { get; }
+public string RangeDisplay { get; }
 
     [ObservableProperty] private bool _isQueued;
     [ObservableProperty] private bool _isGroupSelected;
@@ -43,6 +45,8 @@ public partial class DataRowViewModel : ObservableObject
         LastModifiedLocal = entry.LastModifiedLocal;
         Path = entry.Path;
         HasVolume = entry.HasVolume;
+RangeTicks = (entry.MinT > 0 && entry.MaxT > entry.MinT) ? entry.MaxT - entry.MinT : 0;
+RangeDisplay = RangeTicks > 0 ? ProviderDatasetRow.FormatDuration(System.TimeSpan.FromMilliseconds(RangeTicks).TotalDays) : char.ConvertFromUtf32(8212);
 
         _suppressWrite = true;
         IsQueued = queue.Contains(Symbol, Timeframe);
@@ -65,6 +69,8 @@ public partial class DataRowViewModel : ObservableObject
         LastModifiedLocal = default;
         Path = "";
         HasVolume = false;
+RangeTicks = 0;
+RangeDisplay = char.ConvertFromUtf32(8212).ToString();
     }
 
     public static DataRowViewModel CreateGroupHeader(

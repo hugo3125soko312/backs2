@@ -254,24 +254,11 @@ Fallback: if detection fails, fall back to the saved click point and the existin
 
 ---
 
-## Phase 18: Data Tab Enhancements [PLANNED]
+## Phase 18: Data Tab Enhancements [IN PROGRESS]
 
-### Phase 18A -- Total Range column
+### Phase 18A -- Total Range column [COMPLETED]
 
-Add a `Total Range` column to the Data tab grid showing the span covered by each cached dataset (earliest bar timestamp → latest bar timestamp, formatted as `Nd Nh` / `Nmo Nd` / `Ny Nmo` depending on magnitude).
-
-- □  
-Expose `MinT` / `MaxT` on `DataEntry` (`src/core/DataManager.cs`). `CacheManager.ReadCacheMetadata` already collects both in a single pass over `bars[]` (see `docs/ARCHITECTURE.md` §7) — surface them through `DataEntry`.
-- □  
-Add `RangeDisplay` to `DataRowViewModel` (`src/gui/Data/DataRowViewModel.cs`) using the same duration-formatting style as `ProviderDatasetRow.FormatDuration` (`src/gui/Providers/ProviderDatasetRow.cs`) so the two tabs are visually consistent.
-- □  
-Insert a `Total Range` `DataGridTemplateColumn` in `src/gui/Data/DataView.axaml`. Decide column order — suggested between `Modified` and `Path`.
-- □  
-Sort and filter: add `FilterRange` text box in Row 2 and a `RangeSortGlyph`; sort on the raw duration (`MaxT - MinT`, numeric) rather than the display string.
-- □  
-Hide on group-header rows via `IsVisible="{Binding !IsGroupHeader}"` like every other column.
-- □  
-Sparse-data edge case: a dataset with `MinT <= 0 || MaxT <= 0 || MaxT <= MinT` renders `—` and is excluded from range-based sorting (same rule as `ProviderDatasetRow`).
+See `docs/ROADMAP_ARCHIVE.md` (Phase 18A).
 
 ### Phase 18B -- Data tab first-click latency
 

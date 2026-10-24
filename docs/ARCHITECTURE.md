@@ -348,7 +348,10 @@
   - **Group order** is alphabetical by Symbol; the Symbol header button flips it asc/desc. Other column headers still toggle their glyph, but the grouping layer ignores them.
   - **Filter interaction.** Filters apply per row first, then grouping runs over the survivors. A group with zero surviving rows disappears entirely.
   - Leftmost column: `On` checkbox (`DataGridTemplateColumn` with a `CheckBox` in the cell template).
-  - Columns: Symbol, Timeframe, Tier, Provider, Has Vol, Size, Modified, Path. All headers support dynamic sorting and filtering via text boxes above the grid.
+  - Columns: Symbol, Timeframe, Tier, Provider, Has Vol, Size, Modified, Total Range, Path. All headers support dynamic sorting and filtering via text boxes above the grid.
+  - `Total Range` renders `DataRowViewModel.RangeDisplay` (`ProviderDatasetRow.FormatDuration` over `RangeTicks`). `RangeTicks = MaxT - MinT` is `0` when `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT`; those rows render an em dash (U+2014) and sort to the bottom in either direction.
+  - Sorting by `Total Range` orders member rows inside each ticker group on the numeric `RangeTicks` (`DataViewModel.OrderWithinGroup`), not on the display string. Group order stays alphabetical by Symbol; every other sort key keeps the existing timeframe-descending member order.
+  - `FilterRange` in the Row 2 filter strip matches against the rendered `RangeDisplay` text.
   - Toolbar: `Refresh`, `Queue…`, and a live `N queued` counter bound to `QueuedCount`.
   - Status line: `"{Rows.Count} of {_all.Count} dataset(s) shown — {QueuedCount} queued."`
 - Empty queue: legal state. Consumers (Runner, Chart) will refuse to run and show a hint.
