@@ -65,6 +65,12 @@ Environment.ExitCode = VerifyMonteCarloAsync(args).GetAwaiter().GetResult();
 return;
 }
 
+if (args.Length > 0 && args[0] == "--batch-verify")
+{
+Environment.ExitCode = VerifyBatchAsync().GetAwaiter().GetResult();
+return;
+}
+
 if (args.Length > 0 && args[0] == "--et-verify")
 {
 Console.WriteLine("ET mismatches: " + backs2.Core.Utils.EasternTime.VerifyAgainstFramework(500000, 42));
@@ -89,6 +95,29 @@ public static AppBuilder BuildAvaloniaApp()
 => AppBuilder.Configure<App>()
 .UsePlatformDetect()
 .LogToTrace();
+
+private static Task<int> VerifyBatchAsync()
+{
+var backends = new List<IComputeBackend> { new CpuBackend(new SimulationKernelCpu()) };
+var dispatcher = new CpuComputeDispatcher(backends, null);
+var rng = new Random(7);
+var requests = new List<MonteCarloDispatchRequest>();
+for (int v = 0; v < 24; v++)
+{
+int sliceCount = 200 + rng.Next(0, 600);
+var slices = new TimeSlice[sliceCount];
+long t0 = 1_600_000_000_000L;
+for (int s = 0; s < sliceCount; s++)
+{
+slices[s] = new TimeSlice(t0 + s * 60_000L, rng.NextDouble() * 50, -rng.NextDouble() * 50, (rng.NextDouble() - 0.5) * 20, (byte)(s % 390 == 0 ? 1 : 0));
+}
+var sim = new MonteCarloSimulationRequest(180, 100_000, 3_000, 10_000, 8_000, 5, true, false);
+requests.Add(new MonteCarloDispatchRequest(sim, slices, 100, Seed: 1234, RetainCurves: false, MaxDegreeOfParallelism: -1));
+}
+int mismatches = BatchDeterminismCheck.Run(dispatcher, requests, 1234);
+Console.WriteLine("batch determinism mismatches: " + mismatches);
+return Task.FromResult(mismatches == 0 ? 0 : 1);
+}
 
 private static async Task RunComputeSelfTest(string[] args)
 {

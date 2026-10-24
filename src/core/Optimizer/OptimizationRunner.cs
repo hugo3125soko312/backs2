@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using backs2.Core.Models;
+using backs2.Core.Computing;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 
@@ -304,6 +305,7 @@ public sealed class OptimizationRunner
         long coarseStart = Stopwatch.GetTimestamp();
 
         int coarseDone = 0;
+        var coarseRequests = new MonteCarloDispatchRequest[comboCount];
         var coarseOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = coarseOuter,
@@ -346,8 +348,7 @@ public sealed class OptimizationRunner
                 return;
             }
 
-            long mcStart = Stopwatch.GetTimestamp();
-            var mcResult = _mc.Run(
+            coarseRequests[i] = _mc.CreateRequest(
                 slices,
                 targetSlices,
                 config.StartingCapital,
@@ -359,23 +360,8 @@ public sealed class OptimizationRunner
                 expectedBlockSize: config.MeanBlockSize,
                 bestDayRulePercent: config.BestDayRulePercent,
                 seed: null,
-                progress: null,
-                cancellationToken: ct,
-                maxDegreeOfParallelism: coarseInner,
+                maxDegreeOfParallelism: 1,
                 retainCurves: false);
-            long mcEnd = Stopwatch.GetTimestamp();
-            StageCall(ref _callsCoarseMc);
-            Interlocked.Add(ref _stageMcCallTicks, mcEnd - mcStart);
-            eta.RecordCoarseMc(TicksToMs(mcEnd - mcStart), config.CoarseIterations);
-
-            versions[i] = v with
-            {
-                McRan = true,
-                Mc = BuildMcSummary(mcResult, edgePercent: double.NaN, nullMean: double.NaN, nullIterations: 0),
-                TerminalBalances = SanitizeArray(mcResult.TerminalBalances),
-                RepresentativeCurve = Array.Empty<double>(),
-                CurvesRetained = false
-            };
 
             int done = Interlocked.Increment(ref coarseDone);
 
@@ -386,6 +372,41 @@ public sealed class OptimizationRunner
 
             Interlocked.Add(ref _stageCoarseVersionTicks, Stopwatch.GetTimestamp() - versionStart);
         });
+
+        // One batched dispatch for every version that produced slices. The
+        // GPU path amortizes its fixed cost across the whole pass instead of
+        // paying it once per version (ROADMAP Phase 29B.1).
+        long mcBatchStart = Stopwatch.GetTimestamp();
+        var pending = new List<(int Index, MonteCarloDispatchRequest Request)>();
+        for (int i = 0; i < comboCount; i++)
+            if (coarseRequests[i] != null) pending.Add((i, coarseRequests[i]));
+
+        if (pending.Count > 0)
+        {
+            var batchResults = _mc.RunBatch(
+                pending.Select(p => p.Request).ToList(), ct);
+
+            for (int k = 0; k < pending.Count; k++)
+            {
+                int i = pending[k].Index;
+                var mcResult = batchResults[k];
+                StageCall(ref _callsCoarseMc);
+
+                versions[i] = versions[i] with
+                {
+                    McRan = true,
+                    Mc = BuildMcSummary(mcResult, edgePercent: double.NaN, nullMean: double.NaN, nullIterations: 0),
+                    TerminalBalances = SanitizeArray(mcResult.TerminalBalances),
+                    RepresentativeCurve = Array.Empty<double>(),
+                    CurvesRetained = false
+                };
+            }
+        }
+
+        long mcBatchTicks = Stopwatch.GetTimestamp() - mcBatchStart;
+        double mcBatchMs = TicksToMs(mcBatchTicks);
+        Interlocked.Add(ref _stageMcCallTicks, mcBatchTicks);
+        eta.RecordCoarseMc(mcBatchMs, config.CoarseIterations);
 
         coarseMs = TicksToMs(Stopwatch.GetTimestamp() - coarseStart);
         LogManager.Info(LogTag.Runner,

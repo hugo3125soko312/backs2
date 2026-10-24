@@ -456,4 +456,83 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
                 return false;
         }
     }
+
+    /// <inheritdoc/>
+    public async Task<MonteCarloDispatchResult[]> DispatchMonteCarloBatchAsync(
+        IReadOnlyList<MonteCarloDispatchRequest> requests,
+        CancellationToken ct)
+    {
+        if (requests == null || requests.Count == 0)
+            return Array.Empty<MonteCarloDispatchResult>();
+
+        int count = requests.Count;
+        var results = new MonteCarloDispatchResult[count];
+
+        // Batch of one is the single-request path, unchanged.
+        if (count == 1)
+        {
+            results[0] = await DispatchMonteCarloAsync(requests[0], ct).ConfigureAwait(false);
+            return results;
+        }
+
+        // Resolve once for the whole batch, exactly as the single-request path
+        // resolves once per dispatch: one batch never straddles two backends.
+        _backend = ResolveBackend();
+
+        // Longest-first ordering so the tail is short. Each version carries a
+        // different slice count, so an unordered queue lets a heavy version start
+        // last and leave the pool half idle.
+        var order = new int[count];
+        for (int i = 0; i < count; i++) order[i] = i;
+        Array.Sort(order, (a, b) =>
+        {
+            int la = requests[a]?.Slices?.Length ?? 0;
+            int lb = requests[b]?.Slices?.Length ?? 0;
+            int cmp = lb.CompareTo(la);
+            return cmp != 0 ? cmp : a.CompareTo(b);
+        });
+
+        var queue = new ConcurrentQueue<int>();
+        foreach (int idx in order) queue.Enqueue(idx);
+
+        int workers = Math.Min(Environment.ProcessorCount, count);
+        var options = new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = workers
+        };
+
+        LogManager.Debug(LogTag.MonteCarlo,
+            "compute: batch MonteCarlo " + count + " version(s), " + workers +
+            " worker(s), backend=" + _backend.Name);
+
+        try
+        {
+            Parallel.For(0, workers, options, _ =>
+            {
+                while (queue.TryDequeue(out int idx))
+                {
+                    if (ct.IsCancellationRequested) return;
+                    var req = requests[idx];
+                    if (req == null) { results[idx] = MonteCarloDispatchResult.Empty; continue; }
+
+                    // MaxDegreeOfParallelism = 1: the flat pool above owns the
+                    // parallelism, so a nested scheduler would oversubscribe.
+                    var inner = req with { MaxDegreeOfParallelism = 1 };
+                    results[idx] = DispatchMonteCarloAsync(inner, ct)
+                        .ConfigureAwait(false).GetAwaiter().GetResult();
+                }
+            });
+        }
+        catch (Exception ex) when (IsCancellation(ex))
+        {
+            // Completed items keep their result; the rest stay null and are
+            // normalized to Empty below, so the array length never shifts.
+        }
+
+        for (int i = 0; i < count; i++)
+            results[i] ??= MonteCarloDispatchResult.Empty;
+
+        return results;
+    }
 }

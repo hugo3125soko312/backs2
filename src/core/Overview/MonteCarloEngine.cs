@@ -174,6 +174,120 @@ public sealed class MonteCarloEngine
             curvesRetained);
     }
 
+    /// <summary>
+    /// Builds the dispatch request for one dataset without running it, so a
+    /// caller can hand many versions to <see cref="IComputeDispatcher.DispatchMonteCarloBatchAsync"/>
+    /// as one unit of work (ROADMAP Phase 29B.1). Parameter derivation, the
+    /// iteration clamp and the curve-retention ceiling are identical to
+    /// <see cref="Run"/> — the only difference is that the work is not started.
+    /// </summary>
+    public MonteCarloDispatchRequest CreateRequest(
+        TimeSlice[] slices,
+        int targetDurationSlices,
+        double startingCapital,
+        string drawdownType,
+        double maxDailyLossPercent,
+        double maxLossPercent,
+        double profitTargetPercent,
+        int iterations = 1000,
+        int expectedBlockSize = 5,
+        double bestDayRulePercent = 50.0,
+        int? seed = null,
+        int maxDegreeOfParallelism = -1,
+        bool retainCurves = true)
+    {
+        if (iterations < 1) iterations = 1;
+        if (iterations > MaxIterations) iterations = MaxIterations;
+        if (expectedBlockSize < 1) expectedBlockSize = 1;
+        if (bestDayRulePercent < 0) bestDayRulePercent = 0;
+
+        long curveCells = (long)iterations * targetDurationSlices;
+        bool keepCurves = retainCurves && curveCells <= MaxCurveCells;
+
+        int dailyFloorLoss = (int)Math.Round(startingCapital * (maxDailyLossPercent / 100.0));
+        int maxFloorLoss = (int)Math.Round(startingCapital * (maxLossPercent / 100.0));
+        int profitTarget = (int)Math.Round(startingCapital * (profitTargetPercent / 100.0));
+
+        bool trailingEod = string.Equals(drawdownType, "trailing-eod", StringComparison.OrdinalIgnoreCase);
+        bool trailingIntraday = string.Equals(drawdownType, "trailing-intraday", StringComparison.OrdinalIgnoreCase);
+
+        var simulation = new MonteCarloSimulationRequest(
+            TargetDurationSlices: targetDurationSlices,
+            StartingCapital: startingCapital,
+            DailyFloorLoss: dailyFloorLoss,
+            MaxFloorLoss: maxFloorLoss,
+            ProfitTarget: profitTarget,
+            ExpectedBlockSize: expectedBlockSize,
+            TrailingEod: trailingEod,
+            TrailingIntraday: trailingIntraday);
+
+        return new MonteCarloDispatchRequest(
+            Simulation: simulation,
+            Slices: slices,
+            Iterations: iterations,
+            Seed: seed,
+            RetainCurves: keepCurves,
+            MaxDegreeOfParallelism: maxDegreeOfParallelism);
+    }
+
+    /// <summary>
+    /// Runs many Monte Carlo workloads as one dispatch (ROADMAP Phase 29B.1).
+    /// Each request is built by <see cref="CreateRequest"/>; results are
+    /// index-aligned with <paramref name="requests"/> and aggregated exactly as
+    /// <see cref="Run"/> aggregates a single one. A cancelled batch returns a
+    /// full-length array whose unfinished items carry an empty result.
+    /// </summary>
+    public MonteCarloResult[] RunBatch(
+        IReadOnlyList<MonteCarloDispatchRequest> requests,
+        CancellationToken cancellationToken = default)
+    {
+        if (requests == null || requests.Count == 0)
+            return Array.Empty<MonteCarloResult>();
+
+        var dispatched = _dispatcher
+            .DispatchMonteCarloBatchAsync(requests, cancellationToken)
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+
+        var results = new MonteCarloResult[requests.Count];
+        for (int i = 0; i < requests.Count; i++)
+            results[i] = BuildFromDispatch(requests[i], dispatched[i]);
+
+        return results;
+    }
+
+    private MonteCarloResult BuildFromDispatch(
+        MonteCarloDispatchRequest request,
+        MonteCarloDispatchResult computed)
+    {
+        computed ??= MonteCarloDispatchResult.Empty;
+        int completed = computed.Count;
+        bool curvesRetained = computed.CurvesRetained;
+        long curveBytes = curvesRetained
+            ? (long)completed * request.Simulation.TargetDurationSlices * sizeof(double)
+            : 0L;
+
+        return BuildResult(
+            computed.TerminalBalances,
+            computed.Outcomes,
+            computed.SlicesElapsed,
+            computed.MaxDrawdowns,
+            curvesRetained ? computed.EquityCurves : Array.Empty<double[]>(),
+            computed.BestDayRatios,
+            computed.LongestLosingStreaks,
+            computed.LongestFlatStretches,
+            computed.RuinCauses,
+            completed,
+            request.Simulation.ExpectedBlockSize,
+            request.Simulation.StartingCapital,
+            request.Simulation.TargetDurationSlices,
+            request.Simulation.TrailingIntraday ? "trailing-intraday" : request.Simulation.TrailingEod ? "trailing-eod" : "static",
+            0.0,
+            curveBytes,
+            curvesRetained);
+    }
+
     private static MonteCarloResult BuildResult(
         double[] terminalBalances,
         byte[] outcomes,

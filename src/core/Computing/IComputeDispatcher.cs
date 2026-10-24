@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using backs2.Core.Overview;
@@ -76,5 +77,23 @@ public interface IComputeDispatcher
     /// </summary>
     Task<double[]> DispatchBacktestBatchAsync(
         int jobCount,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Dispatches several independent Monte Carlo workloads as one unit of
+    /// work (ROADMAP Phase 29B.1). The optimizer coarse pass issues one small
+    /// dispatch per parameter version; dispatching them individually pays the
+    /// GPU fixed cost (slice mirroring, upload, readback, nine buffer
+    /// allocations) once per version instead of once per pass.
+    /// </summary>
+    /// <remarks>
+    /// Results are index-aligned with <paramref name="requests"/> and each item is
+    /// internally complete — a cancelled batch returns an array of the same length,
+    /// with unfinished items carrying an empty result, never a padded or shifted one.
+    /// Per-request semantics (seed derivation, chunking, iteration cap) are identical
+    /// to <see cref="DispatchMonteCarloAsync"/>; batching changes scheduling only.
+    /// </remarks>
+    Task<MonteCarloDispatchResult[]> DispatchMonteCarloBatchAsync(
+        IReadOnlyList<MonteCarloDispatchRequest> requests,
         CancellationToken ct);
 }
