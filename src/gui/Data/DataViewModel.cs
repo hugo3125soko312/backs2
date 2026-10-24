@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
@@ -121,16 +122,21 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
 
         var ct = _refreshCts.Token;
 
+        var sw = Stopwatch.StartNew();
         try
         {
             StatusText = "Scanning cache…";
 
             var entries = await _dataManager.GetAvailableDataAsync(ct).ConfigureAwait(true);
+            long scanMs = sw.ElapsedMilliseconds;
             if (ct.IsCancellationRequested) return;
 
             _all.Clear();
             foreach (var entry in entries)
                 _all.Add(new DataRowViewModel(entry, _queue));
+
+            LogManager.Info(LogTag.Data,
+                $"[18B] Data tab refresh: scan {scanMs} ms, {entries.Count} dataset(s), {sw.ElapsedMilliseconds} ms total");
 
             QueuedCount = _queue.Items.Count;
             ApplyView();

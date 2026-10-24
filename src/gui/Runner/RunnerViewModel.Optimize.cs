@@ -106,7 +106,7 @@ public partial class RunnerViewModel
                     continue;
                 }
 
-                var optProgress = new Progress<OptimizationProgress>(p =>
+                var optProgress = new ThrottledProgress<OptimizationProgress>(p =>
                 {
                     double batchFraction = p.Fraction;
                     Progress = ((idx + batchFraction) / totalDatasets) * 100.0;
@@ -114,7 +114,9 @@ public partial class RunnerViewModel
                     EtaText = p.EtaSeconds.HasValue ? FormatEta(p.EtaSeconds.Value) : "";
 
                     StatusText = $"[{idx + 1}/{totalDatasets}] Optimize {item.Symbol}@{item.Timeframe} - {p.Phase} {p.Completed}/{p.Total}";
-                });
+                },
+                minIntervalMs: 100,
+                flushImmediately: p => p.Phase == "Done" || p.Completed == p.Total);
 
                 var runConfig = new OptimizationRunConfig(
                     MaxCombinations: Cap,
