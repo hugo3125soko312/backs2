@@ -348,13 +348,7 @@ Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipbo
 
 Choose **one** of the two commands per response. Never emit both.
 
-- **Compile-only change** (types, signatures, refactors that do not affect runtime behaviour, docs-only, test scaffolding) -> run **only** the build:
-
-  ```powershell
-  dotnet build --no-incremental 2>&1 | Select-Object -Last 15
-  ```
-
-  Success ends with `Build succeeded`.
+- **Compile-only change** (types, signatures, refactors that do not affect runtime behaviour, docs-only, test scaffolding) -> run **only** the build. Iteration: `dotnet build 2>&1 | Select-Object -Last 15` (incremental, ~4s on 11.3.x). Pre-commit verification: `dotnet build --no-incremental -p:RunAnalyzersDuringBuild=true 2>&1 | Select-Object -Last 15` (forced full rebuild with analyzers).
 
 - **Runtime change that needs a user test** (UI, wiring, anything the user must click through to confirm) -> run **only** the app:
 

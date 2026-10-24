@@ -93,7 +93,7 @@ ONLY SPEAK IN ENGLISH
     - `Parallel.ForEach` over a list of independent files is the standard pattern when per-file work is CPU-heavy. Protect any shared accumulator with a lock.
     - Add a `_refreshing` flag on any refresh command whose work can overlap itself. Duplicate scans waste cycles and can race with collection clears.
 - Build vs Run Protocol:
-    - Build only (compile-time changes): `dotnet build --no-incremental 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
+    - Iteration (compile-time, not commit-ready): `dotnet build 2>&1 | Select-Object -Last 15` - incremental, ~4s on 11.3.x. Pre-commit verification: `dotnet build --no-incremental -p:RunAnalyzersDuringBuild=true 2>&1 | Select-Object -Last 15`. Success ends with `Build succeeded`.
     - Build + run (runtime changes): `dotnet run`, then after close: `Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content`.
     - Ask for build OR run, never both.
     - If the app crashed before `LogManager.Initialize`, there is no new log file — ask for terminal output instead.

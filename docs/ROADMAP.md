@@ -491,7 +491,7 @@ Reduces the dev-loop build time. Baseline (measured 2026-10-07): incremental `do
 
 See `docs/ROADMAP_ARCHIVE.md` (Phase 22A).
 
-### Phase 22B -- Build protocol change
+### Phase 22B -- Build protocol change [COMPLETED]
 
 - □  
 Update `docs/AGENT_RULES.md` build protocol. Current text prescribes `dotnet build --no-incremental` for every compile-time check, which forces a 15.56s full rebuild on every iteration.
@@ -502,7 +502,7 @@ Pre-commit verification: `dotnet build --no-incremental -p:RunAnalyzersDuringBui
 - □  
 Same protocol update mirrored in `docs/RULES.md` build-vs-run section.
 
-### Phase 22C -- VS Code workspace settings
+### Phase 22C -- VS Code workspace settings [COMPLETED]
 
 - □  
 `.vscode/settings.json` gains `"dotnet.backgroundAnalysis.analyzerDiagnosticsScope": "openFiles"` and `"dotnet.backgroundAnalysis.compilerDiagnosticsScope": "openFiles"`. Reduces editor-side memory and CPU on a solution this size.
@@ -511,7 +511,7 @@ Update VS Code C# Dev Kit extension to latest — 11.0+ claims up to 39x faster 
 - □  
 Note: this affects editor responsiveness only. `dotnet run` speed is unaffected by these keys.
 
-### Phase 22D -- Measure and close
+### Phase 22D -- Measure and close [COMPLETED]
 
 - □  
 Re-baseline incremental and `--no-incremental` after 22A-B.
@@ -520,7 +520,7 @@ Acceptance: incremental loop < 4s, `--no-incremental` < 15s. If Phase 23 lands, 
 
 ---
 
-### Phase 22E -- Runtime diagnostic baseline [IN PROGRESS]
+### Phase 22E -- Runtime diagnostic baseline [IN PROGRESS] -- MEASURED 2026-10-25 post-23A: incremental 3.62-4.47s (was 7.14s), CoreCompile skipped on no-op builds, remainder is MSBuild evaluation plus package-target overhead (181 imports, 1.72 MB evaluated XML, ONNX/Vortice/ComputeSharp/RapidOcr); bare evaluation alone 2.7-3.9s so two-second target is blocked by package surface, not compilation.
 
 Captures CPU / GC / allocation numbers on the current build so Phase 23's impact on runtime is provable, not just its impact on build time. No code changes -- measurements only.
 
@@ -577,11 +577,11 @@ Captured via: `dotnet-counters collect -p <pid> --counters System.Runtime --outp
 
 **Warning - Metreja profiler overhead is not neutral.** Running the optimizer under Metreja v1.0.23 slows each per-dataset Optimize run by roughly 24x (measured 2026-10-10: ~10 s baseline per dataset becomes ~4 min under profiler; a full multi-dataset batch that normally completes in ~1 min stretched to ~1.5 hours). The parallel MC topology is the cause: 20 concurrent worker threads each push enter/leave or method_stats events into the profiler's shared writer, which serializes on a buffer lock. Consequences: (a) wall-time and CPU% under the profiler are not comparable to unprofiled numbers; (b) Metreja is a hotspot *attribution* tool, not a perf-measurement tool. For perf measurement, use `dotnet-counters` or the in-app `[startup]` Stopwatch markers. Narrow the include to one namespace and use `method_stats` (not `enter leave`) to keep the trace under MB scale and the overhead under 2x.
 
-## Phase 23: Avalonia 11.3 Upgrade [PLANNED]
+## Phase 23: Avalonia 11.3 Upgrade [COMPLETED]
 
 Root cause of the 7.14s incremental build. Avalonia PR #17539 (merged Nov 2024) reworked `AvaloniaBuildTasks.targets` so the XAML compiler runs as part of `CoreCompile` via `TargetsTriggeredByCompilation`, restoring incremental build correctness. The PR description states the previous behavior "made MSBuild think that the output was always changed between builds, effectively killing incremental builds." That fix shipped in the 11.3.x line; 11.0.11 predates it.
 
-### Phase 23A -- Version bump
+### Phase 23A -- Version bump [COMPLETED]
 
 - □  
 Bump in lockstep to 11.3.x (latest patch): `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter`, `Avalonia.Controls.DataGrid`, `Avalonia.Controls.ColorPicker`.
@@ -611,7 +611,7 @@ Left nav rail: all 12 items select correctly and the accent stripe follows.
 - □  
 Cross-tab navigation: Monte Carlo cluster plot click jumps to Chart.
 
-### Phase 23C -- Measure and close
+### Phase 23C -- Measure and close [COMPLETED]
 
 - □  
 Re-baseline incremental after bump. Target: < 2s.
@@ -620,7 +620,7 @@ If any smoke test fails, revert to 11.0.11 and close the phase as `[DEFERRED]` w
 
 ---
 
-## Phase 24: Tab Responsiveness [IN PROGRESS]
+## Phase 24: Tab Responsiveness [IN PROGRESS] -- Phase 23 shipped 2026-10-25: core Avalonia packages 11.3.22, DataGrid 11.3.13 (versioning diverged), no API breaks, rebuild clean, incremental skips CoreCompile, 23B remains a manual smoke test.
 
 Extends the Phase 21 pattern (off-thread, parallel metadata scan + fire-and-forget ctor refresh) to the remaining tabs whose ViewModels do disk I/O in their constructors. Diagnosis from 2026-10-08: only Data and Accounts are affected. Config, Metrics, Overview, Logs, Chart, Runner, and Monte Carlo do no disk I/O in ctor and are already responsive.
 
