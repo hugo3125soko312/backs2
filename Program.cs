@@ -71,6 +71,12 @@ Environment.ExitCode = VerifyBatchAsync().GetAwaiter().GetResult();
 return;
 }
 
+if (args.Length > 0 && args[0] == "--mc-bench")
+{
+Environment.ExitCode = RunMcBenchAsync().GetAwaiter().GetResult();
+return;
+}
+
 if (args.Length > 0 && args[0] == "--et-verify")
 {
 Console.WriteLine("ET mismatches: " + backs2.Core.Utils.EasternTime.VerifyAgainstFramework(500000, 42));
@@ -95,6 +101,45 @@ public static AppBuilder BuildAvaloniaApp()
 => AppBuilder.Configure<App>()
 .UsePlatformDetect()
 .LogToTrace();
+
+private static Task<int> RunMcBenchAsync()
+{
+var cpuBackend = new CpuBackend(new SimulationKernelCpu());
+var gpuBackend = new GpuBackend(cpuBackend);
+var rng = new Random(11);
+int versions = 240;
+int iters = 100;
+var perVersion = new TimeSlice[versions][];
+for (int v = 0; v < versions; v++)
+{
+int n = 1500 + rng.Next(0, 900);
+var sl = new TimeSlice[n];
+long t0 = 1_600_000_000_000L;
+for (int s = 0; s < n; s++)
+sl[s] = new TimeSlice(t0 + s * 1_800_000L, rng.NextDouble() * 60, -rng.NextDouble() * 60, (rng.NextDouble() - 0.5) * 30, (byte)(s % 13 == 0 ? 1 : 0));
+perVersion[v] = sl;
+}
+var sim = new MonteCarloSimulationRequest(180, 100_000, 3_000, 10_000, 8_000, 5, true, false);
+var reqs = new List<MonteCarloDispatchRequest>();
+for (int v = 0; v < versions; v++)
+reqs.Add(new MonteCarloDispatchRequest(sim, perVersion[v], iters, Seed: 5000 + v, RetainCurves: false, MaxDegreeOfParallelism: 1));
+var cpuDisp = new CpuComputeDispatcher(new List<IComputeBackend> { cpuBackend }, null);
+var gpuDisp = new CpuComputeDispatcher(new List<IComputeBackend> { cpuBackend, gpuBackend }, null);
+var sw = System.Diagnostics.Stopwatch.StartNew();
+foreach (var r in reqs) cpuDisp.DispatchMonteCarloAsync(r, default).GetAwaiter().GetResult();
+sw.Stop(); long cpuPerVersion = sw.ElapsedMilliseconds;
+Console.WriteLine("cpu per-version: " + cpuPerVersion + " ms");
+sw.Restart();
+cpuDisp.DispatchMonteCarloBatchAsync(reqs, default).GetAwaiter().GetResult();
+sw.Stop(); long cpuBatch = sw.ElapsedMilliseconds;
+Console.WriteLine("cpu batch: " + cpuBatch + " ms");
+sw.Restart();
+var gpuRes = gpuDisp.DispatchMonteCarloBatchAsync(reqs, default).GetAwaiter().GetResult();
+sw.Stop(); long gpuBatch = sw.ElapsedMilliseconds;
+Console.WriteLine("gpu batch: " + gpuBatch + " ms (backend=" + gpuDisp.Backend.Name + ")");
+Console.WriteLine("gpu batch total iterations: " + gpuRes.Length + " versions x " + (gpuRes.Length > 0 ? gpuRes[0].Count : 0));
+return Task.FromResult(0);
+}
 
 private static Task<int> VerifyBatchAsync()
 {
