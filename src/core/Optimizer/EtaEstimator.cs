@@ -15,12 +15,12 @@ namespace backs2.Core.Optimizer;
 /// </summary>
 public sealed class EtaEstimator
 {
-    public double DefaultThreadSecPerBacktest { get; init; } = 0.100;
-    public double DefaultThreadSecPerSliceBuild { get; init; } = 0.005;
-    public double DefaultThreadSecPerCoarseSim { get; init; } = 0.00050;
-    public double DefaultThreadSecPerRefineSim { get; init; } = 0.00100;
-    public double DefaultThreadSecPerNullSim { get; init; } = 0.00100;
-    public double DefaultSaveSec { get; init; } = 0.5;
+    public double DefaultThreadSecPerBacktest { get; init; } = 0.0183;
+    public double DefaultThreadSecPerSliceBuild { get; init; } = 0.0038;
+    public double DefaultThreadSecPerCoarseSim { get; init; } = 0.00022;
+    public double DefaultThreadSecPerRefineSim { get; init; } = 0.00030;
+    public double DefaultThreadSecPerNullSim { get; init; } = 0.00030;
+    public double DefaultSaveSec { get; init; } = 0.15;
     public double FloorSeconds { get; init; } = 0.5;
 
     private const double EmaAlpha = 0.125;
