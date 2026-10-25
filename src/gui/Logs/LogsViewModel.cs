@@ -21,6 +21,16 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     private readonly ConfigManager _config;
     private bool _disposed;
 
+    /// <summary>
+    /// True while the Logs view is on screen. Flushing rebuilds the entire
+    /// LogText string (up to 2,000 lines) and rebinds the TextBox, so doing it
+    /// while the user is watching a different tab is pure waste — and on the
+    /// optimizer workload it was the main source of UI thread contention
+    /// during a run. Lines keep accumulating in the queue regardless; a single
+    /// catch-up flush runs when the view becomes visible again.
+    /// </summary>
+    private bool _isVisible;
+
     [ObservableProperty] private string _logText = "";
     [ObservableProperty] private string _commandInput = "";
     [ObservableProperty] private string _commandStatus = "";
@@ -39,6 +49,22 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         LogManager.Logged += OnLogged;
     }
 
+    /// <summary>
+    /// Called by the view when it enters or leaves the visual tree. While
+    /// detached, log lines accumulate but no flush is scheduled; on reattach a
+    /// single flush delivers everything that arrived in the meantime.
+    /// </summary>
+    public void SetVisible(bool visible)
+    {
+        if (_isVisible == visible) return;
+        _isVisible = visible;
+
+        if (visible)
+        {
+            Dispatcher.UIThread.Post(Flush);
+        }
+    }
+
     private void OnLogged(object? sender, LogManager.LogEntry entry)
     {
         AppendLine(FormatEntry(entry));
@@ -47,6 +73,10 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         // emits thousands per run) used to post N dispatcher callbacks, each
         // rebuilding the whole LogText string. Now the burst coalesces into a
         // single post that snapshots whatever accumulated.
+        // Nothing on screen to update — the queue keeps growing and
+        // SetVisible(true) does one catch-up flush.
+        if (!_isVisible) return;
+
         lock (_gate)
         {
             if (_flushScheduled) return;
