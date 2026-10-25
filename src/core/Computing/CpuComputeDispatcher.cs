@@ -48,6 +48,8 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// can absorb a slow core.
     /// </summary>
     private const int McChunkSize = 10_000;
+    private long _batchLogCount;
+    private long _batchLogCount;
 
     /// <summary>
     /// Total iterations below which a Monte Carlo batch is not sent to the device.
@@ -677,9 +679,13 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
             MaxDegreeOfParallelism = workers
         };
 
-        LogManager.Debug(LogTag.MonteCarlo,
-            "compute: batch MonteCarlo " + count + " version(s), " + workers +
-            " worker(s), backend=" + _backend.Name);
+                long batchNo = System.Threading.Interlocked.Increment(ref _batchLogCount);
+        if (batchNo == 1 || batchNo % 25 == 0)
+        {
+            LogManager.Debug(LogTag.MonteCarlo,
+                "compute: batch MonteCarlo " + count + " version(s), " + workers +
+                " worker(s), backend=" + _backend.Name + " (batch " + batchNo + ")");
+        }
 
         try
         {
