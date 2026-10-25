@@ -41,7 +41,8 @@ public static class EasternTime
     /// <summary>Converts a Unix-ms UTC timestamp to Eastern Time wall-clock.</summary>
     public static DateTime ToEastern(long unixMs)
     {
-        var info = GetYear(YearOf(unixMs));
+        var utc = DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
+        var info = GetYear(utc.Year);
 
         long offsetMs = info.InitialOffsetMs;
         for (int i = 0; i < info.TransitionUtcMs.Length; i++)
@@ -50,7 +51,6 @@ public static class EasternTime
             offsetMs = info.OffsetAfterMs[i];
         }
 
-        var utc = DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
         return DateTime.SpecifyKind(utc.AddMilliseconds(offsetMs), DateTimeKind.Unspecified);
     }    /// <summary>
     /// Converts a UTC DateTime to Eastern Time wall-clock. Defensive against
@@ -105,10 +105,7 @@ public static class EasternTime
             if (expected != actual) mismatches++;
         }
         return mismatches;
-    }    private static int YearOf(long unixMs) =>
-        DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime.Year;
-
-    private static YearInfo GetYear(int year)
+    }    private static YearInfo GetYear(int year)
     {
         if (Years.TryGetValue(year, out var cached)) return cached;
 
