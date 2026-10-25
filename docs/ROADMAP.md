@@ -83,6 +83,38 @@ Test: full click-through of DataGrid grouping and header checkboxes, colour pick
 Fail: any visual regression, popup that does not open, or plot that does not render. Revert to 11.0.11 and record the blocker.
 ---
 
+## Phase 36: Runtime Performance Monitor [COMPLETED]
+
+A 1 Hz runtime health readout in the status bar, plus a sustained-breach log line. Shipped in four commits: 515819d (sampler), b0c4596 (status bar), c5c47a9 (per-metric colouring, CPU units fix), 19cfb73 (VRAM, NVML), a298b22 (Logs FPS fix).
+
+The sampler lives in src/core/Diagnostics/ and costs one small record per second. Per-frame work is a single Interlocked.Increment in MainViewModel.OnFrame, called from MainWindow.Opened via RequestAnimationFrame. A performance monitor that measurably costs performance is self-defeating, so the 1 Hz tick and the near-zero frame hook are the whole design.
+
+Metrics, and what each one actually means:
+
+- FPS — frames per second via RequestAnimationFrame. Real rendered frames, not a timer.
+- RAM — available physical memory via GlobalMemoryStatusEx. Deliberately NOT GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, which reports the GC heap budget and never falls, so a low-RAM threshold against it could never fire.
+- CPU — this process, normalised to 0-100 of TOTAL machine capacity by dividing by ProcessorCount. The first cut omitted that division, so a 20-core box reported up to 2000% and the 85% threshold fired at ~4% real utilisation. The metric and the threshold must agree on units and nothing in the type system enforces that.
+- VRAM — dedicated video memory used BY THIS PROCESS via IDXGIAdapter3.QueryVideoMemoryInfo on the HighPerformance adapter. Not device-wide: another application holding 6 GB will not show. Right metric for "is backs2 leaking VRAM", wrong metric for "is the card full".
+- GPU — device utilisation via NVML. NVIDIA only; null on AMD/Intel with one probe and no retry.
+
+Expected readings, which will otherwise look like bugs:
+
+- GPU 0% and VRAM ~12 MB during an Optimize run is CORRECT. After the Phase 29B.1 OOM fix the coarse pass runs 64-version chunks of 100 iterations, well below the 400k GPU batch threshold, so the optimizer never dispatches to the card. The NVML probe works (verified standalone: 0% idle on an RTX 4060); the workload is simply not there. Do not lower the threshold to make the diagnostic look busier.
+- VRAM stays near zero until the compute subsystem creates a D3D device.
+
+Two implementation notes worth keeping:
+
+- Per-metric chip colouring, not per-row. A hot CPU turns only the CPU chip red. That is why the status bar binds an ItemsControl of PerfChip rather than one formatted string with a single boolean.
+- Breach handling is debounced: 2 s sustained before a metric counts, 30 s per-metric cooldown on the log line. A single dropped frame must never flash the status bar or write a log line, and an uncooldowned log path would recreate the Logs-tab flood this same phase had to fix.
+
+Verification hooks, all in Program.cs alongside --et-verify and --mc-verify:
+
+- --vram-verify prints the adapter budget. Verified: 7188 MB on an RTX 4060, which matches the card.
+- --gpu-verify prints device utilisation. Verified: 0% idle.
+- --mc-bench reports dispatch-shape timings used by Phase 29B.1.
+
+Outstanding: the in-app readout has been exercised only by eye, not measured. The Logs FPS fix (a298b22) corrected two bugs — a visibility gate that never fired because tab switching flips IsVisible rather than detaching the view, and a flush that rebuilt a 2,000-line string on every burst — but the resulting frame rate during an Optimize run with Logs open has not been quantified. If it still degrades, instrument the flush itself rather than guessing again.
+
 ## Phase 35: exec-bridge Production Hardening [PLANNED]
 
 Redesign of the exec-bridge from a chat-to-shell prototype into a
