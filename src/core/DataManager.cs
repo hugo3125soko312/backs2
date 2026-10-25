@@ -246,6 +246,7 @@ public class DataManager
                 i => metas[i] = _diskCache.ReadCacheMetadata(files[i]));
 
             ct.ThrowIfCancellationRequested();
+            _diskCache.PruneMetadataCache();
             return BuildEntries(files, metas);
         }, ct).ConfigureAwait(true);
     }

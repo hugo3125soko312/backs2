@@ -188,6 +188,8 @@ public partial class ProvidersViewModel : ObservableObject
                 return list;
             }).ConfigureAwait(true);
 
+            _cache.PruneMetadataCache();
+
             // Aggregation and ObservableCollection mutation must be on the
             // UI thread. This part is O(files) and cheap — dozens of items
             // at most — so it can't reintroduce the freeze.

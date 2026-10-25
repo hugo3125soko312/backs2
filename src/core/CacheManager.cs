@@ -242,6 +242,21 @@ public class CacheManager
     public string? ReadTimeframeFromCacheFile(string path)
         => ReadCacheMetadata(path)?.Timeframe;
 
+    /// <summary>
+    /// Drops entries from the metadata memo whose cache file no longer exists.
+    /// Called after a full cache-directory scan so the memo does not grow without
+    /// bound across months of fetches. Does not parse anything - File.Exists is one
+    /// cheap syscall per entry.
+    /// </summary>
+    public void PruneMetadataCache()
+    {
+        foreach (var kv in _metaCache)
+        {
+            if (!File.Exists(kv.Key))
+                _metaCache.TryRemove(kv.Key, out _);
+        }
+    }
+
     private string PathFor(string key)
     {
         var safe = key.Replace('@', '_').Replace('/', '_').Replace('\\', '_');
