@@ -62,7 +62,8 @@
                                Maximum="100000"
                                Increment="50"
                                FormatString="N0"
-                               Width="110"
+                               ShowButtonSpinner="False"
+                               Width="130"
                                VerticalAlignment="Center"
                                ToolTip.Tip="Maximum combinations to backtest. Grids above this are randomly sampled." />
 
