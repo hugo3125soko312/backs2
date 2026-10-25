@@ -77,6 +77,21 @@ Environment.ExitCode = RunMcBenchAsync().GetAwaiter().GetResult();
 return;
 }
 
+if (args.Length > 0 && args[0] == "--gpu-verify")
+{
+using var nv = new backs2.Core.Diagnostics.NvmlProbe();
+var g = nv.Query();
+Console.WriteLine(g is null ? "gpu: unavailable (NVML not present or no NVIDIA device)" : "gpu: " + g.Value.ToString("F0") + "% utilization");
+return;
+}
+if (args.Length > 0 && args[0] == "--vram-verify")
+{
+using var vp = new backs2.Core.Diagnostics.VramProbe();
+var q = vp.Query();
+if (q.UsedMb is null) Console.WriteLine("vram: unavailable (no DXGI adapter)");
+else Console.WriteLine("vram: " + q.UsedMb.Value.ToString("F0") + " MB used of " + q.BudgetMb.Value.ToString("F0") + " MB budget");
+return;
+}
 if (args.Length > 0 && args[0] == "--et-verify")
 {
 Console.WriteLine("ET mismatches: " + backs2.Core.Utils.EasternTime.VerifyAgainstFramework(500000, 42));

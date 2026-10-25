@@ -28,7 +28,8 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         new PerfChip { Label = "FPS" },
         new PerfChip { Label = "RAM" },
         new PerfChip { Label = "CPU" },
-        new PerfChip { Label = "VRAM" }
+        new PerfChip { Label = "VRAM" },
+        new PerfChip { Label = "GPU" }
     };
 
     private readonly IServiceProvider _sp;
@@ -37,6 +38,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private readonly ConfigManager _cfg;
     private readonly backs2.Core.Diagnostics.PerfSampler _perf;
     private readonly backs2.Core.Diagnostics.VramProbe _vram = new();
+    private readonly backs2.Core.Diagnostics.NvmlProbe _nvml = new();
     private readonly backs2.Core.Diagnostics.PerfThresholds _perfThresholds = new();
     private bool _perfStarted;
 
@@ -117,7 +119,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
             _perf.DeviceProbe = () =>
             {
                 var (used, budget) = _vram.Query();
-                return (used, budget, (double?)null);
+                return (used, budget, _nvml.Query());
             };
 
             _perf.Start();
@@ -155,6 +157,9 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
             ? s.VramUsedMb.Value.ToString("F0") + "/" + s.VramBudgetMb.Value.ToString("F0") + "M"
             : "-";
         SetChip(3, vram, b, "vram");
+
+        string gpu = s.GpuPercent.HasValue ? s.GpuPercent.Value.ToString("F0") + "%" : "-";
+        SetChip(4, gpu, b, "gpu");
     }
 
     private void SetChip(int index, string value, string[] breaches, string key)
