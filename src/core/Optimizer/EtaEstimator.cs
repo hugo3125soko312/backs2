@@ -16,6 +16,7 @@ namespace backs2.Core.Optimizer;
 public sealed class EtaEstimator
 {
     public double DefaultThreadSecPerBacktest { get; init; } = 0.100;
+    public double DefaultThreadSecPerSliceBuild { get; init; } = 0.005;
     public double DefaultThreadSecPerCoarseSim { get; init; } = 0.00050;
     public double DefaultThreadSecPerRefineSim { get; init; } = 0.00100;
     public double DefaultThreadSecPerNullSim { get; init; } = 0.00100;
@@ -35,6 +36,7 @@ public sealed class EtaEstimator
     private int _refineOuter = 1;
 
     private double _threadSecPerBacktest;
+    private double _threadSecPerSliceBuild;
     private double _threadSecPerCoarseSim;
     private double _threadSecPerRefineSim;
     private double _threadSecPerNullSim;
@@ -64,6 +66,7 @@ public sealed class EtaEstimator
             _refineOuter = Math.Max(1, refineOuter);
 
             _threadSecPerBacktest = DefaultThreadSecPerBacktest;
+            _threadSecPerSliceBuild = DefaultThreadSecPerSliceBuild;
             _threadSecPerCoarseSim = DefaultThreadSecPerCoarseSim;
             _threadSecPerRefineSim = DefaultThreadSecPerRefineSim;
             _threadSecPerNullSim = DefaultThreadSecPerNullSim;
@@ -81,6 +84,22 @@ public sealed class EtaEstimator
         {
             double perVersionSec = elapsedMs / 1000.0;
             _threadSecPerBacktest = Blend(_threadSecPerBacktest, perVersionSec);
+        }
+    }
+
+    /// <summary>
+    /// Records one version's slice-build cost. This stage was missing from the
+    /// estimate entirely, and on the 2026-10-25 4,032-combination run it was
+    /// 1,094,643 ms thread-summed — 98.8% of coarse-phase work — so the ETA
+    /// under-reported the run by more than an order of magnitude.
+    /// </summary>
+    public void RecordSliceBuild(double elapsedMs)
+    {
+        if (elapsedMs <= 0 || double.IsNaN(elapsedMs) || double.IsInfinity(elapsedMs)) return;
+        lock (_lock)
+        {
+            double perVersionSec = elapsedMs / 1000.0;
+            _threadSecPerSliceBuild = Blend(_threadSecPerSliceBuild, perVersionSec);
         }
     }
 
@@ -140,23 +159,25 @@ public sealed class EtaEstimator
     private double ComputeEstimateLocked()
     {
         double backtestSec = (double)_comboCount * _threadSecPerBacktest / _backtestOuter;
+        double sliceSec = (double)_comboCount * _threadSecPerSliceBuild / _coarseOuter;
         double coarseSec = (double)_comboCount * _coarseIterations * _threadSecPerCoarseSim / _coarseOuter;
         double refineSec = (double)_refineTopN * _refineIterations * _threadSecPerRefineSim / _refineOuter;
         double nullSec = (double)_refineTopN * _refineIterations * _threadSecPerNullSim / _refineOuter;
-        return backtestSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
+        return backtestSec + sliceSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
     }
 
     private string FormatBreakdownLocked()
     {
         double backtestSec = (double)_comboCount * _threadSecPerBacktest / _backtestOuter;
+        double sliceSec = (double)_comboCount * _threadSecPerSliceBuild / _coarseOuter;
         double coarseSec = (double)_comboCount * _coarseIterations * _threadSecPerCoarseSim / _coarseOuter;
         double refineSec = (double)_refineTopN * _refineIterations * _threadSecPerRefineSim / _refineOuter;
         double nullSec = (double)_refineTopN * _refineIterations * _threadSecPerNullSim / _refineOuter;
-        double totalSec = backtestSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
+        double totalSec = backtestSec + sliceSec + coarseSec + refineSec + nullSec + DefaultSaveSec;
         return string.Format(
             CultureInfo.InvariantCulture,
-            "backtest={0:F1}s | coarse={1:F1}s | refine={2:F1}s | null={3:F1}s | save={4:F1}s | total={5:F1}s (W: bt={6} c={7} r={8})",
-            backtestSec, coarseSec, refineSec, nullSec, DefaultSaveSec, totalSec,
+            "backtest={0:F1}s | slices={1:F1}s | coarse={2:F1}s | refine={3:F1}s | null={4:F1}s | save={5:F1}s | total={6:F1}s (W: bt={7} c={8} r={9})",
+            backtestSec, sliceSec, coarseSec, refineSec, nullSec, DefaultSaveSec, totalSec,
             _backtestOuter, _coarseOuter, _refineOuter);
     }
 }

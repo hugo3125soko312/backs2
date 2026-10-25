@@ -302,6 +302,11 @@ public sealed class OptimizationRunner
 
         int targetSlices = ComputeTargetSlices(data, config.TradingPeriodDays);
 
+        // Built once, shared by every coarse version. The prefill is
+        // trade-independent, so rebuilding it per version wasted 1.09M ms of
+        // thread time on the 2026-10-25 4,032-combination run.
+        var sliceBaseline = TimeSliceBuilder.CreateBaseline(data);
+
         // ------------------------------------------------------------------
         // Phase 2 - coarse MC, outer-parallel with adaptive inner degree.
         // Coarse curves are never consumed, so retainCurves is false here.
@@ -338,9 +343,11 @@ public sealed class OptimizationRunner
             }
 
             long sliceStart = Stopwatch.GetTimestamp();
-            var slices = TimeSliceBuilder.Build(trades, data);
+            var slices = TimeSliceBuilder.Build(trades, data, sliceBaseline);
             StageCall(ref _callsSliceBuild);
-            Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - sliceStart);
+            long sliceEnd = Stopwatch.GetTimestamp();
+            Interlocked.Add(ref _stageSliceBuildTicks, sliceEnd - sliceStart);
+            eta.RecordSliceBuild(TicksToMs(sliceEnd - sliceStart));
 
             if (slices.Length == 0)
             {
@@ -465,9 +472,11 @@ public sealed class OptimizationRunner
             var trades = tradesByVersion[i] ?? Array.Empty<Trade>();
 
             long sliceStart = Stopwatch.GetTimestamp();
-            var slices = TimeSliceBuilder.Build(trades, data);
+            var slices = TimeSliceBuilder.Build(trades, data, sliceBaseline);
             StageCall(ref _callsSliceBuild);
-            Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - sliceStart);
+            long sliceEnd = Stopwatch.GetTimestamp();
+            Interlocked.Add(ref _stageSliceBuildTicks, sliceEnd - sliceStart);
+            eta.RecordSliceBuild(TicksToMs(sliceEnd - sliceStart));
 
             if (slices.Length == 0)
             {
@@ -510,7 +519,7 @@ public sealed class OptimizationRunner
                 Interlocked.Add(ref _stageNullGenerateTicks, Stopwatch.GetTimestamp() - nullStart);
 
                 long nullSliceStart = Stopwatch.GetTimestamp();
-                var nullSlices = TimeSliceBuilder.Build(nullTrades, data);
+                var nullSlices = TimeSliceBuilder.Build(nullTrades, data, sliceBaseline);
                 StageCall(ref _callsSliceBuild);
                 Interlocked.Add(ref _stageSliceBuildTicks, Stopwatch.GetTimestamp() - nullSliceStart);
 
