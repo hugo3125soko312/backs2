@@ -222,6 +222,14 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         // Any user navigation cancels background warming — their click wins.
         CancelPrewarmIfStarted();
 
+        // Tab switching flips IsVisible on stacked ContentControls; the view
+        // never leaves the visual tree, so Attached/DetachedFromVisualTree do
+        // not fire on a switch. The selected node is the only real signal that
+        // the Logs tab is on screen, and the Logs VM skips its O(2000-line)
+        // LogText rebuild while it is not.
+        if (_logsVm != null)
+            _logsVm.SetVisible(ReferenceEquals(value, _logsNode));
+
         if (value?.Factory is null) return;
 
         var owningRoot = FindOwningRoot(value);

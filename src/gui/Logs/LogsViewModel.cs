@@ -14,6 +14,24 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 {
     private const int MaxDisplayLines = 2000;
 
+    /// <summary>
+    /// Minimum spacing between two LogText rebuilds, ms. A rebuild joins up to
+    /// 2,000 lines and assigns the result to a TextBox, which re-lays-out the
+    /// whole document; doing that on every coalesced burst dropped the UI to
+    /// near-zero FPS during an optimizer run.
+    /// </summary>
+    private const int MinFlushIntervalMs = 250;
+
+    private long _lastFlushTicks;
+
+    /// <summary>
+    /// One-shot timer for the trailing flush. A line arriving inside the
+    /// throttle window is not dropped - it arms this so the queue is delivered
+    /// when the window closes. Without it the last lines of a burst sat
+    /// unflushed until the next log line happened to arrive.
+    /// </summary>
+    private System.Threading.Timer? _trailingFlush;
+
     private readonly object _gate = new();
     private readonly Queue<string> _lines = new(MaxDisplayLines + 16);
     private bool _flushScheduled;
@@ -77,6 +95,21 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         // SetVisible(true) does one catch-up flush.
         if (!_isVisible) return;
 
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        long interval = System.Diagnostics.Stopwatch.Frequency * MinFlushIntervalMs / 1000L;
+        if (now - _lastFlushTicks < interval)
+        {
+            // Inside the throttle window: arm a one-shot for the remainder
+            // instead of dropping this line's flush trigger.
+            long remainMs = (interval - (now - _lastFlushTicks)) * 1000L / System.Diagnostics.Stopwatch.Frequency;
+            if (remainMs < 1) remainMs = 1;
+
+            _trailingFlush?.Dispose();
+            _trailingFlush = new System.Threading.Timer(
+                _ => Dispatcher.UIThread.Post(Flush), null, remainMs, System.Threading.Timeout.Infinite);
+            return;
+        }
+
         lock (_gate)
         {
             if (_flushScheduled) return;
@@ -127,6 +160,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         lock (_gate)
         {
             _flushScheduled = false;
+            _lastFlushTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             if (_lines.Count == 0) { return; }
             snapshot = string.Join(Environment.NewLine, _lines);
         }
@@ -418,5 +452,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         LogManager.Logged -= OnLogged;
+        _trailingFlush?.Dispose();
+        _trailingFlush = null;
     }
 }
