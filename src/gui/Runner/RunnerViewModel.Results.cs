@@ -31,9 +31,23 @@ public partial class RunnerViewModel
     [ObservableProperty] private string _resultsStatus = "Not loaded.";
     [ObservableProperty] private int _resultsCap = 100;
 
+    /// <summary>
+    /// How many of the most recent batch files to deserialise. Each batch holds
+    /// ~500 versions, every one carrying a 1000-element terminal-balance array,
+    /// so loading all 92 batches meant parsing ~370 MB of JSON to display 100
+    /// rows. Newest-first by filename, which embeds the UTC timestamp.
+    /// </summary>
+    [ObservableProperty] private int _batchesToLoad = 10;
+
     partial void OnResultsSortKeyChanged(string value) => ApplyResultsSort();
 
     partial void OnResultsCapChanged(int value) => ApplyResultsSort();
+
+    partial void OnBatchesToLoadChanged(int value)
+    {
+        if (!IsResultsExpanded) return;
+        _ = RefreshResultsAsync();
+    }
 
     [RelayCommand]
     private async Task RefreshResultsAsync()
@@ -52,7 +66,10 @@ public partial class RunnerViewModel
         {
             loaded = await Task.Run(() =>
             {
-                var files = _optStore.ListBatchFiles();
+                var files = _optStore.ListBatchFiles()
+                    .OrderByDescending(f => f, StringComparer.Ordinal)
+                    .Take(Math.Max(1, BatchesToLoad))
+                    .ToList();
                 var rows = new List<OptimizationResultRow>();
 
                 foreach (var file in files)
