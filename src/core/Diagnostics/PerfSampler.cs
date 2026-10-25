@@ -125,7 +125,11 @@ public sealed class PerfSampler : IDisposable
 
             long cpu = _process.TotalProcessorTime.Ticks;
             double cpuSec = (cpu - _lastCpuTicks) / (double)TimeSpan.TicksPerSecond;
-            double cpuPct = Math.Clamp(cpuSec / dt * 100.0, 0.0, 100.0 * Environment.ProcessorCount);
+            // Normalised to 0-100 of TOTAL machine capacity, not per-core.
+            // Dividing by ProcessorCount is what makes the 85% threshold mean
+            // "85% of the machine"; without it a 20-core box reported up to
+            // 2000% and the breach fired at 4% real utilisation.
+            double cpuPct = Math.Clamp(cpuSec / dt / Environment.ProcessorCount * 100.0, 0.0, 100.0);
             _lastCpuTicks = cpu;
             _lastSampleTicks = now;
 

@@ -167,18 +167,27 @@
                            FontSize="{DynamicResource FontSizeStatus}"
                            Foreground="{DynamicResource TextSecondary}"
                            VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1"
-                           Text="{Binding PerfText}"
-                           FontSize="{DynamicResource FontSizeStatus}"
-                           Foreground="{DynamicResource TextDisabled}"
-                           IsVisible="{Binding !PerfBreached}"
-                           VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1"
-                           Text="{Binding PerfText}"
-                           FontSize="{DynamicResource FontSizeStatus}"
-                           Foreground="{DynamicResource SemanticDanger}"
-                           IsVisible="{Binding PerfBreached}"
-                           VerticalAlignment="Center"/>
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding PerfChips}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="14"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:PerfChip">
+                            <Panel>
+                                <TextBlock Text="{Binding Text}"
+                                           FontSize="{DynamicResource FontSizeStatus}"
+                                           Foreground="{DynamicResource TextDisabled}"
+                                           IsVisible="{Binding !Breached}"/>
+                                <TextBlock Text="{Binding Text}"
+                                           FontSize="{DynamicResource FontSizeStatus}"
+                                           Foreground="{DynamicResource SemanticDanger}"
+                                           IsVisible="{Binding Breached}"/>
+                            </Panel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </Grid>
         </Border>
 

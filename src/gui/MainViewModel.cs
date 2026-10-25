@@ -15,16 +15,21 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     [ObservableProperty]
     private string _statusText = "Ready";
 
-    [ObservableProperty]
-    private string _perfText = "";
 
-    [ObservableProperty]
-    private bool _perfBreached;
 
     [ObservableProperty]
     private NavigationNode? _selectedNode;
 
     public ObservableCollection<NavigationNode> NavigationNodes { get; } = new();
+
+    /// <summary>Status-bar performance chips, one per metric, coloured independently.</summary>
+    public ObservableCollection<PerfChip> PerfChips { get; } = new()
+    {
+        new PerfChip { Label = "FPS" },
+        new PerfChip { Label = "RAM" },
+        new PerfChip { Label = "CPU" },
+        new PerfChip { Label = "VRAM" }
+    };
 
     private readonly IServiceProvider _sp;
     private readonly DataManager _data;
@@ -140,13 +145,24 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
     private void OnPerfSampled(backs2.Core.Diagnostics.PerfSnapshot s)
     {
-        string fps = s.Fps.HasValue ? s.Fps.Value.ToString("F0") : "-";
-        string ram = s.AvailableRamMb.ToString("F0");
-        string cpu = s.CpuPercent.ToString("F0");
-        string vram = s.VramUsedMb.HasValue ? s.VramUsedMb.Value.ToString("F0") + "/" + s.VramBudgetMb!.Value.ToString("F0") : "-";
+        var b = _perfThresholds.Breaches(s);
 
-        PerfText = "FPS " + fps + "  RAM " + ram + "M  CPU " + cpu + "%  VRAM " + vram + "M";
-        PerfBreached = _perfThresholds.Breaches(s).Length > 0;
+        SetChip(0, s.Fps.HasValue ? s.Fps.Value.ToString("F0") : "-", b, "fps");
+        SetChip(1, s.AvailableRamMb.ToString("F0") + "M", b, "ram");
+        SetChip(2, s.CpuPercent.ToString("F0") + "%", b, "cpu");
+
+        string vram = s.VramUsedMb.HasValue && s.VramBudgetMb.HasValue
+            ? s.VramUsedMb.Value.ToString("F0") + "/" + s.VramBudgetMb.Value.ToString("F0") + "M"
+            : "-";
+        SetChip(3, vram, b, "vram");
+    }
+
+    private void SetChip(int index, string value, string[] breaches, string key)
+    {
+        if (index >= PerfChips.Count) return;
+        var chip = PerfChips[index];
+        chip.Value = value;
+        chip.Breached = Array.IndexOf(breaches, key) >= 0;
     }
 
     private void OnPerfBreach(backs2.Core.Diagnostics.PerfSnapshot s, System.Collections.Generic.IReadOnlyList<string> metrics)
