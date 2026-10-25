@@ -74,7 +74,9 @@ public sealed class SimulationKernelCpu : ISimulationKernel
 
             for (int k = 0; k < blockLen && produced < targetDurationSlices; k++, produced++)
             {
-                var s = slices[(start + k) % n];
+                int idx = start + k;
+                if (idx >= n) idx -= n;
+                var s = slices[idx];
 
                 if (s.IsEod)
                 {
