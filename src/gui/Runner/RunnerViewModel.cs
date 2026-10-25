@@ -221,9 +221,14 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
             }
         }
 
+        // Membership test against the wanted set is O(1); the per-item IndexOf
+        // below is bounded to the surviving items and only runs when the filter
+        // value actually changes, not on every collection notification.
+        var wantedSet = new HashSet<StrategyDescriptor>(wanted);
+
         for (int i = FilteredStrategies.Count - 1; i >= 0; i--)
         {
-            if (!wanted.Contains(FilteredStrategies[i]))
+            if (!wantedSet.Contains(FilteredStrategies[i]))
                 FilteredStrategies.RemoveAt(i);
         }
 
