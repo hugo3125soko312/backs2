@@ -16,6 +16,12 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private string _statusText = "Ready";
 
     [ObservableProperty]
+    private string _perfText = "";
+
+    [ObservableProperty]
+    private bool _perfBreached;
+
+    [ObservableProperty]
     private NavigationNode? _selectedNode;
 
     public ObservableCollection<NavigationNode> NavigationNodes { get; } = new();
@@ -24,6 +30,10 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private readonly DataManager _data;
     private readonly StrategyManager _strat;
     private readonly ConfigManager _cfg;
+    private readonly backs2.Core.Diagnostics.PerfSampler _perf;
+    private readonly backs2.Core.Diagnostics.VramProbe _vram = new();
+    private readonly backs2.Core.Diagnostics.PerfThresholds _perfThresholds = new();
+    private bool _perfStarted;
 
     private OverviewViewModel? _overviewVm;
     private RunnerViewModel? _runnerVm;
@@ -64,12 +74,15 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     private NavigationNode _logsNode           = null!;
     private NavigationNode _configNode         = null!;
 
-    public MainViewModel(IServiceProvider sp, ConfigManager cfg, DataManager dat, StrategyManager str)
+    public MainViewModel(IServiceProvider sp, ConfigManager cfg, DataManager dat, StrategyManager str, backs2.Core.Diagnostics.PerfSampler perf)
     {
         _sp = sp;
         _cfg = cfg;
         _data = dat;
         _strat = str;
+        _perf = perf;
+        _perf.Sampled += OnPerfSampled;
+        _perf.SustainedBreach += OnPerfBreach;
 
         BuildNavigationTree();
 
@@ -82,6 +95,66 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         StartPrewarm();
     }
 
+    /// <summary>
+    /// Starts the performance sampler and the frame counter. Called from
+    /// MainWindow.Opened - the window is realised there, so the compositor
+    /// exists and RequestAnimationFrame is safe. Starting this from
+    /// OnFrameworkInitializationCompleted crashed the process, which is why
+    /// it lives here and why every step is guarded.
+    /// </summary>
+    public void StartPerf(Avalonia.Controls.Window window)
+    {
+        if (_perfStarted) return;
+        _perfStarted = true;
+
+        try
+        {
+            _perf.DeviceProbe = () =>
+            {
+                var (used, budget) = _vram.Query();
+                return (used, budget, (double?)null);
+            };
+
+            _perf.Start();
+        }
+        catch (Exception ex)
+        {
+            LogManager.Warn(LogTag.App, "perf sampler failed to start: " + ex.Message);
+        }
+
+        try
+        {
+            Action<TimeSpan>? frame = null;
+            frame = _ =>
+            {
+                _perf.OnFrame();
+                window.RequestAnimationFrame(frame!);
+            };
+            window.RequestAnimationFrame(frame);
+        }
+        catch (Exception ex)
+        {
+            LogManager.Warn(LogTag.App, "perf frame loop failed: " + ex.Message);
+        }
+    }
+
+    private void OnPerfSampled(backs2.Core.Diagnostics.PerfSnapshot s)
+    {
+        string fps = s.Fps.HasValue ? s.Fps.Value.ToString("F0") : "-";
+        string ram = s.AvailableRamMb.ToString("F0");
+        string cpu = s.CpuPercent.ToString("F0");
+        string vram = s.VramUsedMb.HasValue ? s.VramUsedMb.Value.ToString("F0") + "/" + s.VramBudgetMb!.Value.ToString("F0") : "-";
+
+        PerfText = "FPS " + fps + "  RAM " + ram + "M  CPU " + cpu + "%  VRAM " + vram + "M";
+        PerfBreached = _perfThresholds.Breaches(s).Length > 0;
+    }
+
+    private void OnPerfBreach(backs2.Core.Diagnostics.PerfSnapshot s, System.Collections.Generic.IReadOnlyList<string> metrics)
+    {
+        LogManager.Warn(LogTag.App,
+            "[perf] sustained breach: " + string.Join(",", metrics) +
+            " during '" + StatusText + "'");
+    }
     private void BuildNavigationTree()
     {
         _overviewNode       = new NavigationNode { Header = "Overview",        Factory = () => OverviewVm };

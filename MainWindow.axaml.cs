@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using backs2.ViewModels;
 
 namespace backs2;
 
@@ -19,6 +20,20 @@ public partial class MainWindow : Window
     private void OnOpened(object? sender, EventArgs e)
     {
         ApplyFullScreen();
+
+        // Phase 36A: the perf sampler starts here rather than in
+        // OnFrameworkInitializationCompleted. Starting it before the window was
+        // realised crashed the process; at this point the compositor exists and
+        // RequestAnimationFrame has something to attach to.
+        if (DataContext is MainViewModel vm)
+        {
+            try { vm.StartPerf(this); }
+            catch (Exception ex)
+            {
+                backs2.Core.LogManager.Warn(backs2.Core.LogTag.App,
+                    "StartPerf threw from OnOpened: " + ex.Message);
+            }
+        }
     }
 
     /// <summary>

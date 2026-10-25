@@ -168,9 +168,16 @@
                            Foreground="{DynamicResource TextSecondary}"
                            VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="1"
-                           Text="backs2 · backtesting engine"
+                           Text="{Binding PerfText}"
                            FontSize="{DynamicResource FontSizeStatus}"
                            Foreground="{DynamicResource TextDisabled}"
+                           IsVisible="{Binding !PerfBreached}"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding PerfText}"
+                           FontSize="{DynamicResource FontSizeStatus}"
+                           Foreground="{DynamicResource SemanticDanger}"
+                           IsVisible="{Binding PerfBreached}"
                            VerticalAlignment="Center"/>
             </Grid>
         </Border>
