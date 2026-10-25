@@ -315,15 +315,29 @@ public sealed class OptimizationRunner
         long coarseStart = Stopwatch.GetTimestamp();
 
         int coarseDone = 0;
-        var coarseRequests = new MonteCarloDispatchRequest[comboCount];
         var coarseOptions = new ParallelOptions
         {
             MaxDegreeOfParallelism = coarseOuter,
             CancellationToken = ct
         };
 
-        Parallel.For(0, comboCount, coarseOptions, i =>
+        // Chunked so peak memory stays bounded. Holding every request live was
+        // comboCount slice arrays at once: 4,032 x 60,540 bars x 40 bytes =
+        // 9.7 GB, which OOM'd the 2026-10-25 run. Each version is still
+        // dispatched independently, so results are identical to the unchunked
+        // path.
+        const int coarseChunk = 64;
+        long mcBatchStart = Stopwatch.GetTimestamp();
+
+        for (int chunkStart = 0; chunkStart < comboCount; chunkStart += coarseChunk)
         {
+            int chunkEnd = Math.Min(chunkStart + coarseChunk, comboCount);
+            int chunkCount = chunkEnd - chunkStart;
+            var coarseRequests = new MonteCarloDispatchRequest?[chunkCount];
+
+            Parallel.For(0, chunkCount, coarseOptions, k =>
+            {
+            int i = chunkStart + k;
             ct.ThrowIfCancellationRequested();
 
             long versionStart = Stopwatch.GetTimestamp();
@@ -360,7 +374,7 @@ public sealed class OptimizationRunner
                 return;
             }
 
-            coarseRequests[i] = _mc.CreateRequest(
+            coarseRequests[k] = _mc.CreateRequest(
                 slices,
                 targetSlices,
                 config.StartingCapital,
@@ -385,13 +399,11 @@ public sealed class OptimizationRunner
             Interlocked.Add(ref _stageCoarseVersionTicks, Stopwatch.GetTimestamp() - versionStart);
         });
 
-        // One batched dispatch for every version that produced slices. The
-        // GPU path amortizes its fixed cost across the whole pass instead of
-        // paying it once per version (ROADMAP Phase 29B.1).
-        long mcBatchStart = Stopwatch.GetTimestamp();
+        // One batched dispatch per chunk. The GPU path amortizes its fixed cost
+        // across a chunk instead of paying it once per version (Phase 29B.1).
         var pending = new List<(int Index, MonteCarloDispatchRequest Request)>();
-        for (int i = 0; i < comboCount; i++)
-            if (coarseRequests[i] != null) pending.Add((i, coarseRequests[i]));
+        for (int k = 0; k < chunkCount; k++)
+            if (coarseRequests[k] != null) pending.Add((chunkStart + k, coarseRequests[k]!));
 
         if (pending.Count > 0)
         {
@@ -412,6 +424,7 @@ public sealed class OptimizationRunner
                     RepresentativeCurve = Array.Empty<double>(),
                     CurvesRetained = false
                 };
+            }
             }
         }
 
