@@ -135,7 +135,21 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
             frame = _ =>
             {
                 _perf.OnFrame();
-                window.RequestAnimationFrame(frame!);
+
+                if (window.IsActive)
+                {
+                    window.RequestAnimationFrame(frame!);
+                }
+                else
+                {
+                    // Cap at ~10 FPS when unfocused. Re-requesting
+                    // unconditionally forced the compositor to render
+                    // continuously for a window nobody was looking at, which is
+                    // both wasted GPU time and a distorted FPS reading.
+                    Avalonia.Threading.DispatcherTimer.RunOnce(
+                        () => window.RequestAnimationFrame(frame!),
+                        TimeSpan.FromMilliseconds(100));
+                }
             };
             window.RequestAnimationFrame(frame);
         }

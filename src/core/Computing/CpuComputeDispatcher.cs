@@ -297,10 +297,13 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         // claimed by one worker is exactly the sequential loop.
         int workerCount = chunkCount == 1 ? 1 : Math.Min(dop, chunkCount);
 
-        LogManager.Debug(LogTag.MonteCarlo,
+        // Deduped on a seed-free key: the optimizer issues one dispatch per
+        // version, so this fired 4,032 times per run carrying only the seed as
+        // a difference, which defeated LogOnce's exact-text match and flooded
+        // the Logs tab.
+        LogManager.LogOnce.DebugMsg(LogTag.MonteCarlo,
             $"compute: schedule MonteCarlo {iterations} iteration(s) as {chunkCount} chunk(s) " +
             $"of <= {chunkSize}, {workerCount} worker(s), backend={_backend.Name}" +
-            $"{(seed.HasValue ? $" (seed={seed.Value})" : " (unseeded, Random.Shared)")}" +
             (retainCurves ? " retaining curves" : ""));
 
         return await RunChunkedAsync(

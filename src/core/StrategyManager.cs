@@ -409,12 +409,12 @@ public class StrategyManager
         if (hit)
         {
             Interlocked.Increment(ref _stageCacheHits);
-            LogManager.Debug(LogTag.Strategy, $"compile cache hit: {System.IO.Path.GetFileName(path)}");
+            LogManager.LogOnce.DebugMsg(LogTag.Strategy, $"compile cache hit: {System.IO.Path.GetFileName(path)}");
             return existing!.Runner;
         }
 
         Interlocked.Increment(ref _stageCacheMisses);
-        LogManager.Debug(LogTag.Strategy, $"compile cache miss: {System.IO.Path.GetFileName(path)}");
+        LogManager.LogOnce.DebugMsg(LogTag.Strategy, $"compile cache miss: {System.IO.Path.GetFileName(path)}");
 
         var gate = _compileGates.GetOrAdd(path, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);

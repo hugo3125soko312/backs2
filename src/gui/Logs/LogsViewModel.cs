@@ -12,7 +12,11 @@ namespace backs2.ViewModels;
 
 public partial class LogsViewModel : ObservableObject, IDisposable
 {
-    private const int MaxDisplayLines = 2000;
+    // 500, not 2000. Each flush joins the whole buffer and rebinds a TextBox,
+    // which re-lays-out the document; at 2,000 lines that rebind measured
+    // ~250 ms and held the UI at 3-4 FPS during an optimizer run. The file on
+    // disk is the full record - this buffer only needs enough to watch live.
+    private const int MaxDisplayLines = 500;
 
     /// <summary>
     /// Minimum spacing between two LogText rebuilds, ms. A rebuild joins up to
