@@ -69,6 +69,14 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     private IComputeBackend _backend;
 
     /// <summary>
+    /// When set, <see cref="ResolveBackend"/> returns the CPU backend regardless of
+    /// configuration. Set for the duration of a batch fallback so the per-item
+    /// dispatch calls inside it cannot each re-resolve to the device and turn one
+    /// batched pass into N tiny GPU dispatches.
+    /// </summary>
+    private bool _pinCpu;
+
+    /// <summary>
     /// Tri-state answer to "is <see cref="_gpu"/> accelerated": 1 yes, 0 no, -1
     /// not asked yet. The constructor skips the question entirely in
     /// <c>Cpu</c> mode, so the first non-CPU dispatch is what asks it — and the
@@ -177,6 +185,8 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// </summary>
     private IComputeBackend ResolveBackend()
     {
+        if (_pinCpu) return _cpu;
+
         bool accelerated = IsGpuAccelerated();
         string configured = ConfiguredBackend();
 
@@ -601,10 +611,21 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         // GPU batch path: one device dispatch for the whole pass. It is only
         // usable when every version shares the same simulation parameters (the
         // optimizer coarse pass always does) and no curves are retained.
+        //
+        // When the batch is declined because the total work is below the device
+        // crossover, the fallback loop below must NOT let each item re-resolve
+        // to the GPU: that produced exactly the per-version tiny dispatch the
+        // threshold exists to avoid (500 x 100-iteration GPU dispatches on the
+        // 2026-10-25 coarse-pass run). Pin the CPU backend for the duration of
+        // the fallback instead.
+        bool pinnedByFallback = false;
         if (_backend is GpuBackend gpu)
         {
             var gpuResult = TryGpuBatch(gpu, requests, ct);
             if (gpuResult != null) return gpuResult;
+            _pinCpu = true;
+            _backend = _cpu;
+            pinnedByFallback = true;
         }
 
         // Longest-first ordering so the tail is short. Each version carries a
@@ -656,6 +677,12 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         {
             // Completed items keep their result; the rest stay null and are
             // normalized to Empty below, so the array length never shifts.
+        }
+        finally
+        {
+            // The pin is scoped to this fallback only; leaving it set would
+            // silently force CPU for every later dispatch in the process.
+            if (pinnedByFallback) _pinCpu = false;
         }
 
         for (int i = 0; i < count; i++)
