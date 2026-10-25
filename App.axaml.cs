@@ -96,31 +96,10 @@ public partial class App : Application
             // Phase 36A: start the performance sampler and wire the frame
             // counter. The sampler runs at 1 Hz; OnFrame is a single increment
             // and is safe to call per rendered frame.
-            try
-            {
-                var perf = Services!.GetRequiredService<PerfSampler>();
-                perf.Sampled += s => LogManager.Debug(LogTag.App,
-                    $"[perf] fps={(s.Fps.HasValue ? s.Fps.Value.ToString("F1") : "n/a")} ram={s.AvailableRamMb:F0}MB ws={s.WorkingSetMb:F0}MB cpu={s.CpuPercent:F1}%");
-                perf.Start();
-
-                if (desktop.MainWindow is { } win)
-                {
-                    // RequestAnimationFrame is one-shot: the callback must
-                    // re-request to keep counting. Without this the sampler
-                    // sees exactly one frame and then reads zero forever.
-                    Action<TimeSpan>? frame = null;
-                    frame = _ =>
-                    {
-                        perf.OnFrame();
-                        win.RequestAnimationFrame(frame!);
-                    };
-                    win.RequestAnimationFrame(frame);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.Warn(LogTag.App, "perf sampler failed to start: " + ex.Message);
-            }
+            // Phase 36A sampler startup is disabled pending a crash fix.
+            // The sampler, thresholds and snapshot types remain in the tree
+            // and are exercised by --perf-verify; only the in-app startup is
+            // gated off.
         }
 
         LogManager.Info(LogTag.App, $"[startup] OnFrameworkInitializationCompleted total {appSw.ElapsedMilliseconds}ms");
