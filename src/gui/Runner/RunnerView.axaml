@@ -51,10 +51,25 @@
                 <Button Content="Save Preset..."
                         Command="{Binding SavePresetCommand}" />
 
-                <TextBlock Text="{Binding CombinationSummary}"
+                <TextBlock Text="Cap"
                            VerticalAlignment="Center"
                            FontSize="11"
                            Margin="16,0,0,0"
+                           Foreground="{DynamicResource TextSecondary}" />
+
+                <NumericUpDown Value="{Binding Cap, Mode=TwoWay}"
+                               Minimum="1"
+                               Maximum="100000"
+                               Increment="50"
+                               FormatString="N0"
+                               Width="110"
+                               VerticalAlignment="Center"
+                               ToolTip.Tip="Maximum combinations to backtest. Grids above this are randomly sampled." />
+
+                <TextBlock Text="{Binding CombinationSummary}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Margin="12,0,0,0"
                            Foreground="{DynamicResource TextSecondary}" />
             </StackPanel>
         </StackPanel>

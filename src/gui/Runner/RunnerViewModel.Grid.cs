@@ -103,7 +103,25 @@ public partial class RunnerViewModel
         }
     }
 
-    private int Cap => _config.Settings.OptimizerMaxCombinations > 0
-        ? _config.Settings.OptimizerMaxCombinations
-        : 500;
+    /// <summary>
+    /// Grid sampling cap. Editable from the toolbar and persisted to
+    /// AppSettings.OptimizerMaxCombinations, so the 500 default is a starting
+    /// point rather than a hard ceiling.
+    /// </summary>
+    public int Cap
+    {
+        get => _config.Settings.OptimizerMaxCombinations > 0
+            ? _config.Settings.OptimizerMaxCombinations
+            : 500;
+        set
+        {
+            int clamped = Math.Max(1, value);
+            if (clamped == Cap) return;
+
+            _config.Settings.OptimizerMaxCombinations = clamped;
+            _config.SaveConfig();
+            OnPropertyChanged(nameof(Cap));
+            RecomputeCombinations();
+        }
+    }
 }

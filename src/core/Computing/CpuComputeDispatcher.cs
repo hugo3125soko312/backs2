@@ -57,6 +57,15 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// </summary>
     private const long GpuBatchMinIterations = 400_000L;
 
+    /// <summary>
+    /// Iterations below which a SINGLE (non-batched) dispatch is not sent to the
+    /// device in Auto mode. The fixed per-dispatch cost (slice mirror, upload,
+    /// readback, nine output buffers) is roughly 10 ms; below a few tens of
+    /// thousands of iterations the CPU finishes first. The batched path amortizes
+    /// that cost across versions and therefore has a lower crossover.
+    /// </summary>
+    private const long GpuSingleMinIterations = 50_000L;
+
     private readonly ConfigManager? _config;
     private readonly IComputeBackend _cpu;
     private readonly IComputeBackend _gpu;
@@ -183,6 +192,10 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     ///   otherwise, silently. This is the pre-29B.2 behavior.</description></item>
     /// </list>
     /// </summary>
+    /// <summary>True when the configured mode is Auto (no explicit device choice).</summary>
+    private bool IsAutoBackend() =>
+        string.Equals(ConfiguredBackend(), "Auto", StringComparison.Ordinal);
+
     private IComputeBackend ResolveBackend()
     {
         if (_pinCpu) return _cpu;
@@ -255,6 +268,16 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
         // One resolution per dispatch, never per chunk: a toggle flipped while a
         // run is in flight must not split one batch across two backends.
         _backend = ResolveBackend();
+
+        // Auto mode is workload-aware: a device that exists is not automatically
+        // a device that helps. An explicit Cpu/Gpu setting is never overridden.
+        if (_backend is GpuBackend && IsAutoBackend() && iterations < GpuSingleMinIterations)
+        {
+            LogManager.LogOnce.DebugMsg(LogTag.MonteCarlo,
+                "compute: Auto kept this " + iterations + "-iteration dispatch on the CPU " +
+                "(below the " + GpuSingleMinIterations + "-iteration device threshold)");
+            _backend = _cpu;
+        }
 
         int chunkSize = McChunkSize;
         int chunkCount = (iterations + chunkSize - 1) / chunkSize;
