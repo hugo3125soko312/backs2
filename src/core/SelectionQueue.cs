@@ -18,6 +18,7 @@ public sealed class SelectionQueue
 {
     private readonly ConfigManager _cfg;
     private readonly object _gate = new();
+    private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<QueuedDataset> Items { get; } = new();
 
@@ -33,9 +34,7 @@ public sealed class SelectionQueue
     {
         lock (_gate)
         {
-            return Items.Any(i =>
-                string.Equals(i.Symbol, symbol, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(i.Timeframe, timeframe, StringComparison.OrdinalIgnoreCase));
+            return _keys.Contains(KeyOf(symbol, timeframe));
         }
     }
 
@@ -49,6 +48,7 @@ public sealed class SelectionQueue
             if (Contains(symbol, timeframe)) return;
 
             Items.Add(new QueuedDataset(symbol, timeframe, provider ?? "Unknown"));
+            _keys.Add(KeyOf(symbol, timeframe));
         }
 
         Persist();
@@ -67,6 +67,7 @@ public sealed class SelectionQueue
 
             if (match == null) return;
             Items.Remove(match);
+            _keys.Remove(KeyOf(symbol, timeframe));
         }
 
         Persist();
@@ -80,6 +81,7 @@ public sealed class SelectionQueue
         {
             if (Items.Count == 0) return;
             Items.Clear();
+            _keys.Clear();
         }
 
         Persist();
@@ -102,11 +104,14 @@ public sealed class SelectionQueue
             var symbol = entry.Substring(0, at);
             var timeframe = entry.Substring(at + 1);
             Items.Add(new QueuedDataset(symbol, timeframe, "Unknown"));
+            _keys.Add(KeyOf(symbol, timeframe));
         }
 
         if (Items.Count > 0)
             LogManager.Info(LogTag.Data, $"restored {Items.Count} queued dataset(s) from settings");
     }
+
+    private static string KeyOf(string symbol, string timeframe) => symbol + "@" + timeframe;
 
     private void Persist()
     {
