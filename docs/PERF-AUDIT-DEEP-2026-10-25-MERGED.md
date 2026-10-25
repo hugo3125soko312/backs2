@@ -465,3 +465,29 @@ Violated knowingly:
 - `logs/runtime-20261025-191834.log` - the only confirmed 4,032-version
   baseline in the tree.
 - The entire `src/` tree, read line-by-line in this session.
+
+---
+
+## 15. Apply-time addendum - 2026-10-25
+
+All C/H/M findings below were applied and verified in the same session, after the exec-bridge v2.5.8 fix cleared the `&` wrapper bug (see `docs/exec-bridge-build-blocker-2026-10-25.md` section 10).
+
+### Applied and committed
+
+- **C-01** (6d1148b): `EasternTime.ToEastern(long)` single `DateTimeOffset` conversion. Verified with `--et-verify`: 500,000 random probes vs `TimeZoneInfo.ConvertTimeFromUtc`, 0 mismatches.
+- **C-02** (5f77b90): `SelectionQueue` parallel `_keys HashSet`, O(1) `Contains`. Written under the same `_gate` lock as `Items`, so the two collections cannot diverge.
+- **H-03** (39e5292): `SimulationKernelCpu` inner-loop `% n` replaced with conditional subtract. Verified with `--batch-verify`: 24 heterogeneous versions x 9 arrays, 0 mismatches.
+- **C-03** (8135ef0): `CacheManager.PruneMetadataCache()` called from `DataManager.GetAvailableDataAsync` and `ProvidersViewModel.RefreshAsync`. Bounds the memo to one entry per live cache file.
+- **M-02** (this commit): `RunnerViewModel.ApplyFilter` prebuilds a `HashSet<StrategyDescriptor>` for the reconciliation loop; O(n) `wanted.Contains` becomes O(1).
+
+### Retracted after inspection
+
+- **H-01** `ComputeWorkerManager` `.Result` - the grep was matching `envelope.Result`, a record property on `WorkerEnvelope`, not `Task.Result`. No blocking call. **Retracted.**
+- **H-02** `GpuBackend` `.Result` - the grep was matching the type name `MonteCarloDispatchResult`. No `.Result` call exists in the file. **Retracted.**
+
+### Deferred
+
+- **M-01** (trailing drawdown dead branch): needs author review before merging the two `if` arms.
+- **M-03** (`WorkerIpc` byte[] per frame): wait for MC worker migration.
+- **M-04..M-07** and all **L-*** findings: no measurable gain expected; benchmark before touching.
+- **Section 5 infrastructure** (`Directory.Build.props` + `.editorconfig`): deferred. The audit itself notes it does not make the project faster, only surfaces CA warnings. Not part of this apply pass.
