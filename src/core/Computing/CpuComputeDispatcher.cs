@@ -49,7 +49,6 @@ public sealed class CpuComputeDispatcher : IComputeDispatcher
     /// </summary>
     private const int McChunkSize = 10_000;
     private long _batchLogCount;
-    private long _batchLogCount;
 
     /// <summary>
     /// Total iterations below which a Monte Carlo batch is not sent to the device.
