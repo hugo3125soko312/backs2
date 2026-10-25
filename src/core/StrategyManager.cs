@@ -96,6 +96,7 @@ public class StrategyManager
 
     private long _stageVersions;
     private long _stageCacheHits;
+    private long _executedCount;
     private long _stageCacheMisses;
 
     private long _stageCompileTicks;
@@ -311,7 +312,13 @@ public class StrategyManager
             AddTicks(ref _stageInvokeCallTicks, callEnd, callStart);
             AddTicks(ref _stageInvokeTicks, callEnd, invokeStart);
 
-            LogManager.Info(LogTag.Strategy, $"executed {System.IO.Path.GetFileName(path)}");
+            // One Info per 250 executions rather than one per execution: the
+            // optimizer runs thousands of versions and this line was 97% of a
+            // full run's log. Exact totals still come from the [29A] block.
+            long execCount = System.Threading.Interlocked.Increment(ref _executedCount);
+            if (execCount % 250 == 0)
+                LogManager.Info(LogTag.Strategy,
+                    $"executed {execCount} run(s) of {System.IO.Path.GetFileName(path)}");
 
             return new StrategyRunResult
             {
