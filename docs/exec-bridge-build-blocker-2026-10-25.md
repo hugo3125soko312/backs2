@@ -373,3 +373,100 @@ back to green with no loss.
   (constrained language mode) are directly relevant.
 - `logs/runtime-20261025-191834.log` - the last successful Optimize
   run. Used as the audit's baseline.
+## 10. ADDENDUM - 2026-10-25 evening, corrected diagnosis
+
+This addendum corrects parts of sections 0-9 above. Read it alongside
+the original. The original diagnosis was partly wrong. Here is what
+actually happened.
+
+### 10.1 The "Access is denied" error text was a red herring
+
+Every `Program 'dotnet.exe' failed to run: Access is denied` message
+in this session was **not** a machine-level spawn denial. It was a
+bridge `&` handler bug. The bridge's `&` code path sets
+`StandardOutputEncoding` on the child process without an explicit
+output redirect. Windows rejects that combination with an error whose
+message begins `StandardOutputEncoding is only supported when
+standard output is redirected`. The bridge's error renderer dropped
+that portion and reported the outer `.NET` wrapper as `Access is
+denied`, mislabelling a bridge bug as a permission denial.
+
+**Evidence**: T1 in this session ran
+`Start-Process -FilePath 'C:\Program Files\dotnet\dotnet.exe' -ArgumentList '--version'`
+and returned `10.0.401` cleanly. T4 ran the equivalent
+`& 'C:\Program Files\dotnet\dotnet.exe' --version` and returned
+`Program 'dotnet.exe' failed to run: StandardOutputEncoding is only
+supported when standard output is redirected`. Same binary, same
+arguments, same user, same session, one second apart. The difference
+is the invocation shape, not the environment.
+
+### 10.2 The workaround: use `Start-Process`, not `&`
+
+`Start-Process` with explicit `-RedirectStandardOutput` and
+`-RedirectStandardError` to *different* files works. Every build
+attempt in sections 1-9 that reported `Access is denied` at the
+`& dotnet ...` line was hit by the wrapper bug, not by a real denial.
+
+Corrected build invocation for the bridge team:
+
+```
+$out = Join-Path $pwd '.tmp\build.out'
+$err = Join-Path $pwd '.tmp\build.err'
+Start-Process -FilePath 'C:\Program Files\dotnet\dotnet.exe' `
+  -ArgumentList 'build','--no-incremental' `
+  -NoNewWindow -Wait `
+  -RedirectStandardOutput $out -RedirectStandardError $err
+```
+
+Two files required — `-RedirectStandardOutput` and
+`-RedirectStandardError` must not be the same path. The bridge's `&`
+handler evidently sets encoding without redirect, so the standard
+`command | cmdlet` form fails. This is a **bridge bug**, not a
+machine bug, and it should be fixed in the exec-bridge.
+
+### 10.3 A *real* build failure exists beyond the wrapper bug
+
+Once the wrapper bug was bypassed, four separate failures surfaced,
+each at a distinct stage:
+
+- **MSB1025** (`%TEMP%\MSBuildTemp*.wmc` denied) - MSBuild scratch dir
+  unwritable. Only occurs when `$env:TEMP` points at the broken user
+  Temp. Redirecting to `.tmp` (repo-local) fixes it. **Mitigation
+  works**: T6/T7/T8 all got past MSB1025.
+- **Avalonia telemetry** (`AvaloniaStatsTask.WriteTelemetry` denied) -
+  T5 surfaced this. Fixed by setting `$env:AVALONIA_TELEMETRY_OPTOUT=1`
+  before `Start-Process`. **Mitigation works**: T6/T7 got past it.
+- **Roslyn csc** (`Microsoft.CSharp.Core.targets(97,5): error
+  MSB3883: ... Access is denied`) - **this is the hard one**. T6, T7,
+  T8 all fail at this stage. Not affected by:
+  - `TEMP` redirect (T6/T7/T8 all had TEMP redirected).
+  - `AVALONIA_TELEMETRY_OPTOUT` (T6/T7/T8 all had it set).
+  - `-p:UseSharedCompilation=false` (T7 confirms).
+  - `obj/` and `bin/` writeability (both probed OK in T7 preamble).
+  - Verbose `-v:d` log (T8 shows the error but not the denied file).
+- **Spawn denial via `&`** - bridge wrapper bug, see 10.1.
+
+The Roslyn stage failure is the only one that remains. It is a
+machine or security-product problem, not a bridge problem, and it is
+what the exec-bridge team needs to focus on.
+
+### 10.4 What the bridge team should do
+
+1. **Fix the `&` handler.** Do not set `StandardOutputEncoding` without
+   an explicit redirect. When a child fails, propagate the underlying
+   error text, not `Access is denied`. The 40+ misdiagnosed attempts
+   in this session were wasted time.
+2. **Adopt `Start-Process -RedirectStandardOutput <a>
+   -RedirectStandardError <b>`** as the canonical spawn shape for
+   external processes, with `<a> != <b>`. Bundle this in the bridge's
+   `RunExternal` helper.
+3. **Set `AVALONIA_TELEMETRY_OPTOUT=1` in the child env** for any
+   `dotnet build` invocation. There is no reason for build telemetry
+   to be a source of failure.
+4. **Set `$env:TEMP`/`$env:TMP` to a bridge-owned directory** (see
+   original R4) so MSBuild scratch never lands in a broken user Temp.
+
+The Roslyn `MSB3883 Access is denied` remains a real machine problem
+for the user to diagnose (safe-mode build, `Get-MpThreatDetection`,
+`icacls $env:TEMP`, non-Microsoft process enumeration). But unlike
+what sections 1-9 claimed, it is **the only** real problem.
