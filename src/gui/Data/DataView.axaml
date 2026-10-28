@@ -76,15 +76,7 @@
                 <TextBlock Text="{Binding CompileSourceLabel}" VerticalAlignment="Center" FontSize="12" />
             </Border>
             <TextBlock Text="Timeframe:" VerticalAlignment="Center" FontWeight="SemiBold" />
-            <ComboBox Width="90" SelectedItem="{Binding CompileTimeframe, Mode=TwoWay}">
-                <ComboBoxItem Content="1m" />
-                <ComboBoxItem Content="5m" />
-                <ComboBoxItem Content="15m" />
-                <ComboBoxItem Content="30m" />
-                <ComboBoxItem Content="1h" />
-                <ComboBoxItem Content="4h" />
-                <ComboBoxItem Content="1D" />
-            </ComboBox>
+            <ComboBox Width="90" ItemsSource="{Binding CompileTimeframeOptions}" SelectedItem="{Binding CompileTimeframe, Mode=TwoWay}" />
             <Button Content="Compile" Command="{Binding CompileCommand}" IsEnabled="{Binding !IsCompiling}" />
             <Button Content="Compile &amp; Queue" Command="{Binding CompileAndQueueCommand}" IsEnabled="{Binding !IsCompiling}" />
             <ProgressBar Width="160" Minimum="0" Maximum="100" Value="{Binding CompileProgress}"
@@ -123,7 +115,7 @@
                 <DataGridTemplateColumn Header="Symbol" Width="2*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Symbol">
                                 <TextBlock Text="{Binding DataContext.SymbolSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Symbol {0}'}" />
@@ -149,7 +141,7 @@
                 <DataGridTemplateColumn Header="Timeframe" Width="1*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Timeframe">
                                 <TextBlock Text="{Binding DataContext.TimeframeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Timeframe {0}'}" />
@@ -168,7 +160,7 @@
                 <DataGridTemplateColumn Header="Tier" Width="1.2*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Tier">
                                 <TextBlock Text="{Binding DataContext.TierSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Tier {0}'}" />
@@ -187,7 +179,7 @@
                 <DataGridTemplateColumn Header="Provider" Width="1.2*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Provider">
                                 <TextBlock Text="{Binding DataContext.ProviderSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Provider {0}'}" />
@@ -206,7 +198,7 @@
                 <DataGridTemplateColumn Header="Has Vol" Width="70">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="HasVolume">
                                 <TextBlock Text="{Binding DataContext.HasVolumeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Vol {0}'}" />
@@ -226,7 +218,7 @@
                 <DataGridTemplateColumn Header="Size" Width="1*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="SizeBytes">
                                 <TextBlock Text="{Binding DataContext.SizeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Size {0}'}" />
@@ -245,7 +237,7 @@
                 <DataGridTemplateColumn Header="Modified" Width="1.5*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="LastModifiedLocal">
                                 <TextBlock Text="{Binding DataContext.ModifiedSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Modified {0}'}" />
@@ -264,7 +256,7 @@
                 <DataGridTemplateColumn Header="Total Range" Width="1.5*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="RangeTicks">
                                 <TextBlock Text="{Binding DataContext.RangeSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Total Range {0}'}" />
@@ -282,7 +274,7 @@
                 <DataGridTemplateColumn Header="Path" Width="3*">
                     <DataGridTemplateColumn.HeaderTemplate>
                         <DataTemplate>
-                            <Button Background="Transparent" BorderThickness="0" Padding="0"
+                            <Button Background="Transparent" BorderThickness="0" Padding="0,0,14,0"
                                     Command="{Binding DataContext.SortByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="Path">
                                 <TextBlock Text="{Binding DataContext.PathSortGlyph, RelativeSource={RelativeSource AncestorType=UserControl}, StringFormat='Path {0}'}" />

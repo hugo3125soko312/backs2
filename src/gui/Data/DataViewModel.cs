@@ -17,6 +17,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     private const string AutoProvider = "Auto";
 
     private readonly DataManager _dataManager;
+    private readonly CacheManager _cacheManager;
     private readonly SelectionQueue _queue;
     private readonly backs2.Core.Data.ITickCompiler _tickCompiler;
     private readonly List<DataRowViewModel> _all = new();
@@ -69,6 +70,8 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
             : "select a tick CSV row";
 
     [ObservableProperty] private string _compileTimeframe = "1h";
+
+    public string[] CompileTimeframeOptions { get; } = new[] { "1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W" };
     [ObservableProperty] private double _compileProgress;
     [ObservableProperty] private bool _isCompiling;
     private string? _pendingOverwrite;
@@ -101,10 +104,20 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
         var symbolPrefix = stem.Split('_')[0];
         var cachePath = "data/cache/" + symbolPrefix + "_" + CompileTimeframe + ".json";
         var overwriteKey = symbolPrefix + "@" + CompileTimeframe;
-        if (System.IO.File.Exists(cachePath) && _pendingOverwrite != overwriteKey)
+        bool isExistingCompile = false;
+        if (System.IO.File.Exists(cachePath))
+        {
+            try
+            {
+                var existingSrc = _cacheManager.ReadSourceFromCacheFile(cachePath);
+                isExistingCompile = string.Equals(existingSrc, "MT5 Parsed", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { }
+        }
+        if (isExistingCompile && _pendingOverwrite != overwriteKey)
         {
             _pendingOverwrite = overwriteKey;
-            CompileStatus = "WARNING: " + overwriteKey + " already exists. Click Compile again to overwrite, or change the Timeframe.";
+            CompileStatus = "WARNING: an MT5-compiled " + overwriteKey + " already exists. Click Compile again to overwrite.";
             return;
         }
         _pendingOverwrite = null;
@@ -162,7 +175,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
 public string RangeSortGlyph => GlyphFor("RangeTicks");
 
-    public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config, backs2.Core.Data.ITickCompiler tickCompiler)
+    public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config, backs2.Core.Data.ITickCompiler tickCompiler, CacheManager cacheManager)
     {
         _dataManager = dataManager;
         _queue = queue;
@@ -182,6 +195,7 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
         // RefreshDataAsync.
         _ = RefreshData();
         _tickCompiler = tickCompiler;
+        _cacheManager = cacheManager;
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)
