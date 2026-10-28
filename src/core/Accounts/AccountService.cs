@@ -54,9 +54,24 @@ public sealed class AccountService
         _cfg = cfg;
 
         Directory.CreateDirectory(AccountsFolder);
-        Refresh();
-        TryLoadActiveFromSettings();
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                Refresh();
+                TryLoadActiveFromSettings();
+                IsInitialized = true;
+                Initialized?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error(LogTag.Account, "account async init failed", ex);
+            }
+        });
     }
+
+    public event EventHandler? Initialized;
+    public bool IsInitialized { get; private set; }
 
     public IReadOnlyList<AccountDescriptor> Descriptors
     {

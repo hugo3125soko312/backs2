@@ -28,10 +28,23 @@ public partial class AccountViewModel : ObservableObject
     {
         _service = service;
 
-        RefreshList();
-        UpdateActiveBanner();
+        if (_service.IsInitialized)
+        {
+            RefreshList();
+            UpdateActiveBanner();
+        }
+        else
+        {
+            _service.Initialized += OnServiceInitialized;
+        }
 
         _service.ActiveChanged += OnActiveChanged;
+    }
+
+    private void OnServiceInitialized(object? sender, EventArgs e)
+    {
+        _service.Initialized -= OnServiceInitialized;
+        Dispatcher.UIThread.Post(() => { RefreshList(); UpdateActiveBanner(); });
     }
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
