@@ -17,6 +17,7 @@ using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using backs2.Core.Providers;
 using backs2.Core.Metrics;
 
@@ -51,17 +52,23 @@ public partial class App : Application
 
         ThemeApplier.Apply(cfg.Settings);
 
-        var mt5Sw = Stopwatch.StartNew();
-        try
-        {
-            var mt5Server = Services.GetRequiredService<Mt5TickServer>();
-            mt5Server.Start();
-            LogManager.Info(LogTag.App, $"[startup] MT5 server started in {mt5Sw.ElapsedMilliseconds}ms");
-        }
-        catch (Exception ex)
-        {
-            LogManager.Error(LogTag.App, "Failed to start MT5 tick server", ex);
-        }
+        // Phase 39: MT5 server start moved off the critical path.
+            // The TcpListener bind is not needed for first render and the UI
+            // does not read Mt5TickServer until the MT5 Ticks tab is opened.
+            _ = Task.Run(() =>
+            {
+                var mt5SwInner = Stopwatch.StartNew();
+                try
+                {
+                    var mt5Server = Services.GetRequiredService<Mt5TickServer>();
+                    mt5Server.Start();
+                    LogManager.Info(LogTag.App, $"[startup] MT5 server started in {mt5SwInner.ElapsedMilliseconds}ms (async, post-critical-path)");
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Error(LogTag.App, "Failed to start MT5 tick server", ex);
+                }
+            });
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

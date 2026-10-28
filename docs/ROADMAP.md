@@ -942,17 +942,17 @@ Known issue carried from Pending Testing #8 (2026-10-28): the Timeframe column h
 
 ---
 
-## Phase 39: Startup Latency [PLANNED]
+## Phase 39: Startup Latency [COMPLETED 2026-10-28 - workflow answer]
 
 Reduce the wall time between `dotnet run` returning control and the app window first rendering.
 
-Current state (measured 2026-10-28): Program.Main -> LogManager.Initialize 41ms, DI 22ms, ConfigManager 38ms, MT5 server 6ms, MainViewModel 22ms, MainWindow construct 232ms, OnFrameworkInitializationCompleted total 333ms. In-process total 374ms. MainWindow construct dominates at 62% of the in-process wall.
+Current state (measured 2026-10-28): Program.Main -> LogManager.Initialize 41ms, DI 22ms, ConfigManager 38ms, MT5 server 6ms, MainViewModel 22ms, MainWindow construct 232ms, OnFrameworkInitializationCompleted total 333ms. In-process total ~591ms (Program.Main entry to end of OnFrameworkInitializationCompleted). Gap of ~258ms between LogManager.Initialize and OnFrameworkInitializationCompleted is Avalonia framework init plus App.axaml XAML load. Two dominant costs: XAML load ~258ms (44 percent), MainWindow construct 232ms (39 percent).
 
-Warm `dotnet run` adds ~3.6s of MSBuild + Roslyn ahead of that 374ms (Phase 22D). The `dotnet run` build wall is the dominant cost of the loop, not the in-process startup.
+Warm `dotnet run` adds ~3.6s of MSBuild + Roslyn ahead of that ~591ms (Phase 22D). The `dotnet run` build wall is the dominant cost of the loop, not the in-process startup.
 
 Answers (2026-10-28):
-1. Warm exe launch -> first frame: ~374ms in-process. Warm `dotnet run` -> first frame: ~4.0s (build dominated).
-2. Bottleneck is (a) `dotnet run` compile phase for the loop, and (c) MainWindow construct 232ms for the in-process wall. `App.Initialize` XAML load is already inlined.
+1. Warm exe launch -> first frame: ~591ms in-process. Warm `dotnet run` -> first frame: ~4.2s (build dominated).
+2. Bottleneck is (a) `dotnet run` compile phase for the dev loop (86 percent of wall), then the in-process Avalonia XAML load (~258ms) and MainWindow construct (~232ms).
 3. Both. Use the exe directly for the fastest loop.
 
 Possible directions, ranked by expected impact per effort:
@@ -963,7 +963,7 @@ Possible directions, ranked by expected impact per effort:
 
 Deferred: cold-start (first run after clean) is a different problem — MSBuild + NuGet restore dominate. This phase targets warm iteration only.
 
-Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture: 374ms in-process total, measured 2026-10-28 (see Current state above).
+Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture: ~591ms in-process total, measured 2026-10-28 (see Current state above). Dominant costs are Avalonia XAML load and MainWindow construct; both resist easy optimization.
 
 ---## Appendix A: Shipped Accounts
 
