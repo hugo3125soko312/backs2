@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using backs2.Core.Data;
+using backs2.Core.Providers;
 
 namespace backs2.Core;
 
@@ -105,7 +106,10 @@ public sealed class SelectionQueue
     private void LoadFromSettings()
     {
         var raw = _cfg.Settings.QueuedDatasets ?? new List<string>();
+        int droppedBroken = 0;
         foreach (var entry in raw)
+        {
+            if (!IsValidTimeframeEntry(entry)) { droppedBroken++; continue; }
         {
             var at = entry.IndexOf('@');
             if (at <= 0 || at >= entry.Length - 1) continue;
@@ -117,6 +121,10 @@ public sealed class SelectionQueue
             _origins[KeyOf(symbol, timeframe)] = stored;
         }
 
+        }
+
+        if (droppedBroken > 0)
+            LogManager.Warn(LogTag.Data, $"dropped {droppedBroken} queued dataset(s) with invalid timeframe from settings");
         if (Items.Count > 0)
             LogManager.Info(LogTag.Data, $"restored {Items.Count} queued dataset(s) from settings");
     }
@@ -127,6 +135,17 @@ public sealed class SelectionQueue
         {
             return _origins.TryGetValue(KeyOf(symbol, timeframe), out var o) ? o : DataOrigin.Legacy;
         }
+    }
+
+    private static bool IsValidTimeframeEntry(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) return false;
+        var at = entry.IndexOf('@');
+        if (at <= 0 || at >= entry.Length - 1) return false;
+        var tf = entry.Substring(at + 1);
+        foreach (var tfEntry in TimeframeMap.All) if (string.Equals(tf, tfEntry, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(tf, "tick", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     private static string KeyOf(string symbol, string timeframe) => symbol + "@" + timeframe;

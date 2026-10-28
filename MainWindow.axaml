@@ -66,7 +66,8 @@
     <DockPanel LastChildFill="True">
 
         <!-- ==================== Custom title bar + menu ==================== -->
-        <Border DockPanel.Dock="Top"
+        <Border Name="TitleBarBorder"
+                DockPanel.Dock="Top"
                 Height="{DynamicResource TitleBarHeight}"
                 Background="{DynamicResource SurfaceApp}"
                 BorderBrush="{DynamicResource BorderDefault}"

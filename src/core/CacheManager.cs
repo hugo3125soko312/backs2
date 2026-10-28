@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using backs2.Core.Data;
+using backs2.Core.Providers;
 using backs2.Core.Models;
 
 namespace backs2.Core;
@@ -223,6 +224,11 @@ public class CacheManager
 
             if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))
                 return null;
+            if (!IsValidTimeframeString(timeframe))
+            {
+                LogManager.Warn(LogTag.Cache, "skipping cache file with invalid timeframe: " + timeframe);
+                return null;
+            }
 
             DataOrigin origin = DataOrigin.Legacy;
             if (root.TryGetProperty("origin", out var originProp) && originProp.ValueKind == JsonValueKind.String)
@@ -268,6 +274,13 @@ public class CacheManager
             if (!File.Exists(kv.Key))
                 _metaCache.TryRemove(kv.Key, out _);
         }
+    }
+
+    private static bool IsValidTimeframeString(string tf)
+    {
+        foreach (var t in TimeframeMap.All) if (string.Equals(tf, t, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(tf, "tick", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     private string PathFor(string key)

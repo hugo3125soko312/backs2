@@ -959,7 +959,28 @@ Known issue carried from Pending Testing #8 (2026-10-28): the Timeframe column h
 
 ---
 
-## Appendix A: Shipped Accounts
+## Phase 39: Startup Latency [PLANNED]
+
+Reduce the wall time between `dotnet run` returning control and the app window first rendering.
+
+Current state (unmeasured): Phase 17 instrumented the startup path with `[startup]` markers — DI ~25ms, ConfigManager ~42-48ms, MT5 server ~5-6ms, MainViewModel ~22ms, MainWindow construct ~230ms, total ~530ms. That number is fresh-process hot; the actual `dotnet run` wall is dominated by MSBuild + Roslyn + Avalonia XAML compilation on top.
+
+Open questions before any code:
+1. What is the true wall time from shell prompt to first rendered frame on a warm build? The `[startup]` log captures in-process markers only; it does not include `dotnet run`'s compile phase or the shell round-trip.
+2. Is the bottleneck (a) `dotnet run` compile (Phase 22 already reduced incremental to ~3.6s), (b) Avalonia XAML load, (c) MainWindow construct, or (d) something in `App.axaml.cs` DI building?
+3. Do you run through `dotnet run` (compile first) or launch the built `backs2.exe` directly (no compile)?
+
+Possible directions, ranked by expected impact per effort:
+- Use `dotnet build` once, then `.\bin\Debug\net8.0\backs2.exe` for iteration instead of `dotnet run` — skips the compile step entirely. Zero code change.
+- Defer Avalonia XAML load until after DI resolves (currently `App.Initialize` loads XAML before `OnFrameworkInitializationCompleted` builds DI).
+- Split MainWindow construct (currently ~230ms) into chrome-first + content-lazy; only Overview tab's VM materialises at startup today (Phase 17 already did this).
+- Pre-warm StrategyCatalogService's `FileSystemWatcher` asynchronously instead of synchronously.
+
+Deferred: cold-start (first run after clean) is a different problem — MSBuild + NuGet restore dominate. This phase targets warm iteration only.
+
+Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed.
+
+---## Appendix A: Shipped Accounts
 
 Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`.
 

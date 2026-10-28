@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var titleBar = this.FindControl<Avalonia.Controls.Border>("TitleBarBorder");
+        if (titleBar != null) backs2.Core.Utils.WindowDragHelper.AttachTitleBarDrag(this, titleBar);
         Opened += OnOpened;
         Activated += OnActivated;
         PropertyChanged += OnWindowPropertyChanged;

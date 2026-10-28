@@ -56,7 +56,7 @@
         </StackPanel>
 
         <!-- Row 2: filter row -->
-        <Grid Grid.Row="2" ColumnDefinitions="44,2*,1*,1.2*,1.2*,70,1*,1.5*,1.5*,3*" Margin="0,0,0,4">
+        <Grid Grid.Row="3" ColumnDefinitions="44,2*,1*,1.2*,1.2*,70,1*,1.5*,1.5*,3*" Margin="0,0,0,4">
             <TextBox Grid.Column="1" Text="{Binding FilterSymbol, Mode=TwoWay}" Watermark="Symbol" Margin="0,0,4,0" />
             <TextBox Grid.Column="2" Text="{Binding FilterTimeframe, Mode=TwoWay}" Watermark="TF" Margin="0,0,4,0" />
             <TextBox Grid.Column="3" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
@@ -68,8 +68,8 @@
             <TextBox Grid.Column="9" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
-        <!-- Row 3: Raw Ticks compile form (visible only when subtab == Raw Ticks) -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8"
+        <!-- Row 2: Raw Ticks compile form (visible only when subtab == Raw Ticks) -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8"
                     IsVisible="{Binding IsRawTicksVisible}">
             <TextBlock Text="Source:" VerticalAlignment="Center" FontWeight="SemiBold" />
             <Border BorderBrush="#30363D" BorderThickness="1" Padding="8,4" MinWidth="260" CornerRadius="3">
@@ -88,6 +88,8 @@
                   ItemsSource="{Binding Rows}"
                   SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                   IsReadOnly="True"
+                  HorizontalScrollBarVisibility="Auto"
+                  ColumnWidth="Auto"
                   CanUserResizeColumns="True"
                   CanUserSortColumns="False"
                   CanUserReorderColumns="False"
