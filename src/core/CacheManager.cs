@@ -12,7 +12,7 @@ namespace backs2.Core;
 
 public sealed record CacheLoadResult(List<Kline> Bars, string Source);
 
-public sealed record CacheMetadata(string Symbol, string Timeframe, string Source, bool HasVolume, long MinT, long MaxT);
+public sealed record CacheMetadata(string Symbol, string Timeframe, string Source, bool HasVolume, long MinT, long MaxT, DataOrigin Origin = DataOrigin.Legacy);
 
 public class CacheManager
 {
@@ -224,13 +224,21 @@ public class CacheManager
             if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))
                 return null;
 
+            DataOrigin origin = DataOrigin.Legacy;
+            if (root.TryGetProperty("origin", out var originProp) && originProp.ValueKind == JsonValueKind.String)
+            {
+                if (Enum.TryParse<DataOrigin>(originProp.GetString(), true, out var parsedOrigin)) origin = parsedOrigin;
+            }
+            if (origin == DataOrigin.Legacy) origin = DataOriginResolver.FromSourceStatic(source);
+
             return new CacheMetadata(
                 symbol!,
                 timeframe!,
                 string.IsNullOrWhiteSpace(source) ? "Unknown" : source!,
                 hasVol,
                 minT,
-                maxT);
+                maxT,
+                origin);
         }
         catch
         {

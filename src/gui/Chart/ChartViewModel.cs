@@ -19,6 +19,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 {
     private readonly DataManager _data;
     private readonly SelectionQueue _queue;
+    private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
     private readonly ChartPlotBuilder _builder = new();
     private AvaPlot? _avaPlot;
     private bool _suppressTimeframeReload;
@@ -61,7 +62,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     public bool IsNotLoading => !IsLoading;
     public bool IsProgressIndeterminate => !IsProgressDeterminate;
 
-    public ChartViewModel(DataManager data, SelectionQueue queue)
+    public ChartViewModel(DataManager data, SelectionQueue queue, backs2.Core.Data.IQueueOriginGate queueGate)
     {
         _data = data;
         _queue = queue;
@@ -70,6 +71,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         SyncQueue();
 
         WeakReferenceMessenger.Default.Register(this);
+        _queueGate = queueGate;
     }
 
     public void SetPlotControl(AvaPlot plotView)
@@ -227,6 +229,14 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     private async Task LoadAsync(QueuedDataset dataset)
     {
         if (IsLoading) return;
+
+        try
+        {
+            var gate = await _queueGate.CheckAsync(new[] { dataset });
+            if (gate.Decision == backs2.Core.Data.QueueGateDecision.Warn)
+                StatusText = gate.Message;
+        }
+        catch { }
 
         try
         {

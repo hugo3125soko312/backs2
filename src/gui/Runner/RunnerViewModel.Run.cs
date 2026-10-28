@@ -27,6 +27,13 @@ public partial class RunnerViewModel
             return;
         }
 
+        var gateResult = await _queueGate.CheckAsync(queued);
+        if (gateResult.Decision == backs2.Core.Data.QueueGateDecision.Warn)
+        {
+            var proceed = await ConfirmAsync("Raw tick data queued", gateResult.Message, "Continue anyway");
+            if (!proceed) { StatusText = "Run cancelled - raw tick entries still in queue."; return; }
+        }
+
         var distinctSymbols = queued
             .Select(q => q.Symbol)
             .Distinct(StringComparer.OrdinalIgnoreCase)

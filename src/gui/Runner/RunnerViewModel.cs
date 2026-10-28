@@ -32,6 +32,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     private readonly ConfigManager _config;
     private readonly OptimizationRunner _optimizer;
     private readonly OptimizationStore _optStore;
+    private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -98,7 +99,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         AccountService accounts,
         ConfigManager config,
         OptimizationRunner optimizer,
-        OptimizationStore optStore)
+        OptimizationStore optStore, backs2.Core.Data.IQueueOriginGate queueGate)
     {
         _catalog = catalog;
         _strat = strat;
@@ -129,6 +130,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         SyncQueue();
 
         _ = RefreshResultsAsync();
+        _queueGate = queueGate;
     }
 
     /// <summary>Called by the shell when a Runner subtab node is selected.</summary>
