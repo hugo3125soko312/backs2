@@ -149,3 +149,42 @@ Priority order:
 Self-reported by the agent during a documentation and feature phase on
 2026-10-28. The human operator confirmed the failures. Further diagnosis
 is not possible without access to the bridge internal log.
+
+
+## Follow-up investigation (2026-10-28, late)
+
+After the initial report was written, three more facts were established by controlled probes in the same session.
+
+### Fact 1: fresh tag IDs work when re-used tag IDs do not
+
+A minimal probe with a brand-new six-character ID succeeded. A subsequent command block with a tag ID that had appeared earlier in the session was silently dropped. Re-emitting the same body with a fresh ID executed cleanly. Three consecutive experiments established the pattern:
+
+- The exact same body that failed with tag X succeeded with tag Y.
+- The failures cluster on IDs previously used in the session.
+- The successes cluster on IDs that are brand new.
+
+This points at the exec-bridge or the client-side script maintaining a seen-tag set that never evicts. The tag lifetime must expire, or the set must be reset between user turns, or the dedup key must be the body content rather than the tag ID.
+
+### Fact 2: nested here-strings inside an -ER body fail silently
+
+A block whose body contained a here-string that itself defined a here-string variable failed to execute. The bridge returned exit code minus-one. The body was never dispatched: no stderr, no partial output.
+
+The failure is not the here-string itself. It is that the nested terminator appears inside the outer here-string body, and the exec-bridge fence parser appears to count that as a fence terminator even though PowerShell parser would not. Once the outer fence is closed early, everything after it becomes trailing prose and is not dispatched.
+
+### Fact 3: renderer eats backticks even inside base64
+
+A base64-encoded script whose decoded bytes contained a backtick followed by n or r was corrupted in transit. The rendered prose showed the backtick was replaced with a zero-width marker in some positions and stripped entirely in others. The same technique with a backtick-free payload worked.
+
+Practical consequence: never emit backticks into an -ER body, not even inside a base64 string or a quoted here-string. The renderer runs before the bridge sees the body.
+
+## Revised recommended fixes
+
+The priority order from the initial report still holds. Add these:
+
+1. **Tag-ID lifecycle is the top priority.** The probe results make this the most likely single root cause of the -ER drop pattern. The dedup set must either expire by wall-clock age, or reset on every user turn, or be keyed on the message ID rather than the tag ID. Without this, every long session accumulates failures.
+
+2. **Fence parser must respect escaping.** A backtick inside a here-string inside an outer here-string must not close the outer here-string. This requires a proper parser with a here-string-depth counter, not a regex.
+
+3. **Renderer normalization must strip invisible characters.** Zero-width spaces, RTL marks, BOMs, and soft hyphens should be removed from any body before dispatch.
+
+4. **-N must be either fixed or rejected loudly.** If the handler is intentionally disabled the bridge must return a not-supported error, not silently return exit code minus-one. Silent failure on a dedicated verb is the worst possible state.
