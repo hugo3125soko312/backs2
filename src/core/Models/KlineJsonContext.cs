@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Serialization;
+using backs2.Core.Data;
 
 namespace backs2.Core.Models;
 
@@ -12,13 +13,15 @@ public sealed record CacheEnvelope(
     DateTime FetchedUtc,
     string Symbol,
     string Timeframe,
-    KlineCompact[] Bars);
+    KlineCompact[] Bars,
+    DataOrigin Origin = DataOrigin.Legacy);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     WriteIndented = false)]
 [JsonSerializable(typeof(CacheEnvelope))]
+[JsonSerializable(typeof(DataOrigin))]
 [JsonSerializable(typeof(KlineCompact[]))]
 internal partial class KlineJsonContext : JsonSerializerContext
 {

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using backs2.Core.Data;
 using backs2.Core.Models;
 
 namespace backs2.Core;
@@ -83,7 +84,10 @@ public class CacheManager
         }
     }
 
-    public async Task SaveCacheAsync(string key, List<Kline> data, string source)
+    public Task SaveCacheAsync(string key, List<Kline> data, string source)
+        => SaveCacheAsync(key, data, source, DataOriginResolver.FromSourceStatic(source));
+
+    public async Task SaveCacheAsync(string key, List<Kline> data, string source, DataOrigin origin)
     {
         if (data == null || data.Count == 0) return;
 
@@ -108,7 +112,8 @@ public class CacheManager
                 FetchedUtc: DateTime.UtcNow,
                 Symbol: symbol,
                 Timeframe: timeframe,
-                Bars: compact);
+                Bars: compact,
+                Origin: origin);
 
             var path = PathFor(key);
             await using var fs = new FileStream(

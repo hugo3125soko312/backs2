@@ -110,6 +110,7 @@ public partial class App : Application
     private void ConfigureServices(IServiceCollection services)
     {
         services.AddMemoryCache();
+        services.AddSingleton<backs2.Core.Data.IDataOriginResolver, backs2.Core.Data.DataOriginResolver>();
         services.AddSingleton<CacheManager>();
 
         services.AddSingleton<ConfigManager>();
