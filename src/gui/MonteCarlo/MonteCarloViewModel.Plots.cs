@@ -54,6 +54,7 @@ public partial class MonteCarloViewModel
             if (data == null || _clusterPlot == null) return;
             if (_clusterRenderedFrom == data) return;
             RenderClusterPlot(data);
+            _clusterRenderedFrom = data;
             return;
         }
 

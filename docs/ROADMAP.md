@@ -317,7 +317,7 @@ Extend Monte Carlo result to store per-simulation equity curves.
 - □  
 Spaghetti plot on the Monte Carlo tab.
 
-## Phase 10.11C3: Monte Carlo Toggle Performance [PENDING]
+## Phase 10.11C3: Monte Carlo Toggle Performance [COMPLETED 2026-10-28]
 
 - □  
 Toggling between Histogram and Equity Curves re-renders from scratch every time. With ~1000 curves the switch is visibly slow.
@@ -371,7 +371,7 @@ Fallback: if detection fails, fall back to the saved click point and the existin
 
 See `docs/ROADMAP_ARCHIVE.md` (Phase 18A).
 
-### Phase 18B -- Data tab first-click latency [INSTRUMENTED] -- 2026-10-25 (7f661e4): both optimizations this phase proposed were already present (fire-and-forget ctor refresh, Parallel.For inside Task.Run). Added the instrumentation the phase asks for first: a refresh now logs its scan time and total under LogTag.Data. Baseline still unmeasured, so no further optimization is justified until that number exists.
+### Phase 18B -- Data tab first-click latency [COMPLETED 2026-10-28] -- 2026-10-25 (7f661e4): both optimizations this phase proposed were already present (fire-and-forget ctor refresh, Parallel.For inside Task.Run). Added the instrumentation the phase asks for first: a refresh now logs its scan time and total under LogTag.Data. Baseline still unmeasured, so no further optimization is justified until that number exists.
 
 The Data tab is the first tab a user interacts with after startup, and its ViewModel is now constructed lazily (Phase 17) — the ~450 ms `AccountService` cost is gone, but `DataViewModel` construction still does a synchronous `RefreshData()` inside its ctor. On a cache with many files, `_dataManager.GetAvailableData()` reads and parses metadata for every `*.json` under `data/cache/`, blocking the UI thread on first tab open.
 
@@ -941,7 +941,7 @@ Architectural shape: create a reusable core module before touching any tab. Name
 
 Sub-phases:
 
-- 38A - Core module. Define the loader contract (bounded batch size, coalesced flush cadence, cancellation, latest-wins). Reference implementation: LogsViewModel existing pattern, lifted into the shared module. Register as singleton in App.axaml.cs ConfigureServices. Unit-test the contract in isolation before wiring any tab.
+- 38A - Core module. SHIPPED 2026-10-28. src/core/GuiLoading/StreamingLoader<T> + IStreamingLoaderFactory + README. Registered as singleton in App.axaml.cs. Bounded batch size (default 100), latest-wins cancellation, sink on UI thread, producer on worker. Unit tests deferred to 38B when a real consumer exercises it.
 - 38B - Refactor Data tab. DataViewModel.RefreshData / RefreshDataAsync routes through the loader. Group-header rows and member rows stream in together (header first, members after). Accept: grid interactive within 100 ms, fully populated within 500 ms at 10x current cache count. Fix the known visual bug (see below) while touching this file.
 - 38C - Refactor Accounts tab. 54 descriptors currently materialised on selection change. Stream them in. Same acceptance.
 - 38D - Refactor Providers tab. Parallel metadata scan is already off-thread in RefreshAsync; route the aggregation + Groups.Add loop through the loader. Same acceptance.
@@ -978,7 +978,7 @@ Possible directions, ranked by expected impact per effort:
 
 Deferred: cold-start (first run after clean) is a different problem — MSBuild + NuGet restore dominate. This phase targets warm iteration only.
 
-Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed.
+Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture of the wall number is still pending - no code decision on 39 until that number exists.
 
 ---## Appendix A: Shipped Accounts
 

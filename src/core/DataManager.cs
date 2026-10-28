@@ -238,7 +238,9 @@ public class DataManager
     {
         return await Task.Run(() =>
         {
+            var scanSw = System.Diagnostics.Stopwatch.StartNew();
             var files = CollectCacheFiles();
+            long enumMs = scanSw.ElapsedMilliseconds;
             var metas = new CacheMetadata?[files.Length];
 
             Parallel.For(
@@ -249,6 +251,8 @@ public class DataManager
 
             ct.ThrowIfCancellationRequested();
             _diskCache.PruneMetadataCache();
+            long metaMs = scanSw.ElapsedMilliseconds - enumMs;
+            LogManager.Debug(LogTag.Cache, $"[18B] Cache scan: enum {enumMs} ms over {files.Length} file(s), metadata {metaMs} ms parallel");
             return BuildEntries(files, metas);
         }, ct).ConfigureAwait(true);
     }

@@ -125,6 +125,7 @@ public partial class App : Application
         services.AddSingleton<LastRunStore>();
         services.AddSingleton<MonteCarloEngine>();
         services.AddSingleton<SelectionQueue>();
+        services.AddSingleton<backs2.Core.GuiLoading.IStreamingLoaderFactory, backs2.Core.GuiLoading.StreamingLoaderFactory>();
 
         // Parameter optimizer batch archives
         services.AddSingleton<OptimizationStore>();

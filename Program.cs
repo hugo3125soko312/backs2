@@ -100,9 +100,13 @@ return;
 
 try
 {
+var bootSw = System.Diagnostics.Stopwatch.StartNew();
 LogManager.Initialize();
+LogManager.Info(LogTag.App, $"[startup] Program.Main entry -> LogManager.Initialize: {bootSw.ElapsedMilliseconds} ms (phase 39)");
 LogManager.Info(LogTag.App, "Process start");
+var avaloniaSw = System.Diagnostics.Stopwatch.StartNew();
 BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+LogManager.Info(LogTag.App, $"[startup] Avalonia lifetime wall: {avaloniaSw.ElapsedMilliseconds} ms (phase 39)");
 }
 catch (Exception ex)
 {

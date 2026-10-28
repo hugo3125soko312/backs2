@@ -408,11 +408,11 @@ public partial class MonteCarloViewModel : ObservableObject
             int totalRuns = _batch.Count;
             int runIndex = 0;
 
-            var progress = new Progress<int>(done =>
+            var progress = new ThrottledProgress<int>(done =>
             {
                 double perRun = (double)done / iterations;
                 Progress = ((runIndex + perRun) / totalRuns) * 100.0;
-            });
+            }, minIntervalMs: 100);
 
             for (int i = 0; i < _batch.Count; i++)
             {

@@ -447,3 +447,24 @@ Shipped 1cba742. AccountService ctor no longer blocks on the data/accounts/ scan
 ## Phase 37 -- Monitor Switching [COMPLETED 2026-10-28]
 
 Candidate 2 (React on ScalingChanged) shipped d9214d7. MainWindow.ScalingChanged forces a re-render of the shell chrome and refreshes every ScottPlot control (Chart, MC histogram / curves / cluster). Manual test plan captured in docs/TEST-2026-10-28.md. Candidates 1 (verify-only), 3 (recreate window), 4 (fullscreen round-trip) not pursued.
+
+
+## Phase 10.11C3 -- Monte Carlo Toggle Performance [COMPLETED 2026-10-28]
+
+The toggle already used three AvaPlot controls toggled by IsVisible; the bug was that the cluster path never set _clusterRenderedFrom after RenderClusterPlot, so every toggle back to Trade Clusters re-rendered from scratch. One line added in MonteCarloViewModel.Plots.cs EnsureVisiblePlotRendered. Histogram and curves already had their cache markers.
+
+## Phase 18B -- Data tab first-click latency [COMPLETED 2026-10-28]
+
+RefreshDataAsync already logged total scan time under [18B]. This pass added the enum-vs-metadata split: DataManager.GetAvailableDataAsync wraps CollectCacheFiles() and the Parallel.For metadata pass with Stopwatch markers and logs the two figures under LogTag.Cache as "[18B] Cache scan: enum {n} ms over {count} file(s), metadata {m} ms parallel". Acceptance targets (interactive within 100 ms, populated within 500 ms) are now measurable per run instead of one blended number.
+
+## Phase 22E follow-up -- Monte Carlo progress throttle [COMPLETED 2026-10-28]
+
+MC tab RunAsync still used bare Progress<int>, which posts to the captured sync context on every iteration report. Replaced with the existing ThrottledProgress<int> at 100 ms. Same coalescing behavior: first report applies, later reports overwrite one pending slot, terminal value flushes.
+
+## Phase 38A -- GuiLoading core module [COMPLETED 2026-10-28]
+
+src/core/GuiLoading/ created with StreamingLoader<T>, IStreamingLoaderFactory + StreamingLoaderFactory, and README. Registered in App.axaml.cs as a singleton. Streams an IEnumerable<T> into a sink in bounded batches, one dispatcher post per batch, latest-wins cancellation, linked CancellationToken. No ViewModel is wired yet; 38B-38E route each tab through it.
+
+## Phase 39 -- Startup Latency [MARKER SHIPPED 2026-10-28]
+
+Phase's own known dependency is now satisfied: Program.Main wraps LogManager.Initialize() and BuildAvaloniaApp().StartWithClassicDesktopLifetime(args) with Stopwatch markers, both logged under [startup] with the "phase 39" suffix. Runtime capture of the wall number is still pending; no code decision on 39 until the number exists.
