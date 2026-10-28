@@ -29,6 +29,7 @@ public partial class DataView : UserControl
 
         _vm = DataContext as DataViewModel;
         if (_vm == null) return;
+        AddHandler(KeyDownEvent, OnCtrlC, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         if (Application.Current is App app)
         {
@@ -49,5 +50,20 @@ public partial class DataView : UserControl
             };
             _vm.OpenQueueRequested += _openQueueHandler;
         }
+    }
+
+
+    private async void OnCtrlC(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.C) return;
+        if (!e.KeyModifiers.HasFlag(Avalonia.Input.KeyModifiers.Control)) return;
+        var row = _vm?.SelectedRow;
+        if (row == null || string.IsNullOrEmpty(row.Path)) return;
+        try
+        {
+            var cb = Avalonia.Controls.TopLevel.GetTopLevel(this)?.Clipboard;
+            if (cb != null) { await cb.SetTextAsync(row.Path); e.Handled = true; }
+        }
+        catch { }
     }
 }

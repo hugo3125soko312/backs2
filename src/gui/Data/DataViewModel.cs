@@ -45,7 +45,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     [ObservableProperty] private backs2.Core.Data.DataOrigin _originFilter = backs2.Core.Data.DataOrigin.TimeframeFetch;
 
     partial void OnOriginFilterChanged(backs2.Core.Data.DataOrigin value) => ApplyView();
-    [ObservableProperty] private int _selectedSubtabIndex = 1;
+    [ObservableProperty] private int _selectedSubtabIndex = 0;
 
     public bool IsRawTicksVisible => SelectedSubtabIndex == 0;
     public bool IsTimeframesVisible => SelectedSubtabIndex == 1;
