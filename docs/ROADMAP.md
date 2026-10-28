@@ -64,7 +64,7 @@ Pass: Optimize produces the same version count, the same trade counts and the sa
 
 Fail: fewer versions than the grid size, zero trades everywhere, or the instrumentation blocks vanish.
 
-### 7. Data tab refresh instrumentation -- 7f661e4 (Phase 18B)
+### 7. Data tab refresh instrumentation -- 7f661e4 (Phase 18B)  [PASSED 2026-10-28]
 
 What changed: an 18B log line with scan vs total time.
 
