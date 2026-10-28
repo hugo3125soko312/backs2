@@ -394,7 +394,7 @@ Acceptance: tab is interactive within 100 ms of click on a warm cache; grid popu
 
 ## Phase 26: Parameter Optimizer & Version Store [PLANNED]
 
-Extends the Runner into a parameter-search tool. The user declares min / max / increment per numeric `@param`; the optimizer generates a bounded Cartesian grid, backtests each version, runs Monte Carlo per version, and surfaces the results in a repurposed Chart tab. Removes the source-preview pane, folds MC settings into the Runner, deletes the Monte Carlo tab, and deletes `NavigateToTradeMessage` (its cluster-plot publisher goes with the MC tab).
+Extends the Runner into a parameter-search tool. The user declares min / max / increment per numeric `@param`; the optimizer generates a bounded Cartesian grid, backtests each version, runs Monte Carlo per version, and surfaces the results in a repurposed Chart tab. Removes the source-preview pane and folds MC settings into the Runner. The Monte Carlo tab, the cluster-plot publisher, and `NavigateToTradeMessage` are KEPT - 26E was cancelled 2026-10-28.
 
 ### Design decisions locked (2026-10-08)
 
@@ -464,24 +464,7 @@ ETA display and progress bar wired to the optimizer.
 - ☑  
 Optimizer settings block (cap, coarse iters, refine iters, refine top N) added to the Runner's MC settings panel.
 
-### Phase 26E -- Monte Carlo tab removal
-
-- □  
-Delete `src/gui/MonteCarlo/MonteCarloViewModel.cs` and partials `.Plots.cs`, `.Stats.cs`, `.Cluster.cs`.
-- □  
-Delete `src/gui/MonteCarlo/MonteCarloView.axaml` + `.axaml.cs`.
-- □  
-Evaluate `src/core/Analysis/KMeansClusterer.cs` for orphan status; delete if the cluster plot was its only consumer.
-- □  
-Delete `src/gui/Messages/NavigateToTradeMessage.cs`.
-- □  
-Remove `IRecipient<NavigateToTradeMessage>` from `MainViewModel` and `ChartViewModel`; delete both `Receive` implementations.
-- □  
-Remove the Monte Carlo nav-rail item from `MainWindow.axaml`. **`ActiveTabIndex` shifts: Metrics 3→2, Accounts 4→3, Data 5→4, Data Automation 6→5, MT5 Ticks 7→6, Providers 8→7, Chart 9→8, Logs 10→9, Config 11→10.** Update every hardcoded index in `MainViewModel.Shell.cs` navigation commands. Audit for any other reference to index 2, 9, 10, or 11.
-- □  
-Unregister `MonteCarloViewModel` from `App.axaml.cs` (`ConfigureServices` and `Application.DataTemplates`).
-
-### Phase 26F -- Chart tab repurpose
+### Phase 26F -- Chart tab repurpose [OBSOLETE - 26E cancelled 2026-10-28]
 
 - □  
 `ChartViewModel` drops `Series`, `SelectedDataset`, `SelectedTimeframe`, all crosshair fields, `SetPlotControl`, and the `IRecipient` implementation. No longer consumes `SelectionQueue`.
@@ -963,12 +946,14 @@ Known issue carried from Pending Testing #8 (2026-10-28): the Timeframe column h
 
 Reduce the wall time between `dotnet run` returning control and the app window first rendering.
 
-Current state (unmeasured): Phase 17 instrumented the startup path with `[startup]` markers — DI ~25ms, ConfigManager ~42-48ms, MT5 server ~5-6ms, MainViewModel ~22ms, MainWindow construct ~230ms, total ~530ms. That number is fresh-process hot; the actual `dotnet run` wall is dominated by MSBuild + Roslyn + Avalonia XAML compilation on top.
+Current state (measured 2026-10-28): Program.Main -> LogManager.Initialize 41ms, DI 22ms, ConfigManager 38ms, MT5 server 6ms, MainViewModel 22ms, MainWindow construct 232ms, OnFrameworkInitializationCompleted total 333ms. In-process total 374ms. MainWindow construct dominates at 62% of the in-process wall.
 
-Open questions before any code:
-1. What is the true wall time from shell prompt to first rendered frame on a warm build? The `[startup]` log captures in-process markers only; it does not include `dotnet run`'s compile phase or the shell round-trip.
-2. Is the bottleneck (a) `dotnet run` compile (Phase 22 already reduced incremental to ~3.6s), (b) Avalonia XAML load, (c) MainWindow construct, or (d) something in `App.axaml.cs` DI building?
-3. Do you run through `dotnet run` (compile first) or launch the built `backs2.exe` directly (no compile)?
+Warm `dotnet run` adds ~3.6s of MSBuild + Roslyn ahead of that 374ms (Phase 22D). The `dotnet run` build wall is the dominant cost of the loop, not the in-process startup.
+
+Answers (2026-10-28):
+1. Warm exe launch -> first frame: ~374ms in-process. Warm `dotnet run` -> first frame: ~4.0s (build dominated).
+2. Bottleneck is (a) `dotnet run` compile phase for the loop, and (c) MainWindow construct 232ms for the in-process wall. `App.Initialize` XAML load is already inlined.
+3. Both. Use the exe directly for the fastest loop.
 
 Possible directions, ranked by expected impact per effort:
 - Use `dotnet build` once, then `.\bin\Debug\net8.0\backs2.exe` for iteration instead of `dotnet run` — skips the compile step entirely. Zero code change.
@@ -978,7 +963,7 @@ Possible directions, ranked by expected impact per effort:
 
 Deferred: cold-start (first run after clean) is a different problem — MSBuild + NuGet restore dominate. This phase targets warm iteration only.
 
-Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture of the wall number is still pending - no code decision on 39 until that number exists.
+Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture: 374ms in-process total, measured 2026-10-28 (see Current state above).
 
 ---## Appendix A: Shipped Accounts
 

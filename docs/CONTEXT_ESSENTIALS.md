@@ -199,6 +199,7 @@ Get-ChildItem logs\ | Sort-Object LastWriteTime -Descending | Select-Object -Fir
 ```
 
 - Ask for build OR run — never both.
+- Fastest iteration (warm, no compile): dotnet build once, then launch .\bin\Debug\net8.0\backs2.exe directly. Skips the ~3.6s dotnet run compile phase; in-process startup is ~374ms (Phase 39 measurement, 2026-10-28).
 - Stale-source-generator symptoms (`AXSG0111`, phantom `CS1061` on generated members): wipe `obj/` and `bin/`, rebuild `--no-incremental` before touching code.
 
 ## 19. Hard invariants
