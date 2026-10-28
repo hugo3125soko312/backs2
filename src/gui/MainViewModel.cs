@@ -212,20 +212,15 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
         _dataAutomationNode.Children.Add(new NavigationNode { Header = "Parsing",    SubtabIndex = 1, Factory = () => DataAutomationVm });
         _dataAutomationNode.Children.Add(new NavigationNode { Header = "Analysis",   SubtabIndex = 2, Factory = () => DataAutomationVm });
 
+
         _dataNode.Children.Add(new NavigationNode { Header = "Raw Ticks",  SubtabIndex = 0, Factory = () => DataVm });
         _dataNode.Children.Add(new NavigationNode { Header = "Timeframes", SubtabIndex = 1, Factory = () => DataVm });
 
         _mt5TicksNode.Children.Add(new NavigationNode { Header = "Extraction",   SubtabIndex = 0, Factory = () => Mt5TickVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Raw Ticks",  SubtabIndex = 0, Factory = () => DataVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Timeframes", SubtabIndex = 1, Factory = () => DataVm });
 
         _mt5TicksNode.Children.Add(new NavigationNode { Header = "Requester",    SubtabIndex = 1, Factory = () => Mt5TickVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Raw Ticks",  SubtabIndex = 0, Factory = () => DataVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Timeframes", SubtabIndex = 1, Factory = () => DataVm });
 
         _mt5TicksNode.Children.Add(new NavigationNode { Header = ".tkc Extract", SubtabIndex = 2, Factory = () => Mt5TickVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Raw Ticks",  SubtabIndex = 0, Factory = () => DataVm });
-        _dataNode.Children.Add(new NavigationNode { Header = "Timeframes", SubtabIndex = 1, Factory = () => DataVm });
 
         _mt5TicksNode.Children.Add(new NavigationNode { Header = "Parsing",      SubtabIndex = 3, Factory = () => Mt5TickVm });
 
