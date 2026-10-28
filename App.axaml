@@ -10,6 +10,8 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceInclude Source="avares://backs2/src/gui/Theme/Tokens.axaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <!-- Fluent DataGrid reserves 32px for an inline sort icon; our header template draws its own glyph, so the reserve clips narrow headers. Zero it out. Ref: Avalonia issue #9791 / #11938 / discussion #15442. -->
+            <x:Double x:Key="DataGridSortIconMinWidth">0</x:Double>
         </ResourceDictionary>
     </Application.Resources>
 

@@ -72,7 +72,7 @@ Pass: the line appears in the log on Data tab open with plausible numbers.
 
 Also record: the actual numbers, so the 18B acceptance target (interactive within 100 ms, grid populated within 500 ms on a warm cache) can finally be checked.
 
-### 8. In-group column sorting -- fa63e26  [PASSED 2026-10-28 - visual bug logged in Phase 38]
+### 8. In-group column sorting -- fa63e26  [PASSED 2026-10-28 - header clipping fixed via DataGridSortIconMinWidth=0]
 
 Pass: every non-Symbol column header reorders rows inside each ticker group and the glyph flips asc/desc. Symbol still controls group order.
 
