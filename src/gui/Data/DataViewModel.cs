@@ -40,6 +40,10 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private string _filterPath = "";
 [ObservableProperty] private string _filterRange = "";
 
+    [ObservableProperty] private backs2.Core.Data.DataOrigin _originFilter = backs2.Core.Data.DataOrigin.TimeframeFetch;
+
+    partial void OnOriginFilterChanged(backs2.Core.Data.DataOrigin value) => ApplyView();
+
     [ObservableProperty] private string _sortColumn = "Symbol";
     [ObservableProperty] private bool _sortAscending = true;
 
@@ -325,7 +329,8 @@ OnPropertyChanged(nameof(RangeSortGlyph));
 
     private void ApplyView()
     {
-        IEnumerable<DataRowViewModel> query = _all;
+        IEnumerable<DataRowViewModel> query = _all
+            .Where(e => e.Origin == OriginFilter);
 
         if (!string.IsNullOrWhiteSpace(FilterSymbol))
             query = query.Where(e => Contains(e.Symbol, FilterSymbol));

@@ -14,6 +14,8 @@ public partial class DataRowViewModel : ObservableObject
     public bool IsGroupHeader { get; }
     public string GroupLabel { get; }
 
+    public backs2.Core.Data.DataOrigin Origin { get; }
+
     public string Symbol { get; }
     public string Timeframe { get; }
     public string Tier { get; }
@@ -51,6 +53,8 @@ RangeDisplay = RangeTicks > 0 ? ProviderDatasetRow.FormatDuration(System.TimeSpa
         _suppressWrite = true;
         IsQueued = queue.Contains(Symbol, Timeframe);
         _suppressWrite = false;
+    
+        Origin = entry.Origin;
     }
 
     private DataRowViewModel(string symbol, int timeframeCount, Action<DataRowViewModel, bool>? onGroupToggle)

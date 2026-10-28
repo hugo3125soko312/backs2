@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using backs2.Core.Models;
+using backs2.Core.Data;
 using backs2.Core.Providers;
 
 namespace backs2.Core;
@@ -21,7 +22,8 @@ public record DataEntry(
     DateTime LastModifiedLocal,
     bool HasVolume,
 long MinT = 0,
-long MaxT = 0)
+long MaxT = 0,
+    DataOrigin Origin = DataOrigin.Legacy)
 {
     public string SizeDisplay => FormatSize(SizeBytes);
 
@@ -279,7 +281,8 @@ public class DataManager
                 LastModifiedLocal: info.LastWriteTime,
                 HasVolume: meta?.HasVolume ?? false,
 MinT: meta?.MinT ?? 0,
-MaxT: meta?.MaxT ?? 0));
+MaxT: meta?.MaxT ?? 0,
+                Origin: meta?.Origin ?? DataOrigin.Legacy));
         }
 
         if (Directory.Exists("data"))
