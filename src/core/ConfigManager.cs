@@ -23,6 +23,12 @@ public class AppSettings
 
     public List<string> QueuedDatasets { get; set; } = new();
 
+    /// <summary>
+    /// Per-entry data origin for QueuedDatasets. Key is symbol@timeframe.
+    /// Optional: entries missing here resolve at launch from the cache envelope.
+    /// </summary>
+    public Dictionary<string, string> QueuedDatasetOrigins { get; set; } = new();
+
     public string Mt5Host      { get; set; } = "127.0.0.1";
     public int    Mt5Port      { get; set; } = 5555;
     public int    Mt5TimeoutMs { get; set; } = 60000;
@@ -175,6 +181,7 @@ public class ConfigManager
         Settings.ActiveAccountSize ??= "";
         Settings.LogLevel ??= "Info";
         Settings.QueuedDatasets ??= new List<string>();
+        Settings.QueuedDatasetOrigins ??= new Dictionary<string, string>();
         Settings.Mt5Host ??= "127.0.0.1";
         Settings.Mt5TerminalDataRoot ??= "";
         Settings.Mt5TerminalBroker ??= "";

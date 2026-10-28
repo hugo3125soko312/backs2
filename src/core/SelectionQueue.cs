@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using backs2.Core.Data;
 
 namespace backs2.Core;
 
@@ -19,6 +20,7 @@ public sealed class SelectionQueue
     private readonly ConfigManager _cfg;
     private readonly object _gate = new();
     private readonly HashSet<string> _keys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DataOrigin> _origins = new(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<QueuedDataset> Items { get; } = new();
 
@@ -39,6 +41,9 @@ public sealed class SelectionQueue
     }
 
     public void Add(string symbol, string timeframe, string provider)
+        => Add(symbol, timeframe, provider, DataOrigin.Legacy);
+
+    public void Add(string symbol, string timeframe, string provider, DataOrigin origin)
     {
         if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(timeframe))
             return;
@@ -49,6 +54,7 @@ public sealed class SelectionQueue
 
             Items.Add(new QueuedDataset(symbol, timeframe, provider ?? "Unknown"));
             _keys.Add(KeyOf(symbol, timeframe));
+            _origins[KeyOf(symbol, timeframe)] = origin;
         }
 
         Persist();
@@ -68,6 +74,7 @@ public sealed class SelectionQueue
             if (match == null) return;
             Items.Remove(match);
             _keys.Remove(KeyOf(symbol, timeframe));
+            _origins.Remove(KeyOf(symbol, timeframe));
         }
 
         Persist();
@@ -82,6 +89,7 @@ public sealed class SelectionQueue
             if (Items.Count == 0) return;
             Items.Clear();
             _keys.Clear();
+            _origins.Clear();
         }
 
         Persist();
@@ -105,10 +113,20 @@ public sealed class SelectionQueue
             var timeframe = entry.Substring(at + 1);
             Items.Add(new QueuedDataset(symbol, timeframe, "Unknown"));
             _keys.Add(KeyOf(symbol, timeframe));
+            var stored = _cfg.Settings.QueuedDatasetOrigins.TryGetValue(KeyOf(symbol, timeframe), out var s) && Enum.TryParse<DataOrigin>(s, out var parsed) ? parsed : DataOrigin.Legacy;
+            _origins[KeyOf(symbol, timeframe)] = stored;
         }
 
         if (Items.Count > 0)
             LogManager.Info(LogTag.Data, $"restored {Items.Count} queued dataset(s) from settings");
+    }
+
+    public DataOrigin GetOrigin(string symbol, string timeframe)
+    {
+        lock (_gate)
+        {
+            return _origins.TryGetValue(KeyOf(symbol, timeframe), out var o) ? o : DataOrigin.Legacy;
+        }
     }
 
     private static string KeyOf(string symbol, string timeframe) => symbol + "@" + timeframe;
@@ -118,6 +136,7 @@ public sealed class SelectionQueue
         lock (_gate)
         {
             _cfg.Settings.QueuedDatasets = Items.Select(i => i.Key).ToList();
+            _cfg.Settings.QueuedDatasetOrigins = _origins.ToDictionary(kv => kv.Key, kv => kv.Value.ToString(), StringComparer.OrdinalIgnoreCase);
         }
         _cfg.SaveConfig();
     }
