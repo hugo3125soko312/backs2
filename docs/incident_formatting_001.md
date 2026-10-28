@@ -188,3 +188,57 @@ The priority order from the initial report still holds. Add these:
 3. **Renderer normalization must strip invisible characters.** Zero-width spaces, RTL marks, BOMs, and soft hyphens should be removed from any body before dispatch.
 
 4. **-N must be either fixed or rejected loudly.** If the handler is intentionally disabled the bridge must return a not-supported error, not silently return exit code minus-one. Silent failure on a dedicated verb is the worst possible state.
+
+## Verification pass (2026-10-28, post-fix)
+
+The exec-bridge team pushed a fix between the initial report and this verification. Four failure modes were re-tested with controlled probes. Three are fixed; one is WORSE than before.
+
+### FIXED: -N handler
+
+Was 0 of 5 (every fresh-ID attempt returned exit code minus-one, no file created). Now 1 of 1: `[powershell-N=test01]` returned `created: .tmp\bridge-test.txt (44 bytes)`. Verified with a follow-up -ER reading the file: 44 bytes on disk. -N works.
+
+### FIXED: nested here-strings inside an -ER body
+
+Was: a block whose body contained a here-string that itself defined a here-string variable failed to execute. Now: MARKER-C test executed cleanly with inner here-string content returned as expected. The fence parser now correctly distinguishes an inner here-string terminator from the outer fence terminator.
+
+### FIXED: tag-ID dedup on FRESH IDs
+
+Every fresh tag ID works. MARKER-B (fresh1), MARKER-D (test04), MARKER-G (brandnew9), MARKER-H (8q3v7m), MARKER-I (8q3v7n), MARKER-J (8q3v7p) all returned their expected output on the first attempt.
+
+### WORSE: tag-ID dedup on REUSED IDs
+
+Before the fix, a reused tag ID returned exit=-1 — at least visible as a failure. Now a reused tag ID produces NO RESULT ENTRY AT ALL. The block vanishes from the results set with no error line, no exit code, nothing. Compare:
+
+- k8n3w5 reused across two turns: one attempt returned exit=0 with EMPTY output (silent partial success), one attempt produced NO RESULT ENTRY AT ALL.
+- fresh1 reused in the very next turn: NO RESULT ENTRY.
+- fresh1 twice in the same turn: NO RESULT ENTRY for the second.
+
+This is a regression. The dedup silently swallows blocks where it used to fail loudly. Worse still, one case (k8n3w5 first re-use) executed the block but returned an empty result, meaning the block may have run but the output was dropped. Silent-execution-with-lost-output is a data-integrity hazard, not just a UX one.
+
+### NOT FIXED: backtick stripping in the renderer
+
+MARKER-H shows the exact failure pattern remains. The intended source was a Write-Host call concatenating a string with [char]96 and another string. The rendered result was mangled: the leading quote character disappeared and the literal text appeared in the output instead of being evaluated. The renderer is still eating backticks before dispatch, and in doing so it is corrupting adjacent code.
+
+MARKER-I (backtick inside a variable) and MARKER-J (backtick-free source that produces a backtick at runtime) both worked, because neither contains a backtick in the source text the bridge sees.
+
+## Status summary after fix
+
+| Failure mode | Before | After |
+|---|---|---|
+| -N universally broken | Broken (0/5) | FIXED |
+| Nested here-strings | Broken | FIXED |
+| Fresh tag IDs | Worked | Still work |
+| Reused tag IDs | Loud failure (exit -1) | WORSE: silent swallow |
+| Backtick stripping in renderer | Broken | Still broken |
+
+## Recommended next fixes (revised)
+
+1. **Reused tag IDs must fail loudly or be allowed.** The current silent swallow is a regression. Either (a) allow reused IDs (best: dedup by body hash, not by ID), or (b) return a clear error with exit code -1 and a Warn log. Silent drop is the worst possible state, worse than the pre-fix behavior.
+
+2. **Backtick stripping must be fixed at the renderer.** The current mangling corrupts multi-character source expressions, not just the backtick itself. [char]96 was rewritten mid-expression. This is not a cosmetic issue — it changes what commands the agent can safely emit.
+
+3. **Detect silent-execution-with-lost-output.** The k8n3w5 first re-use case returned exit=0 with empty output, but the body should have produced the Write-Host line. Either the block did not execute at all and the exit=0 is fake, or it executed and the output was discarded. Either way is unacceptable. Add a heartbeat log line on every dispatch, with the tag ID and the dispatch outcome, so this class of failure has an audit trail.
+
+## What remains tested-and-working
+
+For future agents reading this report: char-code avoidance ([char]13, [char]10, [char]96) is still the correct strategy for CR / LF / backtick. Do not rely on backticks in the source. Reuse fresh tags on every block — a counter or a GUID suffix works. -N is now reliable. Nested here-strings are now reliable.
