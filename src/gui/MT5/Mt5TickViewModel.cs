@@ -19,6 +19,7 @@ public partial class Mt5TickViewModel : ObservableObject, INavigationTarget
     private readonly Mt5TickService _service;
     private readonly ConfigManager _config;
     private readonly CacheManager _cache;
+    private readonly backs2.Core.Data.ITickCompiler _tickCompiler;
     private CancellationTokenSource? _cts;
 
     public string[] Timeframes => TimeframeMap.All;
@@ -67,11 +68,12 @@ public partial class Mt5TickViewModel : ObservableObject, INavigationTarget
     [ObservableProperty] private int    _latencyMs;
     [ObservableProperty] private string _connectionInfoText = "";
 
-    public Mt5TickViewModel(Mt5TickService service, ConfigManager config, CacheManager cache)
+    public Mt5TickViewModel(Mt5TickService service, ConfigManager config, CacheManager cache, backs2.Core.Data.ITickCompiler tickCompiler)
     {
         _service = service;
         _config = config;
         _cache = cache;
+        _tickCompiler = tickCompiler;
         ConnectionInfoText = $"Server listening on {_config.Settings.Mt5Host}:{_config.Settings.Mt5Port}";
 
         TerminalDataRoot = _config.Settings.Mt5TerminalDataRoot ?? "";

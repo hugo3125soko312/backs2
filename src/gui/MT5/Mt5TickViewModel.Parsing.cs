@@ -34,45 +34,24 @@ public partial class Mt5TickViewModel
         try
         {
             var fileName = Path.GetFileNameWithoutExtension(ParseFilePath);
-            var symbol = fileName.Split('_')[0];
             var tf = ParseTimeframe;
             var path = ParseFilePath;
 
-            var progress = new Progress<ParseProgressReport>(p =>
+            var progress = new Progress<backs2.Core.Data.TickCompileProgress>(p =>
             {
                 ParseProgress = p.Percent;
                 ParseStatusText = p.Message;
             });
 
-            var result = await Task.Run(() => ParseCsvCore(path, tf, progress));
-
-            if (result.ZeroBidTicks.Count > 25)
-            {
-                LogManager.Warn(LogTag.Provider,
-                    $"MT5: dropped {result.ZeroBidTicks.Count:N0} ticks with zero bid during parsing.");
-            }
-            else if (result.ZeroBidTicks.Count > 0)
-            {
-                var sb = new StringBuilder();
-                foreach (var t in result.ZeroBidTicks)
-                {
-                    sb.Append(DateTimeOffset.FromUnixTimeMilliseconds(t).UtcDateTime
-                              .ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
-                    sb.Append(", ");
-                }
-                LogManager.Warn(LogTag.Provider,
-                    $"MT5: dropped {result.ZeroBidTicks.Count} ticks with zero bid at: {sb.ToString().TrimEnd(',', ' ')}");
-            }
+            var result = await _tickCompiler.CompileAsync(path, tf, progress);
 
             ParseProgress = 100;
-            ParseStatusText = $"Saving {result.Klines.Count:N0} bars to cache...";
+            ParseStatusText = $"Saving {result.Bars:N0} bars to cache...";
 
-            string cacheKey = $"{symbol}@{tf}";
-            await _cache.SaveCacheAsync(cacheKey, result.Klines, "MT5 Parsed");
 
-            ParseStatusText = $"Success. Saved {result.Klines.Count:N0} bars for {symbol}@{tf}.";
+            ParseStatusText = $"Success. Saved {result.Bars:N0} bars for {result.Symbol}@{result.Timeframe}.";
             LogManager.Info(LogTag.Provider,
-                $"MT5: parsed {result.LinesRead:N0} ticks into {result.Klines.Count:N0} bars ({symbol}@{tf})");
+                $"MT5: parsed {result.LinesRead:N0} ticks into {result.Bars:N0} bars ({result.Symbol}@{result.Timeframe})");
         }
         catch (Exception ex)
         {

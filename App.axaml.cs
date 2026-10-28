@@ -110,6 +110,7 @@ public partial class App : Application
     private void ConfigureServices(IServiceCollection services)
     {
         services.AddMemoryCache();
+        services.AddSingleton<backs2.Core.Data.ITickCompiler, backs2.Core.Data.Mt5TickCompiler>();
         services.AddSingleton<backs2.Core.Data.IQueueOriginGate, backs2.Core.Data.QueueOriginGate>();
         services.AddSingleton<backs2.Core.Data.IDataOriginResolver, backs2.Core.Data.DataOriginResolver>();
         services.AddSingleton<CacheManager>();
