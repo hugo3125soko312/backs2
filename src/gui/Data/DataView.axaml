@@ -4,7 +4,7 @@
              x:Class="backs2.Views.DataView"
              x:DataType="vm:DataViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="8">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="8">
 
         <!-- Row 0: fetch form -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
@@ -68,9 +68,33 @@
             <TextBox Grid.Column="8" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
+        <!-- Row 3: Raw Ticks compile form (visible only when subtab == Raw Ticks) -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8"
+                    IsVisible="{Binding IsRawTicksVisible}">
+            <TextBlock Text="Source:" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <Border BorderBrush="#30363D" BorderThickness="1" Padding="8,4" MinWidth="260" CornerRadius="3">
+                <TextBlock Text="{Binding CompileSourceLabel}" VerticalAlignment="Center" FontSize="12" />
+            </Border>
+            <TextBlock Text="Timeframe:" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <ComboBox Width="90" SelectedItem="{Binding CompileTimeframe, Mode=TwoWay}">
+                <ComboBoxItem Content="1m" />
+                <ComboBoxItem Content="5m" />
+                <ComboBoxItem Content="15m" />
+                <ComboBoxItem Content="30m" />
+                <ComboBoxItem Content="1h" />
+                <ComboBoxItem Content="4h" />
+                <ComboBoxItem Content="1D" />
+            </ComboBox>
+            <Button Content="Compile" Command="{Binding CompileCommand}" IsEnabled="{Binding !IsCompiling}" />
+            <Button Content="Compile &amp; Queue" Command="{Binding CompileAndQueueCommand}" IsEnabled="{Binding !IsCompiling}" />
+            <ProgressBar Width="160" Minimum="0" Maximum="100" Value="{Binding CompileProgress}"
+                         IsVisible="{Binding IsCompiling}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding CompileStatus}" VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+        </StackPanel>
         <!-- Row 3: data grid -->
-        <DataGrid Grid.Row="3"
+        <DataGrid Grid.Row="4"
                   ItemsSource="{Binding Rows}"
+                  SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                   IsReadOnly="True"
                   CanUserResizeColumns="True"
                   CanUserSortColumns="False"
@@ -277,7 +301,7 @@
         </DataGrid>
 
         <!-- Row 4: status line -->
-        <TextBox Grid.Row="4"
+        <TextBox Grid.Row="5"
                  Text="{Binding StatusText}"
                  IsReadOnly="True"
                  BorderThickness="0"

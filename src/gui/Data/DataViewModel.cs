@@ -18,6 +18,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
 
     private readonly DataManager _dataManager;
     private readonly SelectionQueue _queue;
+    private readonly backs2.Core.Data.ITickCompiler _tickCompiler;
     private readonly List<DataRowViewModel> _all = new();
     private readonly Dictionary<DataRowViewModel, List<DataRowViewModel>> _groupMembers = new();
 
@@ -59,6 +60,70 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
 
     [RelayCommand] private void SelectRawTicks() => SelectedSubtabIndex = 0;
     [RelayCommand] private void SelectTimeframes() => SelectedSubtabIndex = 1;
+    [ObservableProperty] private DataRowViewModel? _selectedRow;
+
+    public string CompileSourceLabel =>
+        SelectedRow == null ? "select one"
+        : string.Equals(SelectedRow.Tier, "Ticks (CSV)", StringComparison.OrdinalIgnoreCase)
+            ? System.IO.Path.GetFileName(SelectedRow.Path)
+            : "select a tick CSV row";
+
+    [ObservableProperty] private string _compileTimeframe = "1h";
+    [ObservableProperty] private double _compileProgress;
+    [ObservableProperty] private bool _isCompiling;
+    [ObservableProperty] private string _compileStatus = "";
+
+    partial void OnSelectedRowChanged(DataRowViewModel? value) => OnPropertyChanged(nameof(CompileSourceLabel));
+
+    [RelayCommand]
+    private async Task Compile() => await CompileInternal(queueAfter: false);
+
+    [RelayCommand]
+    private async Task CompileAndQueue() => await CompileInternal(queueAfter: true);
+
+    private async Task CompileInternal(bool queueAfter)
+    {
+        if (IsCompiling) return;
+        if (SelectedRow == null || !string.Equals(SelectedRow.Tier, "Ticks (CSV)", StringComparison.OrdinalIgnoreCase))
+        {
+            CompileStatus = "Select a tick CSV row in the grid first.";
+            return;
+        }
+        var csvPath = SelectedRow.Path;
+        if (!System.IO.File.Exists(csvPath))
+        {
+            CompileStatus = "CSV file no longer exists.";
+            return;
+        }
+        IsCompiling = true;
+        CompileProgress = 0;
+        CompileStatus = "Compiling...";
+        try
+        {
+            var progress = new Progress<backs2.Core.Data.TickCompileProgress>(p =>
+            {
+                CompileProgress = p.Percent;
+                CompileStatus = p.Message;
+            });
+            var result = await _tickCompiler.CompileAsync(csvPath, CompileTimeframe, progress).ConfigureAwait(true);
+            CompileProgress = 100;
+            CompileStatus = $"Compiled {result.Bars:N0} bars: {result.Symbol}@{result.Timeframe}.";
+            if (queueAfter)
+            {
+                _queue.Add(result.Symbol, result.Timeframe, "MT5 Parsed", backs2.Core.Data.DataOrigin.RawTick);
+            }
+            await RefreshData();
+        }
+        catch (Exception ex)
+        {
+            CompileStatus = "Compile failed: " + ex.Message;
+            LogManager.Error(LogTag.Data, "Compile from tick CSV failed", ex);
+        }
+        finally
+        {
+            IsCompiling = false;
+        }
+    }
 
     [ObservableProperty] private string _sortColumn = "Symbol";
     [ObservableProperty] private bool _sortAscending = true;
@@ -84,7 +149,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
 public string RangeSortGlyph => GlyphFor("RangeTicks");
 
-    public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config)
+    public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config, backs2.Core.Data.ITickCompiler tickCompiler)
     {
         _dataManager = dataManager;
         _queue = queue;
@@ -103,6 +168,7 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
         // continuation lands on the UI thread via ConfigureAwait(true) inside
         // RefreshDataAsync.
         _ = RefreshData();
+        _tickCompiler = tickCompiler;
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)

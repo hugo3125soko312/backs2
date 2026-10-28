@@ -285,20 +285,24 @@ MaxT: meta?.MaxT ?? 0,
                 Origin: meta?.Origin ?? DataOrigin.Legacy));
         }
 
-        if (Directory.Exists("data"))
+        foreach (var csvDir in new[] { "data/ticks", "data" })
         {
-            foreach (var file in Directory.GetFiles("data", "*.csv"))
+            if (!Directory.Exists(csvDir)) continue;
+            foreach (var file in Directory.GetFiles(csvDir, "*.csv", SearchOption.TopDirectoryOnly))
             {
                 var info = new FileInfo(file);
+                var stem = Path.GetFileNameWithoutExtension(info.Name);
+                var symbol = stem.Split('_')[0];
                 entries.Add(new DataEntry(
-                    Symbol: Path.GetFileNameWithoutExtension(info.Name),
-                    Timeframe: "",
-                    Tier: "CSV",
-                    Provider: "Unknown",
+                    Symbol: symbol,
+                    Timeframe: "tick",
+                    Tier: "Ticks (CSV)",
+                    Provider: "MT5 Ticks",
                     Path: info.FullName,
                     SizeBytes: info.Length,
                     LastModifiedLocal: info.LastWriteTime,
-                    HasVolume: false));
+                    HasVolume: false,
+                    Origin: DataOrigin.RawTick));
             }
         }
 
