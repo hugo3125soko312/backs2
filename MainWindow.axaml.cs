@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using backs2.ViewModels;
 
 namespace backs2;
@@ -15,6 +16,7 @@ public partial class MainWindow : Window
         Opened += OnOpened;
         Activated += OnActivated;
         PropertyChanged += OnWindowPropertyChanged;
+        ScalingChanged += OnScalingChanged;
     }
 
     private void OnOpened(object? sender, EventArgs e)
@@ -78,5 +80,27 @@ public partial class MainWindow : Window
     private void OnExitClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void OnScalingChanged(object? sender, EventArgs e)
+    {
+        // Phase 37: window moved to a monitor with a different DPI scale.
+        // Force a re-render of the shell chrome and refresh every ScottPlot
+        // canvas - a stale bitmap at the old scale renders blurred or
+        // clipped until the next explicit Refresh.
+        InvalidateVisual();
+        RefreshPlotsRecursive(this);
+    }
+
+    private static void RefreshPlotsRecursive(Visual root)
+    {
+        if (root is ScottPlot.Avalonia.AvaPlot plot)
+        {
+            try { plot.Refresh(); } catch { }
+        }
+        foreach (var child in root.GetVisualChildren())
+        {
+            RefreshPlotsRecursive(child);
+        }
     }
 }
