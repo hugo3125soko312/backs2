@@ -18,7 +18,7 @@ Fail: logs stop updating, lines arrive out of order, the tail is truncated below
 
 Also check: Clear View empties the pane and the next log line reappears. Refresh re-reads the file without duplicating existing lines.
 
-### 2. Cache metadata memoization -- 45e0eb2
+### 2. Cache metadata memoization -- 45e0eb2  [PASSED 2026-10-28]
 
 What changed: ReadCacheMetadata memoized on (path, mtime, length).
 
@@ -28,7 +28,7 @@ Pass: second and third visits are visibly faster. A newly fetched file appears i
 
 Fail: a stale row persists after a refetch, a new file is missing, or metadata (especially Has Volume and Total Range) disagrees with the actual file.
 
-### 3. Data tab filter debounce -- 45e0eb2
+### 3. Data tab filter debounce -- 45e0eb2  [PASSED 2026-10-28]
 
 What changed: filter handlers debounced 150 ms instead of rebuilding the grid per keystroke.
 
@@ -38,7 +38,7 @@ Fail: the grid never updates, updates with a stale filter value, or the final st
 
 Also check: clearing a filter restores all rows. Combining two filters (Symbol plus Range) still intersects correctly.
 
-### 4. GPU batch threshold -- 45e0eb2
+### 4. GPU batch threshold -- 45e0eb2  [PASSED 2026-10-28]
 
 What changed: GPU Monte Carlo batches below 400k total iterations now skip the device.
 
@@ -46,7 +46,7 @@ Pass: an Optimize run at default settings completes normally, and the log shows 
 
 Fail: Optimize errors out, or coarse MC produces empty or degenerate summaries.
 
-### 5. Optimizer progress throttle -- 7f661e4 (Phase 22E)
+### 5. Optimizer progress throttle -- 7f661e4 (Phase 22E)  [PASSED 2026-10-28]
 
 What changed: Progress replaced with ThrottledProgress at 100 ms.
 
@@ -56,7 +56,7 @@ Pass: progress bar advances smoothly, ETA text updates, status line shows the cu
 
 Fail: progress bar freezes or jumps backwards, ETA shows garbage, the final state never reaches 100 percent, or the status line sticks on a stale phase.
 
-### 6. Backtest dispatch through IComputeDispatcher -- 709fe31 (Phase 29C)
+### 6. Backtest dispatch through IComputeDispatcher -- 709fe31 (Phase 29C)  [PASSED 2026-10-28]
 
 What changed: the backtest phase now dispatches through IComputeDispatcher.DispatchBacktestBatchAsync with a caller-supplied body.
 
@@ -72,7 +72,7 @@ Pass: the line appears in the log on Data tab open with plausible numbers.
 
 Also record: the actual numbers, so the 18B acceptance target (interactive within 100 ms, grid populated within 500 ms on a warm cache) can finally be checked.
 
-### 8. In-group column sorting -- fa63e26
+### 8. In-group column sorting -- fa63e26  [PASSED 2026-10-28 - visual bug logged in Phase 38]
 
 Pass: every non-Symbol column header reorders rows inside each ticker group and the glyph flips asc/desc. Symbol still controls group order.
 
@@ -413,36 +413,36 @@ See `docs/ROADMAP_ARCHIVE.md` (Phase 26A).
 
 - ☑  
 **26B.1 Verification [PASSED]:** ScriptRunner is thread-safe; the StrategyManager throttle can be bypassed by the optimizer. Version-level parallelism is viable. See `docs/ROADMAP_ARCHIVE.md` (Phase 26B.1).
-- □  
+- ☑  
 `src/core/Optimizer/ParameterGridBuilder.cs` — Cartesian product from min / max / increment per parameter. Hard cap enforced here; random-sample fallback when over cap.
-- □  
+- ☑  
 `src/core/Optimizer/OptimizationRunner.cs` — the per-version loop: backtest → build `TimeSlice[]` → MC at coarse iterations → emit partial result → next version. After the loop completes, refine top-N survivors at full iterations.
-- □  
+- ☑  
 Progress reporting: fraction of total work per stage (grid → backtest per version → MC per version → refine pass). Reported via `IProgress<OptimizationProgress>`.
-- □  
+- ☑  
 Cancellation: single global `CancellationTokenSource` for the whole run, flowing into every backtest and MC call.
 
 ### Phase 26C -- ETA estimator [COMPLETED]
 
 **Parallel-topology fix (2026-10-10).** The optimizer now runs coarse and refine MC under an outer-parallel loop with `outer = min(combos, cores)` and `inner = cores / outer`. The current `EtaEstimator.Estimate` multiplies `remainingCombos` by an average per-version time as if the loop were sequential - every estimate is over-reported by the outer degree (~20x on a 20-core box).
 
-- □  
+- ☑  
 Rewrite `EtaEstimator.Estimate` so each phase's contribution is divided by its outer degree: `(remainingBacktests / W_backtest) * avgBacktest + (remainingCoarse / W_coarse) * avgCoarse + (remainingRefine / W_refine) * avgRefine / gpuFactor`.
-- □  
+- ☑  
 Thread phase-specific outer degrees through from `OptimizationRunner` to `EtaEstimator`. Each phase currently computes its own `outer` locally - pass it in.
-- □  
+- ☑  
 Expose a single `EstimateTotal()` that returns one wall-time number covering the **whole** run (backtest + coarse MC + refine MC + save) from the moment the grid starts building. The Runner's ETA display should read one number, not stitch per-phase pieces together at call sites.
-- □  
+- ☑  
 Normalize the moving-average sample per unit of work (ms per version, ms per simulation) rather than ms per wall-clock, so the average stays valid across topology changes.
-- □  
+- ☑  
 `src/core/Optimizer/EtaEstimator.cs` — moving average of backtest and MC times, updated after each version. Blind for the first 5 versions, then extrapolates.
-- □  
+- ☑  
 Formula: `ETA = remainingCombos * (AvgBacktestTime + AvgMCTime / gpuAccelerationFactor)`.
-- □  
+- ☑  
 UI: `TextBlock` in the Runner, updated every ~5 seconds via a throttled timer to avoid UI thread jitter.
-- □  
+- ☑  
 Per-parameter table extension: `RunnerParameterViewModel` gains `Min`, `Max`, `Increment` observable properties, a derived `ValueCount`, and a per-row preview.
-- □  
+- ☑  
 `gpuAccelerationFactor` reads from a new `AppSettings.OptimizerGpuFactor` setting (default 1.0). Not exposed in the UI yet; the setting exists so the future GPU path is a value change, not a schema change.
 
 ### Phase 26D -- Runner UI rework
@@ -451,17 +451,17 @@ Per-parameter table extension: `RunnerParameterViewModel` gains `Min`, `Max`, `I
 **26D.1 -- Ship MC settings first [COMPLETED]:** MC settings panel added to Runner, backed by `RunnerViewModel` fields; active account banner and ruin threshold auto-update on `AccountService.ActiveChanged`. MC tab untouched.
 - ☑  
 **26D.2a -- Chooser + source viewer [COMPLETED]:** Source-preview column removed. Two-column layout: filter box + `ListBox` chooser + `View Source...` on the left, parameter panel on the right. `StrategySourceWindow` (`src/gui/Strategy/`) opens read-only source on demand. Diff-based `FilteredStrategies` update so filtering does not null the selection.
-- □  
+- ☑  
 **26D.2b:** Add min/max/increment fields per numeric `RunnerParameterViewModel`; live combination-count per parameter and per grid; cap warning when total exceeds `OptimizerMaxCombinations`.
-- □  
+- ☑  
 **26D.2c:** Add `Optimize` button next to `Run`; wire to `OptimizationRunner.RunAsync`; progress bar + ETA display driven by `OptimizationProgress`.
-- □  
+- ☑  
 `RunnerParameterViewModel` gains min / max / increment fields per numeric parameter. Derived `ValueCount` per parameter, `TotalCombinations` across all parameters. UI blocks `Optimize` when `TotalCombinations` exceeds the cap and offers a random-sample mode.
-- □  
+- ☑  
 Add an `Optimize` button next to `Run`. `Run` keeps single-configuration behavior. `Optimize` runs the grid.
-- □  
+- ☑  
 ETA display and progress bar wired to the optimizer.
-- □  
+- ☑  
 Optimizer settings block (cap, coarse iters, refine iters, refine top N) added to the Runner's MC settings panel.
 
 ### Phase 26E -- Monte Carlo tab removal
@@ -531,6 +531,8 @@ CancellationToken ct);
 }
 
 Boundary is `TimeSlice[]` in, `double[]` terminal balances out. `BuildResult` (sort, percentile, streak distributions) stays on the CPU. `CancellationToken` is checked between kernel dispatches; large iteration counts are chunked to avoid Windows TDR (Timeout Detection and Recovery).
+
+> **STATUS (2026-10-28):** Phase 27A/B/C were superseded by Phase 28 (Unified Computing Subsystem) and Phase 29 (Compute Retrofit), which shipped the same design under different names. The open boxes below are historical, not pending. Closed.
 
 ### Phase 27A -- Backend abstraction & CPU parity
 
@@ -852,9 +854,9 @@ Verification: `--mc-verify --backend=Auto --dispatches=8 --iterations=100` (no w
 ### Phase 29C -- Optimizer Backtest Retrofit [COMPLETED] -- shipped 2026-10-25 (709fe31): new DispatchBacktestBatchAsync overload takes the per-job body as a Func so the dispatcher owns scheduling and the caller owns the work; the original skeleton took only a count and could not express what a job is. One flat Parallel.ForEachAsync pool, CPU path only, since Roslyn backtests are neither chunkable nor vectorizable. OptimizationRunner injects IComputeDispatcher and its backtest phase dispatches through it. Worker-process migration not done -- that is wiring behind the interface.
 
 - **Size:** M · **Depends on:** 29A, 28B · **Succeeds when:** the per-combination backtest loop executes via `IComputeDispatcher`, routing exclusively to the worker's CPU backend.
-- □  
+- ☑  
 Wire `OptimizationRunner` to dispatch Roslyn script backtests in batches to the worker.
-- □  
+- ☑  
 The worker routes these batches strictly to `CpuBackend` (Parallel.For), as strategy scripts are inherently non-vectorizable.
 
 ### Phase 30 -- Roslyn Backtest Cost Investigation [COMPLETED]
@@ -887,7 +889,7 @@ Re-run the Phase 30 workload unchanged: 500 combinations, `EtWindow` on `GOLD.pr
 
 - **Size:** M · **Depends on:** 30, 31, 33 · **Succeeds when:** the per-version warm invoke drops materially from the measured 16.65-20.63 ms/version on the Phase 30 workload, with the ET conversion of all 60,540 bars bit-identical to `TimeZoneInfo.ConvertTimeFromUtc` and byte-identical `Trade` sequences.
 - Shipped 2026-10-25 (9e032c2). EasternTime.ToEastern now resolves the America/New_York offset from a per-year transition table built lazily on first access and cached per year, instead of calling TimeZoneInfo.ConvertTimeFromUtc per bar. The hot path is a loop over one or two transitions plus a DateTime offset add. Boundaries are located by hour-stepping the year and bisecting to the minute. Verified bit-identical, not sampled: --et-verify probes 500,000 random instants in [1990, now) against TimeZoneInfo.ConvertTimeFromUtc and reports 0 mismatches, both DST boundaries included; the hook stays in tree as the regression check. Not measured: the end-to-end per-version invoke win on the Phase 30 workload - correctness is proven, the throughput claim is untested. Phase 33's decomposition retargets this phase. It was specced as a Roslyn bypass -- replace `ScriptRunner<T>` with a pre-bound delegate over a fixed globals shape -- on the strength of Phase 30's "72% of every invoke is Roslyn scripting-API plumbing". Phase 33 falsified that premise: the delegate call is 100.0% of invoke, the pre-invoke plumbing is 1 ms over 500 versions, and an empty script pushed through the identical `CSharpScript.Create` -> `CreateDelegate` -> `runner(globals)` path costs below the measurement floor. The invoke *is* the script body, and the body's cost is `EasternTime.ToEastern`'s per-bar `TimeZoneInfo.ConvertTimeFromUtc`, **60,540 calls/version**. A Roslyn bypass therefore removes nothing. The scripting-API half of this phase is dropped, not deferred.
-- □  
+- ☑  
 **Approach (stub; the full spec follows after `src/core/Utils/EasternTime.cs` is read).** Resolve the `America/New_York` offset from a pre-built DST-transition table instead of a per-bar `TimeZoneInfo.ConvertTimeFromUtc`: enumerate `TimeZoneInfo.FindSystemTimeZoneById("America/New_York").GetAdjustmentRules()` once per process, per UTC year, and select the applicable offset by comparing the bar's UTC instant against the transition boundaries rather than performing a time-zone lookup. The lookup must stay read-only and thread-safe for the 20 concurrent backtest workers, and every bar's ET result must be checked against the current implementation, not sampled.
 - Note: this phase's own success criterion cites the warm invoke as a range, not the single 39.59 ms/version figure the Roslyn-bypass spec was written against -- Phase 33 measured the same workload 2x faster because the host was less loaded. The share (100% of invoke is body execution) is the finding; the absolute warm figure needs a quieter machine to be a target. See the Phase 33 archive entry.
 
@@ -903,6 +905,57 @@ Emit one `[33]` block from `OptimizationRunner` alongside `[29A]`/`[30]`: total 
 - ☑  
 Re-run the Phase 30 workload unchanged: 500 combinations, `EtWindow` on `GOLD.pro@30m`, 20 cores, warm pass, all 500 versions compared element-by-element against the archived 29A batch.
 - Result: **the delegate call is 100.0% of invoke, and the delegate call is the script body -- pre-invoke plumbing is ~0 ms.** Plumbing measured 1 ms total over 500 versions (0.00 ms/version); the delegate call measured 8,322-10,316 ms of the 8,323-10,317 ms invoke across the verification runs (16.64-20.63 ms/version). An out-of-process probe through the identical `CSharpScript.Create` -> `CreateDelegate` -> `runner(globals)` path priced an empty script at 0.000 ms median per call and the real `EtWindow` source at ~11 ms on an idle machine -- below the scripting-API measurement floor. **Phase 30's 35.76 ms/version "Roslyn plumbing" attribution was a measurement artefact**, not a cost: that probe ran on an idle machine while the production run was contended. The hot path is `EasternTime.ToEastern`'s per-bar `TimeZoneInfo.ConvertTimeFromUtc` (60,540 calls/version). This kills the Roslyn-bypass design and redirects Phase 32 to an `EasternTime` fast path. Full numbers in the archive entry.
+
+---
+
+## Phase 37: Monitor Switching [PLANNED]
+
+Moving the backs2 window between monitors (drag, or Win+Shift+Left/Right) needs verification, and probably reactive handling on DPI change.
+
+Open question for the user - which scope is intended?
+
+1. Verify only. Avalonia should already handle DPI changes. Test on mixed-DPI pair; ship if green.
+2. React on ScalingChanged. Subscribe on MainWindow, force repaint of shell chrome, ScottPlot controls, and DataGrid when the window crosses a DPI boundary.
+3. Recreate window. Heavy. Not recommended.
+4. Fullscreen round-trip. Highest risk. Verify FullScreen -> Normal -> move -> FullScreen.
+
+Test plan (verify candidate 1 first):
+
+- Shell chrome renders at correct scale after move.
+- ScottPlot (Chart, Monte Carlo histogram / curves / cluster) - no blur, clipped axes, or frozen canvas.
+- DataGrid (Data tab) - column widths, row heights re-scale.
+- ColorPicker modal (Config) repositions to parent monitor.
+- Pan/zoom handlers still respond.
+- Fullscreen -> restore -> move -> fullscreen round-trip.
+- Hostile pair: 100% primary + 150% secondary, both directions.
+
+Likely files if candidate 2 lands: MainWindow.axaml.cs (ScalingChanged), MonteCarloView.axaml.cs / ChartView.axaml.cs (re-render).
+
+---
+
+## Phase 38: Streamed GUI Loading [PLANNED]
+
+Pattern: do not freeze-load-unfreeze. Stream content in batches and yield to the dispatcher between them, exactly as LogsViewModel does after Phase 22E (bounded Queue of LogEntry + coalesced flush on a DispatcherTimer + Interlocked.Increment frame hook).
+
+Architectural shape: create a reusable core module before touching any tab. Name and location follow the precedent set by src/core/Computing/ - a self-contained core subsystem the rest of the app consumes as a service. Working name: src/core/GuiLoading/ (final name up to the implementer). This is a REFACTORING phase, not a patch. Do not scatter a helper across each ViewModel. Build the loader once as a core subsystem, register in DI, route every tab through it.
+
+Sub-phases:
+
+- 38A - Core module. Define the loader contract (bounded batch size, coalesced flush cadence, cancellation, latest-wins). Reference implementation: LogsViewModel existing pattern, lifted into the shared module. Register as singleton in App.axaml.cs ConfigureServices. Unit-test the contract in isolation before wiring any tab.
+- 38B - Refactor Data tab. DataViewModel.RefreshData / RefreshDataAsync routes through the loader. Group-header rows and member rows stream in together (header first, members after). Accept: grid interactive within 100 ms, fully populated within 500 ms at 10x current cache count. Fix the known visual bug (see below) while touching this file.
+- 38C - Refactor Accounts tab. 54 descriptors currently materialised on selection change. Stream them in. Same acceptance.
+- 38D - Refactor Providers tab. Parallel metadata scan is already off-thread in RefreshAsync; route the aggregation + Groups.Add loop through the loader. Same acceptance.
+- 38E - Audit remaining tabs. Mt5 PopulateGrid (already batched via RangeObservableCollection.AddRange - verify), ChartViewModel dataset swap, any other ObservableCollection fill path. Convert any remaining freeze-then-unfreeze shape.
+- 38F - Acceptance. Every tab interactive within 100 ms of click on warm cache; fully populated within 500 ms at 10x current dataset count. Instrument via existing LogTag.Data / LogTag.Cache / LogTag.Account Stopwatch markers.
+
+Design constraints:
+
+- No new framework. The loader is a thin wrapper over ObservableCollection + DispatcherTimer + a bounded Queue - the same primitives LogsViewModel already uses.
+- Cancellable. Tab switch or refresh click during a streamed load cancels the in-flight batch. Latest-wins semantics, matching the existing CancellationTokenSource pattern in DataViewModel.
+- ObservableCollection stays as the binding contract. No XAML change required; only the fill pattern changes.
+- Complements Phase 24 (off-thread disk I/O). 24 unblocks the disk; 38 unblocks the dispatcher.
+
+Known issue carried from Pending Testing #8 (2026-10-28): the Timeframe column header label and its sort glyph are clipped ("Timefram" + truncated triangle). Likely a fixed-width ColumnDefinition in DataView.axaml. Fix in 38B while the Data tab is being touched.
 
 ---
 
