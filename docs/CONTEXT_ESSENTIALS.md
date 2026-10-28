@@ -27,7 +27,7 @@ HTTP: one named client `ResilientClient` with `AddStandardResilienceHandler`. Pr
 2. **Disk** — `CacheManager.LoadCacheAsync(key)` at `data/cache/{symbol}_{timeframe}.json`, format `CacheEnvelope<KlineCompact[]>` via source-generated `KlineJsonContext`.
 3. **Network** — walk `AppSettings.ProviderOrder`. First non-empty result wins. `preferredProvider` is hoisted to the front of the walk; a cache hit whose `source` differs from the preferred provider is bypassed and refetched.
 
-`KlineCompact = { long T; double O,H,L,C,V; }` — T is Unix milliseconds. Envelope carries `source`, `fetchedUtc`, `symbol`, `timeframe`.
+`KlineCompact = { long T; double O,H,L,C,V; }` — T is Unix milliseconds. Envelope carries `source`, `fetchedUtc`, `symbol`, `timeframe`. Envelope also carries origin (DataOrigin: Legacy / RawTick / TimeframeFetch, default Legacy; resolved lazily from source by IDataOriginResolver.FromSourceStatic when unset). MT5 Parsed resolves to RawTick; every other source resolves to TimeframeFetch.
 
 Symbol resolution is per-provider. Timeframe mapping is `TimeframeMap`. Never add symbol or timeframe translation to `DataManager` or `IDataProvider`.
 
@@ -75,6 +75,8 @@ Registered: VWAP, CVD, RSI(14), ATR(14), SessionHigh, ZScore, VP-POC, VP-VAH, VP
 ## 8. Selection Queue
 
 - `SelectionQueue` (singleton) is the **single source of truth** for enabled datasets.
+- QueuedDataset carries a DataOrigin Origin. IQueueOriginGate.CheckAsync warns Runner/Chart when a queued entry is a raw-tick compile; the UI shows a popup before consuming.
+- Restored entries from AppSettings.QueuedDatasets re-derive origin lazily via IDataOriginResolver from the cache file.
 - Persistence: `AppSettings.QueuedDatasets` as `"symbol@timeframe"` strings in `config/settings.json`.
 - `DataRowViewModel.IsQueued` is the only writer.
 - Modal `QueueWindow` uses pending-removal semantics: unchecking dims to 45% opacity, Done commits removals, Cancel discards, window X behaves like Done.
@@ -171,6 +173,7 @@ Shell navigation is a VS Code-style tree on the left (`TreeView`, `MainViewModel
 - `docs/` — documentation plus the MQL5 bridge source (`Backs2TickBridge.mq5`) and range verifier (`VerifyTickRangeExact.mq5`).
 - `logs/` and `.env` — git-ignored. Never commit secrets or log output.
 - `src/core/Writers/` — writers that do not fit the standard `CacheEnvelope<KlineCompact[]>` shape (currently `Mt5TickWriter.cs`). Do not move `CacheManager` there.
+- src/core/Data/ -- DataOrigin enum, IDataOriginResolver, IQueueOriginGate, ITickCompiler + Mt5TickCompiler. Shared by the Data tab split and the SelectionQueue origin gate.
 - `src/core/Utils/` — small stateless helpers that do not justify their own feature folder. Criteria: pure functions, no DI, no logging, no state, cross-cutting. Currently `EasternTime.cs` (DST-aware Eastern Time conversion for Unix-ms UTC timestamps). See the folder's `README.md` for the inclusion rule.
 
 ## 18. Build protocol

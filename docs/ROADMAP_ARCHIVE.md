@@ -438,3 +438,12 @@ Adds a `Total Range` column to the Data tab grid showing the span covered by eac
 - `DataViewModel` gains `FilterRange`, `RangeSortGlyph`, and the `OnFilterRangeChanged` partial, all wired into `ApplyView`. Member-row ordering inside a ticker group is delegated to a new `OrderWithinGroup` helper: when `SortColumn == "RangeTicks"` it sorts on the numeric `RangeTicks` (ascending or descending), otherwise it keeps the pre-existing timeframe-descending order. Group order remains alphabetical by Symbol.
 - Sparse-data edge case: a dataset with `MinT <= 0`, `MaxT <= 0`, or `MaxT <= MinT` renders the em dash and its `RangeTicks` is `0`, so it sorts to the bottom of either direction.
 - Verified: `dotnet build --no-incremental` succeeds with 0 errors (1 pre-existing warning in `MonteCarloViewModel.Cluster.cs`).
+
+
+## Phase 24B -- Accounts tab [COMPLETED 2026-10-28]
+
+Shipped 1cba742. AccountService ctor no longer blocks on the data/accounts/ scan; JSON parse runs inside Task.Run fire-and-forget and AccountViewModel observes the result. First Accounts click no longer pays ~150 ms cold scan. Same pattern as Phase 24A (Data tab).
+
+## Phase 37 -- Monitor Switching [COMPLETED 2026-10-28]
+
+Candidate 2 (React on ScalingChanged) shipped d9214d7. MainWindow.ScalingChanged forces a re-render of the shell chrome and refreshes every ScottPlot control (Chart, MC histogram / curves / cluster). Manual test plan captured in docs/TEST-2026-10-28.md. Candidates 1 (verify-only), 3 (recreate window), 4 (fullscreen round-trip) not pursued.

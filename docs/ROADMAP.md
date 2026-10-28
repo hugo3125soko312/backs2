@@ -741,7 +741,7 @@ Extends the Phase 21 pattern (off-thread, parallel metadata scan + fire-and-forg
 
 See `docs/ROADMAP_ARCHIVE.md` (Phase 24A).
 
-### Phase 24B -- Accounts tab [PENDING]
+### Phase 24B -- Accounts tab [COMPLETED 2026-10-28]
 
 - □  
 `AccountService` ctor scans `data/accounts/` and parses each firm JSON. ~150 ms cold on first Accounts click.
@@ -908,7 +908,7 @@ Re-run the Phase 30 workload unchanged: 500 combinations, `EtWindow` on `GOLD.pr
 
 ---
 
-## Phase 37: Monitor Switching [PLANNED]
+## Phase 37: Monitor Switching [COMPLETED - candidate 2, 2026-10-28]
 
 Moving the backs2 window between monitors (drag, or Win+Shift+Left/Right) needs verification, and probably reactive handling on DPI change.
 
