@@ -12,7 +12,7 @@ using backs2.Core.Providers;
 
 namespace backs2.ViewModels;
 
-public partial class DataViewModel : ObservableObject
+public partial class DataViewModel : ObservableObject, INavigationTarget
 {
     private const string AutoProvider = "Auto";
 
@@ -43,6 +43,22 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private backs2.Core.Data.DataOrigin _originFilter = backs2.Core.Data.DataOrigin.TimeframeFetch;
 
     partial void OnOriginFilterChanged(backs2.Core.Data.DataOrigin value) => ApplyView();
+    [ObservableProperty] private int _selectedSubtabIndex = 1;
+
+    public bool IsRawTicksVisible => SelectedSubtabIndex == 0;
+    public bool IsTimeframesVisible => SelectedSubtabIndex == 1;
+
+    public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
+
+    partial void OnSelectedSubtabIndexChanged(int value)
+    {
+        OriginFilter = value == 0 ? backs2.Core.Data.DataOrigin.RawTick : backs2.Core.Data.DataOrigin.TimeframeFetch;
+        OnPropertyChanged(nameof(IsRawTicksVisible));
+        OnPropertyChanged(nameof(IsTimeframesVisible));
+    }
+
+    [RelayCommand] private void SelectRawTicks() => SelectedSubtabIndex = 0;
+    [RelayCommand] private void SelectTimeframes() => SelectedSubtabIndex = 1;
 
     [ObservableProperty] private string _sortColumn = "Symbol";
     [ObservableProperty] private bool _sortAscending = true;
