@@ -274,7 +274,7 @@ public class DataManager
             entries.Add(new DataEntry(
                 Symbol: meta?.Symbol ?? Path.GetFileNameWithoutExtension(info.Name),
                 Timeframe: meta?.Timeframe ?? "",
-                Tier: "Cache",
+                Tier: (meta?.Origin == DataOrigin.RawTick) ? "Compiled" : "Cache",
                 Provider: meta?.Source ?? "Unknown",
                 Path: info.FullName,
                 SizeBytes: info.Length,

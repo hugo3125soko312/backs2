@@ -71,6 +71,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     [ObservableProperty] private string _compileTimeframe = "1h";
     [ObservableProperty] private double _compileProgress;
     [ObservableProperty] private bool _isCompiling;
+    private string? _pendingOverwrite;
     [ObservableProperty] private string _compileStatus = "";
 
     partial void OnSelectedRowChanged(DataRowViewModel? value) => OnPropertyChanged(nameof(CompileSourceLabel));
@@ -95,6 +96,18 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
             CompileStatus = "CSV file no longer exists.";
             return;
         }
+
+        var stem = System.IO.Path.GetFileNameWithoutExtension(csvPath);
+        var symbolPrefix = stem.Split('_')[0];
+        var cachePath = "data/cache/" + symbolPrefix + "_" + CompileTimeframe + ".json";
+        var overwriteKey = symbolPrefix + "@" + CompileTimeframe;
+        if (System.IO.File.Exists(cachePath) && _pendingOverwrite != overwriteKey)
+        {
+            _pendingOverwrite = overwriteKey;
+            CompileStatus = "WARNING: " + overwriteKey + " already exists. Click Compile again to overwrite, or change the Timeframe.";
+            return;
+        }
+        _pendingOverwrite = null;
         IsCompiling = true;
         CompileProgress = 0;
         CompileStatus = "Compiling...";

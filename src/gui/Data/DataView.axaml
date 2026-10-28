@@ -56,16 +56,16 @@
         </StackPanel>
 
         <!-- Row 2: filter row -->
-        <Grid Grid.Row="2" ColumnDefinitions="2*,1*,1.2*,1.2*,70,1*,1.5*,1.5*,3*" Margin="0,0,0,4">
-            <TextBox Grid.Column="0" Text="{Binding FilterSymbol, Mode=TwoWay}" Watermark="Symbol" Margin="0,0,4,0" />
-            <TextBox Grid.Column="1" Text="{Binding FilterTimeframe, Mode=TwoWay}" Watermark="TF" Margin="0,0,4,0" />
-            <TextBox Grid.Column="2" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
-            <TextBox Grid.Column="3" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
-            <Border Grid.Column="4" Margin="0,0,4,0" />
-            <TextBox Grid.Column="5" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
-            <TextBox Grid.Column="6" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
-            <TextBox Grid.Column="7" Text="{Binding FilterRange, Mode=TwoWay}" Watermark="Range" Margin="0,0,4,0" />
-            <TextBox Grid.Column="8" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
+        <Grid Grid.Row="2" ColumnDefinitions="44,2*,1*,1.2*,1.2*,70,1*,1.5*,1.5*,3*" Margin="0,0,0,4">
+            <TextBox Grid.Column="1" Text="{Binding FilterSymbol, Mode=TwoWay}" Watermark="Symbol" Margin="0,0,4,0" />
+            <TextBox Grid.Column="2" Text="{Binding FilterTimeframe, Mode=TwoWay}" Watermark="TF" Margin="0,0,4,0" />
+            <TextBox Grid.Column="3" Text="{Binding FilterTier, Mode=TwoWay}" Watermark="Tier" Margin="0,0,4,0" />
+            <TextBox Grid.Column="4" Text="{Binding FilterProvider, Mode=TwoWay}" Watermark="Provider" Margin="0,0,4,0" />
+            <Border Grid.Column="5" Margin="0,0,4,0" />
+            <TextBox Grid.Column="6" Text="{Binding FilterSize, Mode=TwoWay}" Watermark="Size" Margin="0,0,4,0" />
+            <TextBox Grid.Column="7" Text="{Binding FilterModified, Mode=TwoWay}" Watermark="Modified" Margin="0,0,4,0" />
+            <TextBox Grid.Column="8" Text="{Binding FilterRange, Mode=TwoWay}" Watermark="Range" Margin="0,0,4,0" />
+            <TextBox Grid.Column="9" Text="{Binding FilterPath, Mode=TwoWay}" Watermark="Path" />
         </Grid>
 
         <!-- Row 3: Raw Ticks compile form (visible only when subtab == Raw Ticks) -->
