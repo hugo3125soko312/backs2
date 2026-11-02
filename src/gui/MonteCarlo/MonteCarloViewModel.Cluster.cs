@@ -140,7 +140,7 @@ public partial class MonteCarloViewModel
             marker.MarkerShape = ScottPlot.MarkerShape.OpenDiamond;
             marker.MarkerLineWidth = 2;
             marker.LineWidth = 0;
-            marker.LegendText = null;
+            marker.LegendText = string.Empty;
         }
 
         plt.Axes.DateTimeTicksBottom();
