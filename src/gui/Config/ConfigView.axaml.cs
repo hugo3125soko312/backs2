@@ -14,25 +14,32 @@ public partial class ConfigView : UserControl
 
     private async void OnColorButtonClick(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button button) return;
-        if (button.Tag is not SettingItem item) return;
-        if (DataContext is not ConfigViewModel vm) return;
+        try
+        {
+            if (sender is not Button button) return;
+            if (button.Tag is not SettingItem item) return;
+            if (DataContext is not ConfigViewModel vm) return;
 
-        var owner = TopLevel.GetTopLevel(this) as Window;
-        if (owner == null) return;
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            if (owner == null) return;
 
-        var picker = new ColorPickerWindow();
-        picker.Initialize(item.ColorValue);
+            var picker = new ColorPickerWindow();
+            picker.Initialize(item.ColorValue);
 
-        var ok = await picker.ShowDialog<bool>(owner);
-        if (!ok) return;
-        if (picker.Result is not { } color) return;
+            var ok = await picker.ShowDialog<bool>(owner);
+            if (!ok) return;
+            if (picker.Result is not { } color) return;
 
-        item.ColorValue = color;
+            item.ColorValue = color;
 
-        // Apply live — the shell recolors as soon as OK is clicked.
-        // Persistence still requires Save Settings.
-        vm.ApplyThemePreview(item);
+            // Apply live — the shell recolors as soon as OK is clicked.
+            // Persistence still requires Save Settings.
+            vm.ApplyThemePreview(item);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[ConfigView.OnColorButtonClick] " + ex);
+        }
     }
 
     private void OnResetThemeClick(object? sender, RoutedEventArgs e)

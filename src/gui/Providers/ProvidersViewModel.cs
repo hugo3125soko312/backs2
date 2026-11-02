@@ -178,7 +178,7 @@ public partial class ProvidersViewModel : ObservableObject
                 var list = new List<CacheMetadata>(files.Length);
                 var gate = new object();
 
-                Parallel.ForEach(files, f =>
+                Parallel.ForEach(files, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, f =>
                 {
                     var m = _cache.ReadCacheMetadata(f);
                     if (m == null) return;

@@ -303,9 +303,6 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     {
         var progress = new Progress<string>(s => StatusText = s);
 
-        await Task.Run(async () =>
-        {
-            var data = await _data.GetSymbolDataAsync("BTCUSD", progress);
-        });
+        await _data.GetSymbolDataAsync("BTCUSD", progress);
     }
 }

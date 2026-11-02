@@ -246,7 +246,7 @@ public class DataManager
             Parallel.For(
                 0,
                 files.Length,
-                new ParallelOptions { CancellationToken = ct },
+                new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Environment.ProcessorCount },
                 i => metas[i] = _diskCache.ReadCacheMetadata(files[i]));
 
             ct.ThrowIfCancellationRequested();
