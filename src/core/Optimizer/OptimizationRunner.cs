@@ -131,7 +131,8 @@ public sealed class OptimizationRunner
         IReadOnlyList<GridParameter> grid,
         OptimizationRunConfig config,
         IProgress<OptimizationProgress>? progress,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool persist = true)
     {
         if (data == null || data.Count < 2)
             throw new ArgumentException("Optimization needs a non-empty data series.", nameof(data));
@@ -607,7 +608,10 @@ public sealed class OptimizationRunner
             Versions: versions);
 
         long saveStart = Stopwatch.GetTimestamp();
-        await _store.SaveAsync(batch, ct).ConfigureAwait(false);
+        if (persist)
+        {
+            await _store.SaveAsync(batch, ct).ConfigureAwait(false);
+        }
         saveMs = TicksToMs(Stopwatch.GetTimestamp() - saveStart);
 
         LogManager.Info(LogTag.Runner,
@@ -1009,3 +1013,4 @@ public sealed class OptimizationRunner
         return slices < 1 ? tradingPeriodDays : slices;
     }
 }
+

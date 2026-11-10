@@ -207,6 +207,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
         _runnerNode.Children.Add(new NavigationNode { Header = "Runner",               SubtabIndex = 0, Factory = () => RunnerVm });
         _runnerNode.Children.Add(new NavigationNode { Header = "Optimization Results", SubtabIndex = 1, Factory = () => RunnerVm });
+        _runnerNode.Children.Add(new NavigationNode { Header = "Walk-Forward Results", SubtabIndex = 2, Factory = () => RunnerVm });
 
         _dataAutomationNode.Children.Add(new NavigationNode { Header = "Extraction", SubtabIndex = 0, Factory = () => DataAutomationVm });
         _dataAutomationNode.Children.Add(new NavigationNode { Header = "Parsing",    SubtabIndex = 1, Factory = () => DataAutomationVm });
