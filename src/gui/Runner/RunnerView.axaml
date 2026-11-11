@@ -80,9 +80,7 @@
             </StackPanel>
         </StackPanel>
 
-        <!-- ===== Settings expanders (stacked vertically) ===== -->
         <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="8" Margin="8,0,8,0">
-
             <!-- ========== Monte Carlo Settings (shared by both subtabs) ========== -->
             <Expander Header="Monte Carlo Settings"
                       IsExpanded="{Binding IsMcPanelExpanded, Mode=TwoWay}"
