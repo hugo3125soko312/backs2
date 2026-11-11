@@ -76,7 +76,23 @@ Also record: the actual numbers, so the 18B acceptance target (interactive withi
 
 Pass: every non-Symbol column header reorders rows inside each ticker group and the glyph flips asc/desc. Symbol still controls group order.
 
-### 9. Avalonia 11.3 upgrade -- eb1c666 (Phase 23B, still outstanding)
+### 9. Avalonia 12 upgrade -- eb1c666 → current  [PASSED 2026-11-11]
+
+What changed: bumped Avalonia from 11.3 to 12.1.5, fixed breaking API changes:
+- `SystemDecorations` → `WindowDecorations` (Avalonia 12 property rename)
+- `SetTextAsync` → `SetDataAsync` with `DataTransfer`/`DataTransferItem` (clipboard API change)
+
+Test: full click-through of DataGrid grouping and header checkboxes, colour picker modal,
+ScottPlot candlestick and MC plots, every ComboBox popup, live theme change,
+every menu item, every left-rail node, and cross-tab cluster-plot navigation.
+
+Pass: all visual elements render correctly, no regression in interactivity.
+
+Fail: any visual regression, popup that does not open, or plot that does not render.
+
+Also check: window chrome (title bar, minimize/maximize) renders correctly with the new API.
+
+---
 
 Test: full click-through of DataGrid grouping and header checkboxes, colour picker modal, ScottPlot candlestick and MC plots, every ComboBox popup, live theme change, every menu item, every left-rail node, and cross-tab cluster-plot navigation.
 

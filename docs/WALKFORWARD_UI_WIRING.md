@@ -250,4 +250,16 @@ Expected: a StackPanel at `Grid.Row="1"` containing both Expanders, and the subt
 </UserControl>
 ```
 
+## Status: Complete (2026-11-11)
+
+All three walkforward UI elements are wired:
+
+- **WF Settings expander** on the Runner tab — configures window count, IS/OOS lengths, objective, and plan preview. See `RunnerViewModel.WalkForward.cs`.
+- **Walk-Forward Results subtab** (index 2) — `WalkForwardWindowRow` grid with Degradation, IS/OOS Objective, and Objective columns, plus context commands on selection. See `RunnerViewModel.WalkForwardResults.cs`.
+- **Walk-Forward Runner** — pure planner + evaluator + aggregator in `src/core/WalkForward/`.
+
+Supporting code:
+- `src/gui/Runner/BoolToForegroundConverter.cs` — green/red foreground for boolean columns in the results grid.
+- `src/gui/Runner/RunnerView.axaml` — XAML with MC Settings + WF Settings expanders, Optimization Results + Walk-Forward Results subtabs.
+
 The `xmlns` lines and element names in this skeleton are illustrative. Keep the real ones from your file and only add what the steps above describe.
