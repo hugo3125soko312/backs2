@@ -34,6 +34,10 @@
                         Command="{Binding OptimizeCommand}"
                         IsEnabled="{Binding CanRun}"
                         ToolTip.Tip="Search the parameter grid over the queued dataset(s) and run Monte Carlo per version" />
+                <Button Content="Walk-Forward"
+                        Command="{Binding WalkForwardAsyncCommand}"
+                        IsEnabled="{Binding CanWalkForward}"
+                        ToolTip.Tip="Run walk-forward optimization: IS optimize per window, OOS evaluate, aggregate degradation" />
 
                 <Button Content="Cancel"
                         Command="{Binding CancelOptimizeCommand}"
