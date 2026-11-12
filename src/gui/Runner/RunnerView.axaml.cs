@@ -1,6 +1,8 @@
 using System;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using backs2.ViewModels;
+using backs2.Views;
 
 namespace backs2.Views;
 
@@ -34,6 +36,31 @@ public partial class RunnerView : UserControl
                 await win.ShowDialog(owner);
             };
             vm.ViewSourceRequested += _viewSourceHandler;
+            
+            // Hook up timeline view to render when walk-forward results change
+            var timelineView = this.FindControl<WalkForwardTimelineView>("TimelineView");
+            if (timelineView != null)
+            {
+                vm.WalkForwardWindowRows.CollectionChanged += (_, _) =>
+                {
+                    if (timelineView.IsVisible)
+                    {
+                        Dispatcher.UIThread.Invoke(() =>
+                        {
+                            timelineView.RenderTimeline(vm.WalkForwardWindowRows);
+                        });
+                    }
+                };
+                
+                // Initial render if data already exists
+                if (vm.WalkForwardWindowRows.Count > 0)
+                {
+                    Dispatcher.UIThread.Invoke(() =>
+                    {
+                        timelineView.RenderTimeline(vm.WalkForwardWindowRows);
+                    });
+                }
+            }
         }
     }
 }

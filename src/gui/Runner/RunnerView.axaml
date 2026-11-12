@@ -10,7 +10,7 @@
         <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
     </UserControl.Resources>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
 
         <!-- ========== Toolbar ========== -->
         <StackPanel Grid.Row="0"
