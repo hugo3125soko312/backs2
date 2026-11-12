@@ -396,65 +396,26 @@ lock (lockObj)
 
 ---
 
-## 14. AI Agent Tooling Notes
 
-### Agent Toolcall Behavior
+---
 
-**Issue:** AI agents (like myself) may encounter high error rates when using the `edit` toolcall for code modifications. This can manifest as:
-- Failed hunks with incorrect line numbers
-- File corruption from partial writes
-- Infinite retry loops
+## 14. AI Agent Documentation
 
-**Root Causes:**
-- Edit tool requires precise line number alignment
-- Context window limitations can cause line number drift
-- Multiple concurrent edits can conflict
+> **All AI agent troubleshooting and best practices have moved to:**
+> **[agents.md](agents.md)**
+>
+> This section now contains only performance anti-patterns. For AI agent
+guidance (tool usage, common failures, behavior checklist), please refer
+to the main agents.md file.
 
-**Recommended Workaround:**
-When encountering edit tool failures, **switch to the `write` toolcall** instead:
+### Quick Reference
 
-```python
-# Instead of:
-# edit(input="[file#TAG]\nPUT 10-15:\n+new content")
+| Issue Type | Severity | Where to Find |
+|------------|----------|---------------|
+| Edit toolcall failures | Critical | agents.md:14.1 |
+| LINQ materialization | High | agents.md:14.6 |
+| List.Contains() | High | agents.md:14.6 |
+| Null warnings after fixes | Medium | agents.md:14.7 |
+| Type casting | Medium | agents.md:14.11 |
+| Partial method conflicts | Medium | agents.md:14.5 |
 
-# Use:
-with open('path/to/file.cs', 'r') as f:
-    content = f.read()
-
-# Modify content in Python
-content = content.replace('old text', 'new text')
-
-with open('path/to/file.cs', 'w') as f:
-    f.write(content)
-```
-
-**Benefits of write toolcall:**
-- Atomic file writes (no partial state)
-- Easier to verify with `grep`/`sed` before writing
-- Works well with bash/python for complex modifications
-- Can use `sed`, `awk`, or python for surgical changes
-- No risk of corrupting file with bad hunks
-
-**Best Practice:** For complex changes (multiple files, large edits), prefer:
-1. Read files with `read` tool
-2. Build new content in Python/bash
-3. Write with `write` tool (atomic)
-4. Verify with `grep` or `bash` commands
-
-**Example Workflow:**
-```python
-# For multi-file refactoring:
-files_to_edit = {
-    'src/foo.cs': ['pattern1', 'replacement1'],
-    'src/bar.cs': ['pattern2', 'replacement2'],
-}
-
-for filepath, (pattern, replacement) in files_to_edit.items():
-    with open(filepath, 'r') as f:
-        content = f.read()
-    
-    if pattern in content:
-        content = content.replace(pattern, replacement)
-        with open(filepath, 'w') as f:
-            f.write(content)
-```
