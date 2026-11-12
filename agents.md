@@ -2,10 +2,157 @@
 
 This document consolidates all AI agent guidance, troubleshooting, and best practices for working with the backs2 codebase.
 
+**Project Status:** Build passes (0 errors, 0 warnings). Main application runs. Test project deleted. CLI project removed.
+
+
+## Critical Rules *(MUST READ - new agents)*
+
+### NEVER Disable These
+- **TreatWarningsAsErrors** - must be `true`
+- **RunAnalyzersDuringBuild** - must be `true`
+- These catch bugs at compile time
+
+### ALWAYS
+- Use `write` tool for file modifications (never `edit`)
+- EnableDefaultCompileItems = `true` for sub-projects
+- Read file before editing
+- Run `dotnet build` after fixes
+
+### Known Pitfalls
+- **CommunityToolkit.Mvvm:** Async suffix conflicts with generated files
+- **XML editors:** Can corrupt XAML; prefer complete file rewrite
+- **JsonSerializerOptions:** `SourceGenerationContext` requires `System.Text.Json.SourceGeneration` package
+- **xUnit:** Fact attribute requires xUnit package (version 2.9.0+)
+
+### Build Note
+Pre-existing AssemblyInfo conflicts exist (unrelated to this work).
+
+## JSON Source Generation Pattern
+
+### Overview
+
+The project uses C# source generators for high-performance JSON serialization in `src/core/WalkForward/WalkForwardJsonContext.cs`.
+
+### Why Source Generation?
+- **Performance:** No reflection at runtime
+- **AOT compatible:** Required for ComputeSharp GPU paths
+- **Type safety:** Compile-time validation
+
+### Current Usage
+
+**File:** `src/core/WalkForward/WalkForwardJsonContext.cs`
+
+**Pattern:**
+```csharp
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    WriteIndented = false)]
+[JsonSerializable(typeof(WalkForwardBatch))]
+[JsonSerializable(typeof(WalkForwardWindowResult))]
+internal partial class WalkForwardJsonContext : JsonSerializerContext
+{
+    public const int CurrentSchemaVersion = 1;
+    public const int MinSupportedSchemaVersion = 1;
+
+    public static WalkForwardBatch? LoadWithVersionValidation(string json)
+    {
+        var context = new WalkForwardJsonContext();
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+        };
+        
+        var batch = JsonSerializer.Deserialize<WalkForwardBatch>(json, options);
+        
+        if (batch?.SchemaVersion < MinSupportedSchemaVersion)
+            throw new InvalidDataException(
+                $"Unsupported schema version: {batch?.SchemaVersion}. " +
+                $"Minimum supported: {MinSupportedSchemaVersion}");
+        
+        return batch;
+    }
+}
+```
+
+### Key Characteristics
+
+1. **NaN/Infinity handling:** Uses `JsonNumberHandling.AllowNamedFloatingPointLiterals` because WF stores NaN/Infinity when metrics are undefined
+2. **Version validation:** Schema versioning prevents loading incompatible data
+3. **Separate from Optimizer:** Does NOT touch OptimizationJsonContext to avoid breaking optimizer archives
+
+### Adding New Types
+
+1. Add `[JsonSerializable(typeof(NewType))]` attribute
+2. Regenerate source: `dotnet build` (automatic)
+3. Update `LoadWithVersionValidation` if new types need version checks
+
+### Common Issues
+
+| Error | Cause | Fix |
+|## Project Structure
+
+### Current Architecture
+
+```
+backs2/
+├── backs2.csproj              # Main project (WinExe, net8.0)
+├── AGENTS.md                  # AI agent documentation
+├── project_oop.md             # Architecture docs
+├── docs/                      # Additional documentation
+│   ├── audit-report.md
+│   ├── PERF_AUDIT_LLM_BUGS.md
+│   └── ...
+├── src/
+│   ├── gui/                   # Avalonia UI
+│   │   ├── MainWindow.axaml
+│   │   ├── App.axaml
+│   │   └── Runner/
+│   │       └── RunnerView.axaml (split into partials)
+│   ├── core/                  # Core logic
+│   │   ├── WalkForward/
+│   │   │   └── WalkForwardJsonContext.cs  # JSON source generation
+│   │   ├── Optimizer/
+│   │   ├── Accounts/
+│   │   └── ...
+│   └── compute/               # Compute backends
+└── data/
+    ├── cache/
+    └── walkforward/
+```
+
+### RunnerViewModel Structure
+
+Split into 7 partial files (< 300 lines each):
+- `RunnerViewModel.cs` (main, 422 lines)
+- `RunnerViewModel.Run.cs` (155 lines)
+- `RunnerViewModel.Optimize.cs` (230 lines)
+- `RunnerViewModel.WalkForward.cs` (338 lines)
+- `RunnerViewModel.WalkForwardResults.cs` (179 lines)
+- `RunnerViewModel.Results.cs` (170 lines)
+- `RunnerViewModel.Presets.cs` (127 lines)
+- `RunnerViewModel.Grid.cs` (126 lines)
+
+### Key Patterns
+
+1. **Mvvm pattern:** CommunityToolkit.Mvvm with RelayCommand
+2. **DI container:** Microsoft.Extensions.DependencyInjection
+3. **JSON persistence:** Source-generated with schema versioning
+4. **Async I/O:** CancellationToken support with off-UI-thread operations
+
+
+-------|-------|-----|
+| `CS0117: SourceGenerationContext not found` | Missing `System.Text.Json.SourceGeneration` package | Add package reference |
+| `CS8632: nullable reference types` | Missing nullable context | Enable `<Nullable>enable</Nullable>` |
+
+
 ---
 
 ## Table of Contents
 1. [Quick Start](#quick-start)
+2. [Critical Rules](#critical-rules) *(new agents MUST read this)*
 2. [Common Failures](#common-failures)
 3. [File Modification Guidelines](#file-modification-guidelines)
 4. [Build & Verification](#build--verification)
@@ -19,7 +166,7 @@ This document consolidates all AI agent guidance, troubleshooting, and best prac
 
 ### For New AI Agents
 
-When starting work on this project, follow this checklist:
+**Always read section 2 (Critical Rules) before making changes.**
 
 ```bash
 # 1. Check current branch and status
@@ -35,7 +182,10 @@ ls -la src/
 # 4. Review architecture docs
 cat project_oop.md
 
-# 5. Check performance audit
+# 5. Check build status
+dotnet build -c Release 2>&1 | tail -3
+
+# 6. Check performance audit
 grep -A5 "## Summary" docs/audit-report.md
 ```
 
