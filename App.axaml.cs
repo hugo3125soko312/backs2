@@ -16,6 +16,7 @@ using backs2.Theme;
 using backs2.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using backs2.Core.Providers;
@@ -138,6 +139,43 @@ public partial class App : Application
         services.AddSingleton<OptimizationStore>();
         services.AddSingleton<OptimizationRunner>();
 
+        // Walk-forward v1: both IS and OOS run through OptimizationRunner.
+        // OOS uses a one-combination grid built from the IS winner; v2 can
+        // swap the OOS delegate for a thin single-version API without
+        // touching WalkForwardRunner.
+        services.AddSingleton<backs2.Core.WalkForward.WalkForwardStore>();
+        services.AddSingleton(sp =>
+        {
+            var opt = sp.GetRequiredService<OptimizationRunner>();
+            var store = sp.GetRequiredService<backs2.Core.Optimizer.OptimizationStore>();
+
+            backs2.Core.WalkForward.IsWindowRunner runIs =
+                (path, name, sym, tf, data, grid, cfg, prog, ct) =>
+                    opt.RunAsync(path, name, sym, tf, data, grid, cfg, prog, ct, persist: false);
+
+            backs2.Core.WalkForward.OosWindowEvaluator evalOos =
+                async (path, name, sym, tf, data, parameters, cfg, mcIters, ct) =>
+                {
+                    var oneCombo = new List<backs2.Core.Optimizer.GridParameter>(parameters.Length);
+                    foreach (var ps in parameters)
+                        oneCombo.Add(new backs2.Core.Optimizer.GridParameter(
+                            Name: ps.Name, Type: ps.Type, FixedValue: ps.Value,
+                            Min: null, Max: null, Increment: null, Options: null!));
+
+                    var oneCfg = cfg with { MaxCombinations = 1, RefineIterations = mcIters };
+                    var batch = await opt.RunAsync(path, name, sym, tf, data, oneCombo,
+                        oneCfg, null, ct, persist: false).ConfigureAwait(false);
+
+                    if (batch.Versions.Length == 0)
+                        throw new InvalidOperationException(
+                            "OOS evaluation returned no version.");
+
+                    return batch.Versions[0];
+                };
+
+            return new backs2.Core.WalkForward.WalkForwardRunner(runIs, evalOos);
+        });
+
         // Compute worker: process-isolated strategy / Monte Carlo execution.
         services.AddSingleton<ComputeWorkerManager>();
 
@@ -197,3 +235,4 @@ public partial class App : Application
         services.AddKeyedTransient<IDataProvider, FcsApiProvider>("FCS API");
     }
 }
+

@@ -76,7 +76,23 @@ Also record: the actual numbers, so the 18B acceptance target (interactive withi
 
 Pass: every non-Symbol column header reorders rows inside each ticker group and the glyph flips asc/desc. Symbol still controls group order.
 
-### 9. Avalonia 11.3 upgrade -- eb1c666 (Phase 23B, still outstanding)
+### 9. Avalonia 12 upgrade -- eb1c666 → current  [PASSED 2026-11-11]
+
+What changed: bumped Avalonia from 11.3 to 12.1.5, fixed breaking API changes:
+- `SystemDecorations` → `WindowDecorations` (Avalonia 12 property rename)
+- `SetTextAsync` → `SetDataAsync` with `DataTransfer`/`DataTransferItem` (clipboard API change)
+
+Test: full click-through of DataGrid grouping and header checkboxes, colour picker modal,
+ScottPlot candlestick and MC plots, every ComboBox popup, live theme change,
+every menu item, every left-rail node, and cross-tab cluster-plot navigation.
+
+Pass: all visual elements render correctly, no regression in interactivity.
+
+Fail: any visual regression, popup that does not open, or plot that does not render.
+
+Also check: window chrome (title bar, minimize/maximize) renders correctly with the new API.
+
+---
 
 Test: full click-through of DataGrid grouping and header checkboxes, colour picker modal, ScottPlot candlestick and MC plots, every ComboBox popup, live theme change, every menu item, every left-rail node, and cross-tab cluster-plot navigation.
 
@@ -965,7 +981,20 @@ Deferred: cold-start (first run after clean) is a different problem — MSBuild 
 
 Known dependencies: needs the Phase 17 `[startup]` instrumentation to add one more marker — `Program.Main` entry to `LogManager.Initialize` — so the true in-process startup is bracketed. MARKER SHIPPED 2026-10-28: Program.Main now brackets LogManager.Initialize and the Avalonia lifetime wall with [startup] Stopwatch markers. Runtime capture: ~591ms in-process total, measured 2026-10-28 (see Current state above). Dominant costs are Avalonia XAML load and MainWindow construct; both resist easy optimization.
 
----## Appendix A: Shipped Accounts
+## Phase 40: Walk-Forward UI Wiring [COMPLETED 2026-11-11]
+
+Adds walk-forward optimization to the Runner tab: a "Walk-Forward Settings" expander (IS/OOS lengths, step, mode, objective, carry top N), a "Walk-Forward" toolbar command, and a "Walk-Forward Results" subtab (index 2) with batch picker, sort, cap, refresh, open folder, clear, and a window DataGrid.
+
+New code: `src/core/WalkForward/` (models, planner, objective, aggregator, JSON context, store, runner), `src/gui/Runner/RunnerViewModel.WalkForward.cs`, `RunnerViewModel.WalkForwardResults.cs`, `WalkForwardWindowRow.cs`, `BoolToForegroundConverter.cs`.
+
+Modified: `RunnerView.axaml` (expander + results grid + toolbar button), `RunnerViewModel.cs` (ctor deps, subtab index 2 flag), `App.axaml.cs` (WalkForwardStore + WalkForwardRunner singletons; IS/OOS delegates wired to `OptimizationRunner.RunAsync(persist: false)`), `MainViewModel.cs` (Walk-Forward Results navigation node), `ConfigManager.cs` (AppSettings fields + normalizers), `OptimizationRunner.cs` (trailing `persist` flag on `RunAsync`).
+
+Persistence: batches written to `data/walkforward/` via `WalkForwardStore`; schema v1.
+
+Verified: `dotnet build -c Release` introduces no new errors (the 44 DataGrid/style AVLN2000 errors are pre-existing and unrelated).
+---
+
+## Appendix A: Shipped Accounts
 
 Format: ONE JSON per firm at `data/accounts/{Firm}.account.json`.
 

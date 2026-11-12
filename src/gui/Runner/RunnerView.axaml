@@ -1,9 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
+             xmlns:views="using:backs2.Views"
              xmlns:core="using:backs2.Core"
              x:Class="backs2.Views.RunnerView"
              x:DataType="vm:RunnerViewModel">
+
+    <UserControl.Resources>
+        <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
+    </UserControl.Resources>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
 
@@ -29,6 +34,10 @@
                         Command="{Binding OptimizeCommand}"
                         IsEnabled="{Binding CanRun}"
                         ToolTip.Tip="Search the parameter grid over the queued dataset(s) and run Monte Carlo per version" />
+                <Button Content="Walk-Forward"
+                        Command="{Binding WalkForwardAsyncCommand}"
+                        IsEnabled="{Binding CanWalkForward}"
+                        ToolTip.Tip="Run walk-forward optimization: IS optimize per window, OOS evaluate, aggregate degradation" />
 
                 <Button Content="Cancel"
                         Command="{Binding CancelOptimizeCommand}"
@@ -75,59 +84,109 @@
             </StackPanel>
         </StackPanel>
 
-        <!-- ========== Monte Carlo Settings (shared by both subtabs) ========== -->
-        <Expander Grid.Row="1"
-                  Header="Monte Carlo Settings"
-                  IsExpanded="{Binding IsMcPanelExpanded, Mode=TwoWay}"
-                  FontSize="12"
-                  HorizontalAlignment="Stretch"
-                  Margin="8,0,8,8">
-            <StackPanel Spacing="8" Margin="4,6,4,4">
-                <Grid ColumnDefinitions="Auto,110,20,Auto,90,20,Auto,90,*">
-                    <TextBlock Grid.Column="0" Text="Iterations" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
-                    <NumericUpDown Grid.Column="1"
-                                   Value="{Binding McIterations, Mode=TwoWay}"
-                                   Minimum="10" Maximum="100000" Increment="100"
-                                   FormatString="0" ShowButtonSpinner="False" />
+        <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="8" Margin="8,0,8,0">
+            <!-- ========== Monte Carlo Settings (shared by both subtabs) ========== -->
+            <Expander Header="Monte Carlo Settings"
+                      IsExpanded="{Binding IsMcPanelExpanded, Mode=TwoWay}"
+                      FontSize="12"
+                      HorizontalAlignment="Stretch"
+                      Margin="8,0,8,8">
+                <StackPanel Spacing="8" Margin="4,6,4,4">
+                    <Grid ColumnDefinitions="Auto,110,20,Auto,90,20,Auto,90,*">
+                        <TextBlock Grid.Column="0" Text="Iterations" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <NumericUpDown Grid.Column="1"
+                                       Value="{Binding McIterations, Mode=TwoWay}"
+                                       Minimum="10" Maximum="100000" Increment="100"
+                                       FormatString="0" ShowButtonSpinner="False" />
 
-                    <TextBlock Grid.Column="3" Text="Block Size" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
-                    <NumericUpDown Grid.Column="4"
-                                   Value="{Binding McBlockSize, Mode=TwoWay}"
-                                   Minimum="1" Maximum="100" Increment="1"
-                                   FormatString="0" ShowButtonSpinner="False" />
+                        <TextBlock Grid.Column="3" Text="Block Size" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <NumericUpDown Grid.Column="4"
+                                       Value="{Binding McBlockSize, Mode=TwoWay}"
+                                       Minimum="1" Maximum="100" Increment="1"
+                                       FormatString="0" ShowButtonSpinner="False" />
 
-                    <TextBlock Grid.Column="6" Text="Ruin Threshold %" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
-                    <NumericUpDown Grid.Column="7"
-                                   Value="{Binding McRuinThresholdPercent, Mode=TwoWay}"
-                                   Minimum="1" Maximum="99" Increment="1"
-                                   FormatString="0" ShowButtonSpinner="False" />
+                        <TextBlock Grid.Column="6" Text="Ruin Threshold %" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <NumericUpDown Grid.Column="7"
+                                       Value="{Binding McRuinThresholdPercent, Mode=TwoWay}"
+                                       Minimum="1" Maximum="99" Increment="1"
+                                       FormatString="0" ShowButtonSpinner="False" />
 
-                    <TextBlock Grid.Column="9"
-                               Text="{Binding ActiveAccountName}"
-                               Foreground="{DynamicResource AccentPrimary}"
-                               VerticalAlignment="Center" />
-                </Grid>
+                        <TextBlock Grid.Column="9"
+                                   Text="{Binding ActiveAccountName}"
+                                   Foreground="{DynamicResource AccentPrimary}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
 
-                <!-- Phase 29B.2 — backend selection. Auto uses the GPU when the
-                     device probe succeeded, Cpu never touches the device, Gpu
-                     asks for it and degrades to CPU with one warning. -->
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Backend"
-                               VerticalAlignment="Center"
-                               Margin="0,0,1,0"
-                               Opacity="0.75" />
-                    <ComboBox ItemsSource="{Binding McBackendOptions}"
-                              SelectedItem="{Binding McBackend, Mode=TwoWay}"
-                              MinWidth="110"
-                              ToolTip.Tip="Auto uses the GPU when one is available; Cpu never touches the device; Gpu requires it and falls back with a warning." />
+                    <!-- Phase 29B.2 — backend selection. Auto uses the GPU when the
+                         device probe succeeded, Cpu never touches the device, Gpu
+                         asks for it and degrades to CPU with one warning. -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Backend"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,1,0"
+                                   Opacity="0.75" />
+                        <ComboBox ItemsSource="{Binding McBackendOptions}"
+                                  SelectedItem="{Binding McBackend, Mode=TwoWay}"
+                                  MinWidth="110"
+                                  ToolTip.Tip="Auto uses the GPU when one is available; Cpu never touches the device; Gpu requires it and falls back with a warning." />
+                    </StackPanel>
+
+                    <TextBlock Text="These settings apply when Monte Carlo runs. Ruin threshold is derived from the funded phase's max-loss % of the active account and updates when the account changes."
+                               FontSize="10"
+                               Opacity="0.55"
+                               TextWrapping="Wrap" />
                 </StackPanel>
+            </Expander>
 
-                <TextBlock Text="These settings apply when Monte Carlo runs. Ruin threshold is derived from the funded phase's max-loss % of the active account and updates when the account changes."
-                           FontSize="10"
-                           Opacity="0.55"
-                           TextWrapping="Wrap" />
-            </StackPanel>
-        </Expander>
+            <!-- ===== Walk-Forward Settings expander ===== -->
+            <Expander Header="Walk-Forward Settings"
+                      IsExpanded="{Binding IsWalkForwardSettingsExpanded, Mode=TwoWay}"
+                      FontSize="12"
+                      HorizontalAlignment="Stretch"
+                      Margin="0,0,0,8">
+                <StackPanel Spacing="8" Margin="4,6,4,4">
+                    <Grid ColumnDefinitions="Auto,110,20,Auto,90,20,Auto,90,*">
+                        <TextBlock Grid.Column="0" Text="Mode" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding WfWindowModeValues}"
+                                  SelectedItem="{Binding WfWindowMode, Mode=TwoWay}" FontSize="11" />
+
+                        <TextBlock Grid.Column="3" Text="Unit" VerticalAlignment="Center" Margin="8,0,8,0" Opacity="0.75" />
+                        <ComboBox Grid.Column="4" ItemsSource="{Binding WfLengthUnitValues}"
+                                  SelectedItem="{Binding WfLengthUnit, Mode=TwoWay}" FontSize="11" />
+
+                        <TextBlock Grid.Column="6" Text="Objective" VerticalAlignment="Center" Margin="8,0,8,0" Opacity="0.75" />
+                        <ComboBox Grid.Column="7" ItemsSource="{Binding WfObjectiveValues}"
+                                  SelectedItem="{Binding WfObjective, Mode=TwoWay}" FontSize="11" MinWidth="90" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,80,20,Auto,80,20,Auto,80,20,Auto,80,*">
+                        <TextBlock Grid.Column="0" Text="IS Length" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <TextBox Grid.Column="1" Text="{Binding WfIsLength, Mode=TwoWay}" Watermark="IS bars" FontSize="11" Height="26" Padding="6,2" VerticalContentAlignment="Center" />
+
+                        <TextBlock Grid.Column="3" Text="OOS Length" VerticalAlignment="Center" Margin="8,0,8,0" Opacity="0.75" />
+                        <TextBox Grid.Column="4" Text="{Binding WfOosLength, Mode=TwoWay}" Watermark="OOS bars" FontSize="11" Height="26" Padding="6,2" VerticalContentAlignment="Center" />
+
+                        <TextBlock Grid.Column="6" Text="Step Length" VerticalAlignment="Center" Margin="8,0,8,0" Opacity="0.75" />
+                        <TextBox Grid.Column="8" Text="{Binding WfStepLength, Mode=TwoWay}" Watermark="step bars" FontSize="11" Height="26" Padding="6,2" VerticalContentAlignment="Center" />
+
+                        <TextBlock Grid.Column="10" Text="Min Windows" VerticalAlignment="Center" Margin="8,0,8,0" Opacity="0.75" />
+                        <TextBox Grid.Column="12" Text="{Binding WfMinWindows, Mode=TwoWay}" Watermark="count" FontSize="11" Height="26" Padding="6,2" VerticalContentAlignment="Center" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,80,*">
+                        <TextBlock Grid.Column="0" Text="Carry Top N" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.75" />
+                        <TextBox Grid.Column="1" Text="{Binding WfCarryTopN, Mode=TwoWay}" Watermark="count" FontSize="11" Height="26" Padding="6,2" VerticalContentAlignment="Center" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding WfPlanPreviewText}"
+                               VerticalAlignment="Center"
+                               FontSize="10"
+                               Foreground="{Binding WfIsPlanValid, Converter={StaticResource BoolToForegroundConverter}}"
+                               Opacity="0.8"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Expander>
+        </StackPanel>
 
         <!-- ========== Subtabs (stacked in one cell, toggled by IsVisible) ========== -->
         <Grid Grid.Row="2" Margin="8,0,8,0">
@@ -299,61 +358,253 @@
                             Command="{Binding RefreshResultsCommand}"
                             FontSize="11" Padding="10,4" />
 
-                    <Button Content="Open Folder"
+                    <Button Content="Open Folder..."
                             Command="{Binding OpenResultsFolderCommand}"
                             FontSize="11" Padding="10,4" />
 
-                    <TextBlock Text="{Binding ResultsStatus}"
+                    <Button Content="Clear"
+                            Command="{Binding ClearResultsCommand}"
+                            FontSize="11" Padding="10,4" />
+
+                    <TextBlock Text="{Binding ResultsCountText}"
                                VerticalAlignment="Center"
-                               FontSize="10"
-                               Opacity="0.6"
-                               Margin="12,0,0,0" />
+                               FontSize="11"
+                               Foreground="{DynamicResource TextSecondary}"
+                               Margin="8,0,0,0" />
                 </StackPanel>
 
                 <DataGrid Grid.Row="1"
                           ItemsSource="{Binding OptimizationResults}"
-                          AutoGenerateColumns="False"
-                          CanUserSortColumns="False"
-                          CanUserReorderColumns="True"
-                          CanUserResizeColumns="True"
                           IsReadOnly="True"
-                          GridLinesVisibility="Horizontal"
-                          HeadersVisibility="Column"
-                          FontSize="11">
+                          CanUserSortColumns="True"
+                          FontSize="11"
+                          AlternationCount="2"
+                          RowHeight="22">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Batch"      Binding="{Binding BatchId}"                 Width="130" />
-                        <DataGridTextColumn Header="Dataset"    Binding="{Binding Dataset}"                 Width="130" />
-                        <DataGridTextColumn Header="Params"     Binding="{Binding ParameterSummary}"        Width="260" />
-                        <DataGridTextColumn Header="Trades"     Binding="{Binding TradeCount}"              Width="70" />
-                        <DataGridTextColumn Header="Net PnL"    Binding="{Binding NetPnlDisplay}"           Width="90" />
-                        <DataGridTextColumn Header="CAGR"       Binding="{Binding CagrDisplay}"             Width="80" />
-                        <DataGridTextColumn Header="P(Funded)"  Binding="{Binding PFundedDisplay}"          Width="90" />
-                        <DataGridTextColumn Header="P(Ruin)"    Binding="{Binding PRuinDisplay}"            Width="80" />
-                        <DataGridTextColumn Header="P(Timeout)" Binding="{Binding PTimeoutDisplay}"         Width="90" />
-                        <DataGridTextColumn Header="Edge %"     Binding="{Binding EdgeDisplay}"             Width="80" />
-                        <DataGridTextColumn Header="Med Bal"    Binding="{Binding MedianBalanceDisplay}"    Width="90" />
-                        <DataGridTextColumn Header="Med DD"     Binding="{Binding MaxDdMedianDisplay}"      Width="90" />
-                        <DataGridTextColumn Header="BestDay"    Binding="{Binding BestDayViolationDisplay}" Width="90" />
+                        <DataGridTextColumn Header="Batch"
+                                            Binding="{Binding BatchId}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Strategy"
+                                            Binding="{Binding StrategyName}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Symbol"
+                                            Binding="{Binding Symbol}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Timeframe"
+                                            Binding="{Binding Timeframe}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Trades"
+                                            Binding="{Binding TradeCount}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Duration"
+                                            Binding="{Binding BacktestDurationMs, Converter={StaticResource DurationConverter}}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Net PnL"
+                                            Binding="{Binding NetPnlDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="CAGR"
+                                            Binding="{Binding CagrDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Edge %"
+                                            Binding="{Binding EdgePercentDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Funded %"
+                                            Binding="{Binding PfundedDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Ruin %"
+                                            Binding="{Binding PruinDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="MC"
+                                            Binding="{Binding McRan}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center">
+                            <DataGridCell.Style>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding McRan}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGridCell.Style>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="Terminal"
+                                            Binding="{Binding TerminalBalanceMedianDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Drawdown"
+                                            Binding="{Binding MaxDrawdownMedianDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Best Day"
+                                            Binding="{Binding BestDayRatioMedianDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Worst Day"
+                                            Binding="{Binding WorstDayRatioMedianDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
                     </DataGrid.Columns>
                 </DataGrid>
 
                 <TextBlock Grid.Row="2"
-                           Text="Rows are drawn from every batch file under data/optimizations/, aggregated across all runs. Default sort is Edge %. Net PnL and CAGR are backtest-level, not MC-derived; CAGR is '-' on batches written before this column existed."
+                           Text="{Binding ResultsSummary}"
                            FontSize="10"
-                           Opacity="0.5"
-                           TextWrapping="Wrap"
-                           Margin="0,6,0,0" />
+                           Foreground="{DynamicResource TextSecondary}"
+                           Margin="0,4,0,0" />
+            </Grid>
+
+            <!-- ===== Walk-Forward Results panel ===== -->
+            <Grid RowDefinitions="Auto,*,Auto"
+                  IsVisible="{Binding IsWalkForwardResultsPanelVisible}">
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+                    <TextBlock Text="Sort by:" VerticalAlignment="Center" FontSize="11" Opacity="0.75" />
+                    <ComboBox ItemsSource="{Binding WfAvailableSortKeys}"
+                              SelectedItem="{Binding WfResultsSortKey, Mode=TwoWay}"
+                              Width="220"
+                              FontSize="11" />
+
+                    <TextBlock Text="Cap" VerticalAlignment="Center" FontSize="11" Opacity="0.75" Margin="8,0,0,0" />
+                    <NumericUpDown Value="{Binding WfResultsCap, Mode=TwoWay}"
+                                   Minimum="10" Maximum="10000" Increment="10"
+                                   FormatString="0" ShowButtonSpinner="False"
+                                   Width="110" />
+
+                    <Button Content="Refresh"
+                            Command="{Binding RefreshWalkForwardResultsCommand}"
+                            FontSize="11" Padding="10,4" />
+
+                    <Button Content="Open Folder..."
+                            Command="{Binding OpenWalkForwardFolderCommand}"
+                            FontSize="11" Padding="10,4" />
+
+                    <Button Content="Clear"
+                            Command="{Binding ClearWalkForwardResultsCommand}"
+                            FontSize="11" Padding="10,4" />
+
+                    <TextBlock Text="{Binding WalkForwardResultsCountText}"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextSecondary}"
+                               Margin="8,0,0,0" />
+                </StackPanel>
+
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding WalkForwardResults}"
+                          IsReadOnly="True"
+                          CanUserSortColumns="True"
+                          FontSize="11"
+                          AlternationCount="2"
+                          RowHeight="22">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Batch"
+                                            Binding="{Binding BatchId}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Window"
+                                            Binding="{Binding WindowIndex}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="Strategy"
+                                            Binding="{Binding StrategyName}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Symbol"
+                                            Binding="{Binding Symbol}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="Timeframe"
+                                            Binding="{Binding Timeframe}"
+                                            Width="SizeToHeader" />
+                        <DataGridTextColumn Header="IS Start"
+                                            Binding="{Binding IsStartBar}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="IS End"
+                                            Binding="{Binding IsEndBar}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="OOS Start"
+                                            Binding="{Binding OosStartBar}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="OOS End"
+                                            Binding="{Binding OosEndBar}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="Parameters"
+                                            Binding="{Binding ChosenParameters}"
+                                            Width="*"
+                                            TextTrimming="CharacterEllipsis" />
+                        <DataGridTextColumn Header="Objective"
+                                            Binding="{Binding IsObjective}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="OOS Objective"
+                                            Binding="{Binding OosObjective}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="Degradation"
+                                            Binding="{Binding DegradationDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="OOS Trades"
+                                            Binding="{Binding OosTradeCount}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="OOS Net PnL"
+                                            Binding="{Binding OosNetPnlDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="OOS Max DD"
+                                            Binding="{Binding OosMaxDrawdownDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="OOS Terminal"
+                                            Binding="{Binding OosTerminalBalanceDisplay}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                        <DataGridTextColumn Header="OOS Beat Null"
+                                            Binding="{Binding OosBeatNull}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="Success"
+                                            Binding="{Binding Success}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="Error"
+                                            Binding="{Binding Error}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Center" />
+                        <DataGridTextColumn Header="Duration"
+                                            Binding="{Binding DurationMs, Converter={StaticResource DurationConverter}}"
+                                            Width="SizeToHeader"
+                                            TextAlignment="Right" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding WalkForwardResultsSummary}"
+                           FontSize="10"
+                           Foreground="{DynamicResource TextSecondary}"
+                           Margin="0,4,0,0" />
             </Grid>
         </Grid>
 
         <!-- ========== Status line ========== -->
         <TextBox Grid.Row="3"
-                 Text="{Binding StatusText}"
                  IsReadOnly="True"
-                 BorderThickness="0"
-                 Background="Transparent"
-                 Margin="8,4,8,8"
-                 FontSize="11"
-                 Opacity="0.8" />
+                 Text="{Binding StatusText}"
+                 FontSize="10"
+                 Foreground="{DynamicResource TextSecondary}"
+                 Background="{DynamicResource Surface}"
+                 Padding="6"
+                 Margin="0,0,0,4" />
     </Grid>
 </UserControl>

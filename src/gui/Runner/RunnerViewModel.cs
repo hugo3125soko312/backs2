@@ -17,6 +17,7 @@ using backs2.Core.Accounts;
 using backs2.Core.Optimizer;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
+using backs2.Core.WalkForward;
 
 namespace backs2.ViewModels;
 
@@ -33,6 +34,8 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     private readonly OptimizationRunner _optimizer;
     private readonly OptimizationStore _optStore;
     private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
+    private readonly WalkForwardRunner _walkForwardRunner;
+    private readonly WalkForwardStore _walkForwardStore;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -78,10 +81,12 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsRunnerPanelVisible))]
     [NotifyPropertyChangedFor(nameof(IsResultsPanelVisible))]
+    [NotifyPropertyChangedFor(nameof(IsWalkForwardResultsPanelVisible))]
     private int _selectedSubtabIndex;
 
     public bool IsRunnerPanelVisible  => SelectedSubtabIndex == 0;
     public bool IsResultsPanelVisible => SelectedSubtabIndex == 1;
+    public bool IsWalkForwardResultsPanelVisible => SelectedSubtabIndex == 2;
 
     private CancellationTokenSource? _optimizeCts;
     private bool _suppressGridPersist;
@@ -99,7 +104,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         AccountService accounts,
         ConfigManager config,
         OptimizationRunner optimizer,
-        OptimizationStore optStore, backs2.Core.Data.IQueueOriginGate queueGate)
+        OptimizationStore optStore, backs2.Core.Data.IQueueOriginGate queueGate, WalkForwardRunner walkForwardRunner)
     {
         _catalog = catalog;
         _strat = strat;
@@ -117,6 +122,14 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         // startup, which is exactly the "do not write when unchanged" behaviour
         // the config layer already guarantees.
         _mcBackend = ConfigManager.NormalizeBackend(config.Settings.MonteCarloBackend);
+        _wfWindowMode = ConfigManager.NormalizeWalkForwardWindowMode(config.Settings.WalkForwardWindowMode);
+        _wfLengthUnit = ConfigManager.NormalizeWalkForwardLengthUnit(config.Settings.WalkForwardLengthUnit);
+        _wfIsLength = config.Settings.WalkForwardIsLength;
+        _wfOosLength = config.Settings.WalkForwardOosLength;
+        _wfStepLength = config.Settings.WalkForwardStepLength;
+        _wfMinWindows = config.Settings.WalkForwardMinWindows;
+        _wfObjective = ConfigManager.NormalizeWalkForwardObjective(config.Settings.WalkForwardObjective);
+        _wfCarryTopN = config.Settings.WalkForwardCarryTopN;
 
         _catalog.Changed += OnCatalogChanged;
         _queue.Changed += OnQueueChanged;
@@ -131,6 +144,8 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
         _ = RefreshResultsAsync();
         _queueGate = queueGate;
+        _walkForwardStore = new WalkForwardStore();
+        _walkForwardRunner = walkForwardRunner;
     }
 
     /// <summary>Called by the shell when a Runner subtab node is selected.</summary>
@@ -292,7 +307,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         _ = LoadStrategyAsync(value);
     }
 
-    partial void OnIsBusyChanged(bool value) => SyncQueue();
+    partial void OnIsBusyChanged(bool value) { SyncQueue(); OnPropertyChanged(nameof(CanWalkForward)); }
 
     private async Task LoadStrategyAsync(StrategyDescriptor descriptor)
     {

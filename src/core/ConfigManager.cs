@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using backs2.Core.WalkForward;
 
 namespace backs2.Core;
 
@@ -77,7 +78,22 @@ public class AppSettings
     public string MonteCarloBackend { get; set; } = "Auto";
 
     /// <summary>The canonical backend-selection values, in UI order.</summary>
-    public static readonly string[] MonteCarloBackendValues = { "Auto", "Cpu", "Gpu" };
+        public static readonly string[] MonteCarloBackendValues = { "Auto", "Cpu", "Gpu" };
+
+    // ---- Walk-forward settings (v1) ---------------------------------------
+    public string WalkForwardWindowMode { get; set; } = "Anchored";
+    public string WalkForwardLengthUnit { get; set; } = "Percent";
+    public double WalkForwardIsLength { get; set; } = 60;
+    public double WalkForwardOosLength { get; set; } = 10;
+    public double WalkForwardStepLength { get; set; } = 10;
+    public int WalkForwardMinWindows { get; set; } = 3;
+    public string WalkForwardObjective { get; set; } = "EdgePercent";
+    public int WalkForwardCarryTopN { get; set; } = 1;
+    public int WalkForwardResultsCap { get; set; } = 200;
+    public int WalkForwardBatchesToLoad { get; set; } = 20;
+
+    public static readonly string[] WalkForwardWindowModeValues = { "Anchored", "Rolling" };
+    public static readonly string[] WalkForwardLengthUnitValues = { "Bars", "Percent" };
 
     /// <summary>
     /// Per-parameter grid ranges for the optimizer, persisted so a range
@@ -213,6 +229,14 @@ public class ConfigManager
         // present but not a canonical value (a typo, a stale lowercase value) is
         // normalized once here rather than being rejected mid-dispatch.
         Settings.MonteCarloBackend = NormalizeBackend(Settings.MonteCarloBackend);
+        Settings.WalkForwardWindowMode = NormalizeWalkForwardWindowMode(Settings.WalkForwardWindowMode);
+        Settings.WalkForwardLengthUnit = NormalizeWalkForwardLengthUnit(Settings.WalkForwardLengthUnit);
+        Settings.WalkForwardObjective = NormalizeWalkForwardObjective(Settings.WalkForwardObjective);
+        if (Settings.WalkForwardIsLength <= 0) Settings.WalkForwardIsLength = 60;
+        if (Settings.WalkForwardOosLength <= 0) Settings.WalkForwardOosLength = 10;
+        if (Settings.WalkForwardStepLength <= 0) Settings.WalkForwardStepLength = 10;
+        if (Settings.WalkForwardMinWindows <= 0) Settings.WalkForwardMinWindows = 3;
+        if (Settings.WalkForwardCarryTopN <= 0) Settings.WalkForwardCarryTopN = 1;
     }
 
     /// <summary>
@@ -238,6 +262,39 @@ public class ConfigManager
             $"(expected one of: {string.Join(", ", AppSettings.MonteCarloBackendValues)})");
 
         return "Auto";
+    }
+
+    /// <summary>Maps <paramref name="value"/> onto a canonical walk-forward window mode.</summary>
+    public static string NormalizeWalkForwardWindowMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Anchored";
+        foreach (var candidate in AppSettings.WalkForwardWindowModeValues)
+            if (string.Equals(candidate, value.Trim(), StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        LogManager.Warn(LogTag.Config, $"settings: unknown WalkForwardWindowMode '{value}' — using 'Anchored'");
+        return "Anchored";
+    }
+
+    /// <summary>Maps <paramref name="value"/> onto a canonical walk-forward length unit.</summary>
+    public static string NormalizeWalkForwardLengthUnit(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Percent";
+        foreach (var candidate in AppSettings.WalkForwardLengthUnitValues)
+            if (string.Equals(candidate, value.Trim(), StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        LogManager.Warn(LogTag.Config, $"settings: unknown WalkForwardLengthUnit '{value}' — using 'Percent'");
+        return "Percent";
+    }
+
+    /// <summary>Maps <paramref name="value"/> onto a canonical walk-forward objective key.</summary>
+    public static string NormalizeWalkForwardObjective(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return WalkForwardObjective.EdgePercent;
+        foreach (var candidate in WalkForwardObjective.SupportedKeys)
+            if (string.Equals(candidate, value.Trim(), StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        LogManager.Warn(LogTag.Config, $"settings: unknown WalkForwardObjective '{value}' — using 'EdgePercent'");
+        return WalkForwardObjective.EdgePercent;
     }
 
     public void SaveConfig()

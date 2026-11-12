@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -53,9 +54,9 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     /// </summary>
     private bool _isVisible;
 
-    [ObservableProperty] private string _logText = "";
-    [ObservableProperty] private string _commandInput = "";
-    [ObservableProperty] private string _commandStatus = "";
+    [ObservableProperty] private string? _logText;
+    [ObservableProperty] private string? _commandInput;
+    [ObservableProperty] private string? _commandStatus;
     [ObservableProperty] private bool _isExecuting;
 
     public LogsViewModel(DataManager data, ConfigManager config)
@@ -160,7 +161,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
 
     private void Flush()
     {
-        string snapshot;
+        string? snapshot;
         lock (_gate)
         {
             _flushScheduled = false;
