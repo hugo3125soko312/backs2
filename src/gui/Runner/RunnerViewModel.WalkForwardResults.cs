@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using backs2.Core.Optimizer;
 using backs2.Core.WalkForward;
 using backs2.Core;
+using backs2.Views;
 
 namespace backs2.ViewModels;
 
@@ -148,7 +149,28 @@ public partial class RunnerViewModel
         WfResultsStatus = "Cleared.";
     }
 
-    private void ApplyWfResultsSort()
+    
+    private void RenderTimeline()
+    {
+        var view = FindTimelineView();
+        if (view == null) return;
+        
+        var rows = WalkForwardWindowRows;
+        if (rows.Count == 0) return;
+        
+        // TODO: Get bar timestamps from store for date axis
+        var barTimestamps = Array.Empty<DateTime>();
+        
+        view.ShowEmptyState();
+    }
+
+    private WalkForwardTimelineView? FindTimelineView()
+    {
+        // This will be wired up when we have the view reference
+        return null;
+    }
+
+private void ApplyWfResultsSort()
     {
         var key = WfResultsSortKey ?? "OosNetPnl";
         IEnumerable<WalkForwardWindowRow> ordered = key switch
