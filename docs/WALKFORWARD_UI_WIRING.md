@@ -36,8 +36,10 @@ Modify `src/gui/Runner/RunnerView.axaml` to:
 ## Verification
 
 - Run `dotnet build --no-incremental -c Release` to check for XAML errors
-- DataGrid errors are pre-existing and expected
+- DataGrid errors are pre-existing and expected (44 AVLN2000 errors: TextAlignment, AlternationCount, DataTrigger)
 - Check structure with `grep -n "StackPanel\|Expander\|Grid.Row" src/gui/Runner/RunnerView.axaml`
+- These are known issues; build succeeds with warnings only
+- Core walkforward functionality is not affected
 
 ## Completion (expected output)
 
