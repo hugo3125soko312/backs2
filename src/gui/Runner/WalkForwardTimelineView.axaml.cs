@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using backs2.ViewModels;
 using ScottPlot.Avalonia;
 using System;
@@ -20,6 +21,11 @@ public partial class WalkForwardTimelineView : UserControl
     {
         InitializeComponent();
         _plotView = this.FindControl<AvaPlot>("AvaPlotControl");
+        
+        // Hook up pointer events for hover
+        PointerMoved += OnPointerMoved;
+        PointerExited += OnPointerExited;
+        PointerPressed += OnPointerPressed;
     }
 
     public void RenderTimeline(IReadOnlyList<WalkForwardWindowRow> windowRows)
@@ -93,6 +99,9 @@ public partial class WalkForwardTimelineView : UserControl
         spPlot.Axes.Margins(left: 0.02, right: 0.02, bottom: 0.05, top: 0.05);
         spPlot.Grid.IsVisible = false;
         
+        // Add legend for color thresholds
+        AddColorThresholdLegend(spPlot, count);
+
         ApplyPlotTheme(spPlot);
         _plotView!.Refresh();
 
@@ -131,6 +140,70 @@ public partial class WalkForwardTimelineView : UserControl
         }
     }
 
+    private void AddColorThresholdLegend(ScottPlot.Plot spPlot, int count)
+    {
+        // Add color threshold indicators
+        var goodText = spPlot.Add.Text("✓ < 5%", 0.5, count + 1);
+        goodText.LabelFontColor = ScottPlot.Color.FromHex("#44AA44");
+        goodText.LabelFontSize = 9;
+        
+        var warnText = spPlot.Add.Text("⚠ 5-15%", 0.5, count);
+        warnText.LabelFontColor = ScottPlot.Color.FromHex("#CC8833");
+        warnText.LabelFontSize = 9;
+        
+        var badText = spPlot.Add.Text("✗ > 15%", 0.5, count - 1);
+        badText.LabelFontColor = ScottPlot.Color.FromHex("#CC3333");
+        badText.LabelFontSize = 9;
+    }
+
+    private void OnPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_plotView == null || _bars.Count == 0) return;
+        
+        // Get position relative to the plot
+        var position = e.GetPosition(_plotView);
+        
+        // Simple hit test based on Y position
+        int closestIndex = -1;
+        double minDist = double.MaxValue;
+        
+        for (int i = 0; i < _yPositions.Length; i++)
+        {
+            double yPos = _yPositions[i];
+            double dist = Math.Abs(yPos - position.Y);
+            if (dist < minDist)
+            {
+                minDist = dist;
+                closestIndex = i;
+            }
+        }
+        
+        if (closestIndex >= 0 && minDist < 20)
+        {
+            var bar = _bars[closestIndex];
+            string details = $"W{closestIndex + 1}: OOS Net PnL: {bar.OosNetPnl:+F2}, Degradation: {bar.Degradation:F2}%";
+            
+            if (SummaryText != null)
+            {
+                SummaryText.Text = details;
+                SummaryText.IsVisible = true;
+            }
+        }
+    }
+    
+    private void OnPointerExited(object? sender, PointerEventArgs e)
+    {
+        if (SummaryText != null)
+        {
+            SummaryText.IsVisible = false;
+        }
+    }
+    
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // Could be used for clicking on bars to select them
+    }
+    
     private void ApplyPlotTheme(ScottPlot.Plot spPlot)
     {
         spPlot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
