@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
-using System.Collections.ObjectModel;
 using backs2.Core.Optimizer;
 using backs2.Core.WalkForward;
 using backs2.Core;
@@ -19,24 +19,21 @@ public partial class RunnerViewModel
 
     private CancellationTokenSource? _wfResultsLoadCts;
 
-    /// <summary>
-    /// Bulk-notifying collection — one Reset per swap instead of N Adds.
-    /// This is what keeps the DataGrid responsive when the tab is opened.
-    /// </summary>
+	/// <summary>
+	/// Window timeline data - each window renders as a horizontal bar
+	/// showing IS/OOS performance for walk-forward testing results.
+	/// Displayed in RunnerView using WalkForwardTimelineBuilder + WalkForwardTimelineView.
+	/// </summary>
     public RangeObservableCollection<WalkForwardWindowRow> WalkForwardWindowRows { get; } = new();
 
     public IReadOnlyList<string> WalkForwardBatchIds { get; private set; } = Array.Empty<string>();
-
-    public ObservableCollection<WalkForwardWindowCard> WalkForwardCards { get; } = new();
-    [ObservableProperty] private bool _wfShowCards = true;
-    [ObservableProperty] private string _wfVerdict = "";
-    [ObservableProperty] private string _wfSummaryText = "";
-
     [ObservableProperty] private bool _isWalkForwardResultsExpanded;
     [ObservableProperty] private string _wfResultsSortKey = "OosNetPnl";
     [ObservableProperty] private string _wfResultsStatus = "Not loaded.";
     [ObservableProperty] private int _wfResultsCap = 200;
     [ObservableProperty] private int _wfBatchesToLoad = 20;
+	[ObservableProperty] private int _selectedWindowIndex = -1;
+	public List<WalkForwardBar> TimelineBars { get; private set; } = new();
 
     partial void OnWfResultsSortKeyChanged(string value) => ApplyWfResultsSort();
     partial void OnWfResultsCapChanged(int value) => ApplyWfResultsSort();
@@ -44,6 +41,24 @@ public partial class RunnerViewModel
     {
         if (!IsWalkForwardResultsExpanded) return;
         _ = RefreshWalkForwardResultsAsync();
+    }
+
+    partial void OnSelectedWindowIndexChanged(int value)
+    {
+        // Rebuild timeline bars with selection highlighting
+        RebuildTimelineBars();
+    }
+
+    private void RebuildTimelineBars()
+    {
+        var rows = WalkForwardWindowRows;
+        if (rows is null || rows.Count == 0)
+        {
+            TimelineBars.Clear();
+            return;
+        }
+
+        TimelineBars = WalkForwardTimelineBuilder.BuildBars(rows).ToList();
     }
 
     [RelayCommand]
@@ -107,16 +122,12 @@ public partial class RunnerViewModel
 
         _allWindowRows = loaded;
 
-        // Build card view
-        var cards = new List<WalkForwardWindowCard>();
-        foreach (var row in loaded)
-        {
-            cards.Add(new WalkForwardWindowCard(row));
-        }
-        WalkForwardCards.Clear();
-        foreach (var card in cards) WalkForwardCards.Add(card);
+        // Trigger collection changed to update UI
+        WalkForwardWindowRows.Clear();
+        foreach (var r in loaded) WalkForwardWindowRows.Add(r);
 
         ApplyWfResultsSort();
+        RebuildTimelineBars();
         sw.Stop();
 
         int batchCount = WalkForwardBatchIds.Count;
@@ -129,21 +140,16 @@ public partial class RunnerViewModel
     [RelayCommand]
     private void OpenWalkForwardFolder()
     {
-        var root = new WalkForwardStore().RootDirectory;
-        if (!Directory.Exists(root)) Directory.CreateDirectory(root);
-
-        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = root, UseShellExecute = true }); }
-        catch (Exception ex)
-        {
-            WfResultsStatus = $"Could not open folder: {ex.Message}";
-            LogManager.Error(LogTag.Runner, "could not open walk-forward folder", ex);
-        }
+        var folder = new WalkForwardStore().RootDirectory;
+        if (Directory.Exists(folder))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
     }
 
     [RelayCommand]
     private void ClearWalkForwardResults()
     {
         WalkForwardWindowRows.Clear();
+        TimelineBars.Clear();
         _allWindowRows = new();
         WfResultsStatus = "Cleared.";
     }
@@ -168,5 +174,6 @@ public partial class RunnerViewModel
         WalkForwardWindowRows.Clear();
         foreach (var r in ordered.Take(Math.Max(1, WfResultsCap)))
             WalkForwardWindowRows.Add(r);
+        RebuildTimelineBars();
     }
 }
