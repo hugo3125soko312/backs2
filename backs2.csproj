@@ -20,6 +20,13 @@
          generator emits pointer-based interop code for every [Shader] kernel
          (CMPS0052). Required by the Monte Carlo GPU path. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Compilation guards -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+    
+
+    <!-- Analyzer configuration is automatic for SDK style projects -->
   </PropertyGroup>
 
   <ItemGroup>
