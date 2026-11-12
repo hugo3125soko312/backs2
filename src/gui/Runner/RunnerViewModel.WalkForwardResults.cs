@@ -48,17 +48,7 @@ public partial class RunnerViewModel
         // Rebuild timeline bars with selection highlighting
     }
 
-    private void RebuildTimelineBars()
-    {
-        var rows = WalkForwardWindowRows;
-        if (rows is null || rows.Count == 0)
-        {
-                return;
-        }
-
-    }
-
-    [RelayCommand]
+[RelayCommand]
     private async Task RefreshWalkForwardResultsAsync()
     {
         _wfResultsLoadCts?.Cancel();
