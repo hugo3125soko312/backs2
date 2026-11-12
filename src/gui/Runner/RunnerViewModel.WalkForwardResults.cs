@@ -33,7 +33,6 @@ public partial class RunnerViewModel
     [ObservableProperty] private int _wfResultsCap = 200;
     [ObservableProperty] private int _wfBatchesToLoad = 20;
 	[ObservableProperty] private int _selectedWindowIndex = -1;
-	public List<WalkForwardBar> TimelineBars { get; private set; } = new();
 
     partial void OnWfResultsSortKeyChanged(string value) => ApplyWfResultsSort();
     partial void OnWfResultsCapChanged(int value) => ApplyWfResultsSort();
@@ -46,7 +45,6 @@ public partial class RunnerViewModel
     partial void OnSelectedWindowIndexChanged(int value)
     {
         // Rebuild timeline bars with selection highlighting
-        RebuildTimelineBars();
     }
 
     private void RebuildTimelineBars()
@@ -54,11 +52,9 @@ public partial class RunnerViewModel
         var rows = WalkForwardWindowRows;
         if (rows is null || rows.Count == 0)
         {
-            TimelineBars.Clear();
-            return;
+                return;
         }
 
-        TimelineBars = WalkForwardTimelineBuilder.BuildBars(rows).ToList();
     }
 
     [RelayCommand]
@@ -127,7 +123,6 @@ public partial class RunnerViewModel
         foreach (var r in loaded) WalkForwardWindowRows.Add(r);
 
         ApplyWfResultsSort();
-        RebuildTimelineBars();
         sw.Stop();
 
         int batchCount = WalkForwardBatchIds.Count;
@@ -149,7 +144,6 @@ public partial class RunnerViewModel
     private void ClearWalkForwardResults()
     {
         WalkForwardWindowRows.Clear();
-        TimelineBars.Clear();
         _allWindowRows = new();
         WfResultsStatus = "Cleared.";
     }
@@ -174,6 +168,5 @@ public partial class RunnerViewModel
         WalkForwardWindowRows.Clear();
         foreach (var r in ordered.Take(Math.Max(1, WfResultsCap)))
             WalkForwardWindowRows.Add(r);
-        RebuildTimelineBars();
     }
 }

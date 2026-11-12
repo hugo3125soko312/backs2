@@ -1,65 +1,125 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using backs2.ViewModels;
+using System.Globalization;
+using backs2.Core.WalkForward;
 
 namespace backs2.ViewModels;
 
 /// <summary>
-/// Converts walk-forward window rows into timeline bar data.
-/// Pure function - no UI, thread-safe.
+/// Pure function that converts WalkForwardWindowRow collections into plot-ready shapes.
+/// Testable without UI dependencies.
 /// </summary>
 public static class WalkForwardTimelineBuilder
 {
-    public static List<WalkForwardBar> BuildBars(IReadOnlyList<WalkForwardWindowRow> rows)
+    public record TimelineBar(
+        int WindowIndex,
+        DateTime IsStart,
+        DateTime IsEnd,
+        DateTime OosStart,
+        DateTime OosEnd,
+        double OosNetPnl,
+        double Degradation,
+        bool Success,
+        int OosTradeCount,
+        double OosMaxDrawdown);
+
+    public record SummaryMetrics(
+        int WindowCount,
+        double TotalOosPnl,
+        double WorstDrawdown,
+        double AvgDegradation);
+
+    /// <summary>
+    /// Convert window rows to timeline bars with date conversion.
+    /// </summary>
+    /// <param name="rows">Source window rows</param>
+    /// <param name="barTimestamps">Timestamp lookup for bar indices</param>
+    /// <returns>Timeline bars with real dates</returns>
+    public static IReadOnlyList<TimelineBar> Build(
+        IReadOnlyList<WalkForwardWindowRow> rows,
+        IReadOnlyList<DateTime> barTimestamps)
     {
-        if (rows.Count == 0) return new();
-
-        int maxWindows = rows.Max(r => r.WindowIndex) + 1;
-
-        var bars = new List<WalkForwardBar>();
-        foreach (var row in rows)
+        var result = new List<TimelineBar>(rows.Count);
+        
+        for (int i = 0; i < rows.Count; i++)
         {
-            // IS bar (in-sample) - lighter color
-            bars.Add(new WalkForwardBar
-            {
-                WindowIndex = row.WindowIndex,
-                Y = row.WindowIndex,
-                Height = 0.35,
-                Label = "IS",
-                FillColor = "#C0A068",
-                BarWidth = 80
-            });
-
-            // OOS bar (out-of-sample) - colored by performance
-            bars.Add(new WalkForwardBar
-            {
-                WindowIndex = row.WindowIndex,
-                Y = row.WindowIndex + 0.4,
-                Height = 0.4,
-                Label = $"OOS {row.OosNetPnl:+0;-0}",
-                FillColor = GetOosColor(row),
-                BarWidth = 80
-            });
+            var r = rows[i];
+            
+            DateTime isStart = BarToDateTime(r.IsStartBar, barTimestamps);
+            DateTime isEnd = BarToDateTime(r.IsEndBar, barTimestamps);
+            DateTime oosStart = BarToDateTime(r.OosStartBar, barTimestamps);
+            DateTime oosEnd = BarToDateTime(r.OosEndBar, barTimestamps);
+            
+            result.Add(new TimelineBar(
+                WindowIndex: r.WindowIndex,
+                IsStart: isStart,
+                IsEnd: isEnd,
+                OosStart: oosStart,
+                OosEnd: oosEnd,
+                OosNetPnl: r.OosNetPnl,
+                Degradation: r.Degradation,
+                Success: r.Success,
+                OosTradeCount: r.OosTradeCount,
+                OosMaxDrawdown: r.OosMaxDrawdown));
         }
-
-        return bars;
+        
+        return result;
     }
 
-    private static string GetOosColor(WalkForwardWindowRow row)
+    /// <summary>
+    /// Convert bar index to DateTime using lookup table.
+    /// </summary>
+    private static DateTime BarToDateTime(int barIndex, IReadOnlyList<DateTime> timestamps)
     {
-        if (!row.Success || row.Degradation > 0.50 || row.OosNetPnl < 0) return "#E74C3C";      // red
-        if (row.Degradation >= 0.25) return "#F5A623";                                            // amber
-        return "#2ECC71";                                                                          // green
+        if (barIndex < 0 || barIndex >= timestamps.Count)
+            return DateTime.MinValue;
+        
+        return timestamps[barIndex];
     }
-}
 
-public class WalkForwardBar
-{
-    public int WindowIndex { get; set; }
-    public double Y { get; set; }
-    public double Height { get; set; } = 0.4;
-    public string Label { get; set; } = "";
-    public string FillColor { get; set; } = "#FFFFFF";
-    public int BarWidth { get; set; } = 80;
+    /// <summary>
+    /// Calculate summary metrics from bars.
+    /// </summary>
+    public static SummaryMetrics CalculateSummary(IReadOnlyList<TimelineBar> bars)
+    {
+        if (bars.Count == 0)
+            return new SummaryMetrics(0, 0, 0, 0);
+        
+        double totalPnl = 0;
+        double worstDd = 0;
+        double totalDegradation = 0;
+        
+        foreach (var bar in bars)
+        {
+            totalPnl += bar.OosNetPnl;
+            worstDd = Math.Max(worstDd, bar.OosMaxDrawdown);
+            totalDegradation += bar.Degradation;
+        }
+        
+        return new SummaryMetrics(
+            WindowCount: bars.Count,
+            TotalOosPnl: totalPnl,
+            WorstDrawdown: worstDd,
+            AvgDegradation: totalDegradation / bars.Count);
+    }
+
+    /// <summary>
+    /// Determine health color for a bar based on degradation and PnL.
+    /// </summary>
+    public static string GetHealthColor(double degradation, double oosNetPnl)
+    {
+        if (oosNetPnl < 0 || degradation > 0.50)
+            return "Red";
+        if (degradation >= 0.25)
+            return "Amber";
+        return "Green";
+    }
+
+    /// <summary>
+    /// Format PnL display string.
+    /// </summary>
+    public static string FormatPnl(double value)
+    {
+        return value.ToString("F2", CultureInfo.InvariantCulture);
+    }
 }

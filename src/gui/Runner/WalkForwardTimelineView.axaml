@@ -1,34 +1,23 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:backs2.ViewModels"
+             xmlns:views="using:backs2.Views"
              x:Class="backs2.Views.WalkForwardTimelineView"
-             x:DataType="vm:RunnerViewModel"
-             PointerMoved="OnMouseMove"
-             PointerPressed="OnClick">
-    <Border Background="{DynamicResource SurfaceApp}"
-            CornerRadius="8"
-            Padding="8">
-        <StackPanel Orientation="Vertical" Spacing="4">
-            <ItemsControl ItemsSource="{Binding TimelineBars}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <Canvas Width="1000" Height="600" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:WalkForwardBar">
-                        <Rectangle Fill="{Binding FillColor}"
-                                   Width="{Binding BarWidth}"
-                                   Height="{Binding Height, Converter={StaticResource DoubleToIntConverter}}"
-                                   Margin="0,0,0,0" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock x:Name="Tooltip"
-                       Text="Select a walk-forward window"
-                       FontSize="11"
-                       Foreground="{DynamicResource TextSecondary}"
-                       Margin="0,4,0,0" />
-        </StackPanel>
-    </Border>
+             x:DataType="vm:RunnerViewModel">
+    <Grid>
+        <AvaPlot x:Name="Plot"
+                 HorizontalAlignment="Stretch"
+                 VerticalAlignment="Stretch" />
+        
+        <!-- Summary overlay -->
+        <TextBlock x:Name="SummaryText"
+                   IsVisible="False"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Top"
+                   Margin="8"
+                   Padding="4,2"
+                   Background="{DynamicResource SurfaceOverlay}"
+                   CornerRadius="3"
+                   FontSize="11" />
+    </Grid>
 </UserControl>
