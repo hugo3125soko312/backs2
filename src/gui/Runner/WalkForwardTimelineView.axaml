@@ -5,7 +5,7 @@
              x:Class="backs2.Views.WalkForwardTimelineView"
              x:DataType="vm:RunnerViewModel">
     <Grid>
-        <AvaPlot x:Name="Plot"
+        <AvaPlot x:Name="AvaPlotControl"
                  HorizontalAlignment="Stretch"
                  VerticalAlignment="Stretch" />
         
