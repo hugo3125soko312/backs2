@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using backs2.ViewModels;
+using backs2.Core.WalkForward;
 using ScottPlot.Avalonia;
 using System;
 using System.Collections.Generic;
@@ -14,7 +15,7 @@ public partial class WalkForwardTimelineView : UserControl
     private const int PxPerWindow = 36;
 
     private AvaPlot? _plotView;
-    private List<WalkForwardTimelineBuilder.TimelineBar> _bars = new();
+    private IReadOnlyList<WalkForwardTimelineBuilder.TimelineBar> _bars = Array.Empty<WalkForwardTimelineBuilder.TimelineBar>();
     private double[] _yPositions = Array.Empty<double>();
 
     public WalkForwardTimelineView()
@@ -28,7 +29,7 @@ public partial class WalkForwardTimelineView : UserControl
         PointerPressed += OnPointerPressed;
     }
 
-    public void RenderTimeline(IReadOnlyList<WalkForwardWindowRow> windowRows)
+    public void RenderTimeline(IReadOnlyList<WalkForwardWindowRow> windowRows, IReadOnlyList<DateTime> barTimestamps)
     {
         ScottPlot.Plot spPlot = _plotView!.Plot;
         spPlot.Clear();
@@ -39,28 +40,15 @@ public partial class WalkForwardTimelineView : UserControl
             return;
         }
 
-        // Build timeline bars
-        _bars = new List<WalkForwardTimelineBuilder.TimelineBar>();
-        int count = windowRows.Count;
+        // Build timeline bars with actual dates
+        var bars = WalkForwardTimelineBuilder.Build(windowRows, barTimestamps);
+        _bars = bars;
+        int count = bars.Count;
         _yPositions = new double[count];
         
         for (int i = 0; i < count; i++)
         {
-            var row = windowRows[i];
             _yPositions[i] = count - i;
-            
-            _bars.Add(new WalkForwardTimelineBuilder.TimelineBar(
-                WindowIndex: row.WindowIndex,
-                IsStart: DateTime.MinValue,
-                IsEnd: DateTime.MinValue,
-                OosStart: DateTime.MinValue,
-                OosEnd: DateTime.MinValue,
-                OosNetPnl: row.OosNetPnl,
-                Degradation: row.Degradation,
-                Success: row.Success,
-                OosTradeCount: row.OosTradeCount,
-                OosMaxDrawdown: row.OosMaxDrawdown
-            ));
         }
 
         // Draw bars
