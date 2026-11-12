@@ -12,6 +12,20 @@
             </ResourceDictionary.MergedDictionaries>
             <!-- Fluent DataGrid reserves 32px for an inline sort icon; our header template draws its own glyph, so the reserve clips narrow headers. Zero it out. Ref: Avalonia issue #9791 / #11938 / discussion #15442. -->
             <x:Double x:Key="DataGridSortIconMinWidth">0</x:Double>
+            <!-- Duration formatting -->
+            <views:DurationConverter x:Key="DurationConverter"/>
+            <!-- Walk-forward color palette -->
+            <SolidColorBrush x:Key="WfGood"  Color="#2ECC71"/>
+            <SolidColorBrush x:Key="WfWarn"  Color="#F5A623"/>
+            <SolidColorBrush x:Key="WfBad"   Color="#E74C3C"/>
+            <SolidColorBrush x:Key="WfIs"    Color="#4A90D9"/>
+            <SolidColorBrush x:Key="WfOos"   Color="#9B59B6"/>
+            <SolidColorBrush x:Key="WfCard"  Color="#1E1F24"/>
+            <!-- Walk-forward verdict thresholds -->
+            <x:Double x:Key="WfGoodThreshold">0.25</x:Double>
+            <x:Double x:Key="WfBadThreshold">0.50</x:Double>
+            <x:Double x:Key="WfRobustThreshold">0.70</x:Double>
+            <x:Double x:Key="WfFragilePnl">0</x:Double>
         </ResourceDictionary>
     </Application.Resources>
 

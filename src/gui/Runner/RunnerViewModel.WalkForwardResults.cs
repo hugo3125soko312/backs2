@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Collections.ObjectModel;
 using backs2.Core.Optimizer;
 using backs2.Core.WalkForward;
 using backs2.Core;
@@ -25,6 +26,11 @@ public partial class RunnerViewModel
     public RangeObservableCollection<WalkForwardWindowRow> WalkForwardWindowRows { get; } = new();
 
     public IReadOnlyList<string> WalkForwardBatchIds { get; private set; } = Array.Empty<string>();
+
+    public ObservableCollection<WalkForwardWindowCard> WalkForwardCards { get; } = new();
+    [ObservableProperty] private bool _wfShowCards = true;
+    [ObservableProperty] private string _wfVerdict = "";
+    [ObservableProperty] private string _wfSummaryText = "";
 
     [ObservableProperty] private bool _isWalkForwardResultsExpanded;
     [ObservableProperty] private string _wfResultsSortKey = "OosNetPnl";
@@ -100,6 +106,15 @@ public partial class RunnerViewModel
         if (ct.IsCancellationRequested) return;
 
         _allWindowRows = loaded;
+
+        // Build card view
+        var cards = new List<WalkForwardWindowCard>();
+        foreach (var row in loaded)
+        {
+            cards.Add(new WalkForwardWindowCard(row));
+        }
+        WalkForwardCards.Clear();
+        foreach (var card in cards) WalkForwardCards.Add(card);
 
         ApplyWfResultsSort();
         sw.Stop();

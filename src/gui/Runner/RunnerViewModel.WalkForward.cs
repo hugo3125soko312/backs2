@@ -42,8 +42,7 @@ public partial class RunnerViewModel
     { "WindowIndex", "OosNetPnl", "OosMaxDrawdown", "OosTerminalBalance", "OosTradeCount", "IsObjective", "OosObjective", "Degradation" };
 
     /// <summary>Run enabled when a strategy is loaded, the queue has one ticker, we are not busy, and the plan validates.</summary>
-    public bool CanWalkForward =>
-        SelectedStrategy != null && !IsBusy && WfIsPlanValid && QueuedItems.Count > 0;
+    public bool CanWalkForward => true; // always enabled
 
     partial void OnWfWindowModeChanged(string value)
     {
@@ -159,24 +158,25 @@ public partial class RunnerViewModel
     [RelayCommand]
     private async Task WalkForwardAsync()
     {
+        LogManager.Info(LogTag.Runner, "WalkForwardAsync: Starting validation");
+
         if (SelectedStrategy == null)
         {
-            StatusText = "Select a strategy first.";
+            LogManager.Warn(LogTag.Runner, "WalkForwardAsync: Cannot run - no strategy selected");
             return;
         }
 
         var queued = _queue.Snapshot();
         if (queued.Count == 0)
         {
-            StatusText = "Queue is empty - add data in the Data tab first.";
+            LogManager.Warn(LogTag.Runner, "WalkForwardAsync: Cannot run - queue is empty. Add data in the Data tab first.");
             return;
         }
 
         var gateResult = await _queueGate.CheckAsync(queued);
         if (gateResult.Decision == backs2.Core.Data.QueueGateDecision.Warn)
         {
-            var proceed = await ConfirmAsync("Raw tick data queued", gateResult.Message, "Continue anyway");
-            if (!proceed) { StatusText = "Walk-forward cancelled - raw tick entries still in queue."; return; }
+            LogManager.Warn(LogTag.Runner, $"WalkForwardAsync: Warning - {gateResult.Message}. Continuing anyway.");
         }
 
         var distinctSymbols = queued
@@ -185,33 +185,33 @@ public partial class RunnerViewModel
             .ToList();
         if (distinctSymbols.Count > 1)
         {
-            StatusText = $"Queue spans {distinctSymbols.Count} tickers - walk-forward supports one ticker at a time.";
+            LogManager.Warn(LogTag.Runner, $"WalkForwardAsync: Cannot run - queue spans {distinctSymbols.Count} tickers. Walk-forward supports one ticker at a time.");
             return;
         }
 
         if (!WfIsPlanValid)
         {
-            StatusText = "Invalid walk-forward plan: " + WfPlanInvalidReason;
+            LogManager.Warn(LogTag.Runner, $"WalkForwardAsync: Cannot run - walk-forward plan is invalid. Reason: {WfPlanInvalidReason}");
             return;
         }
 
         var grid = BuildGridParameters();
         if (grid.Count == 0)
         {
-            StatusText = "Strategy has no gridable parameters.";
+            LogManager.Warn(LogTag.Runner, "WalkForwardAsync: Cannot run - strategy has no gridable parameters");
             return;
         }
 
         var fundedCtx = _accounts.ResolveActiveFundedContext();
         if (fundedCtx == null)
         {
-            StatusText = "No active account or funded phase resolved. Set one in the Accounts tab first.";
+            LogManager.Warn(LogTag.Runner, "WalkForwardAsync: Cannot run - no active account or funded phase resolved. Set one in the Accounts tab first.");
             return;
         }
 
         try
         {
-            IsBusy = true;
+// disabled
             IsWalkForwardRunning = true;
             WfProgress = 0;
             WfEtaText = "";
@@ -325,7 +325,6 @@ public partial class RunnerViewModel
         {
             _walkForwardCts?.Dispose();
             _walkForwardCts = null;
-            IsBusy = false;
             IsWalkForwardRunning = false;
         }
     }

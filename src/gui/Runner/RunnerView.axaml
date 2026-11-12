@@ -35,7 +35,7 @@
                         IsEnabled="{Binding CanRun}"
                         ToolTip.Tip="Search the parameter grid over the queued dataset(s) and run Monte Carlo per version" />
                 <Button Content="Walk-Forward"
-                        Command="{Binding WalkForwardAsyncCommand}"
+                        Command="{Binding WalkForwardCommand}"
                         IsEnabled="{Binding CanWalkForward}"
                         ToolTip.Tip="Run walk-forward optimization: IS optimize per window, OOS evaluate, aggregate degradation" />
 
@@ -214,11 +214,11 @@
                                     <StackPanel>
                                         <TextBlock Text="{Binding Name}"
                                                    FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                    />
                                         <TextBlock Text="{Binding Path}"
                                                    FontSize="10"
                                                    Opacity="0.6"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                    />
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -378,7 +378,6 @@
                           IsReadOnly="True"
                           CanUserSortColumns="True"
                           FontSize="11"
-                          AlternationCount="2"
                           RowHeight="22">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Batch"
@@ -396,62 +395,53 @@
                         <DataGridTextColumn Header="Trades"
                                             Binding="{Binding TradeCount}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Duration"
                                             Binding="{Binding BacktestDurationMs, Converter={StaticResource DurationConverter}}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Net PnL"
                                             Binding="{Binding NetPnlDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="CAGR"
                                             Binding="{Binding CagrDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Edge %"
                                             Binding="{Binding EdgePercentDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Funded %"
                                             Binding="{Binding PfundedDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Ruin %"
                                             Binding="{Binding PruinDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="MC"
                                             Binding="{Binding McRan}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center">
-                            <DataGridCell.Style>
-                                <Style TargetType="DataGridCell">
-                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding McRan}" Value="True">
-                                            <Setter Property="Foreground" Value="{DynamicResource Success}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </DataGridCell.Style>
+                                            >
+                            
                         </DataGridTextColumn>
                         <DataGridTextColumn Header="Terminal"
                                             Binding="{Binding TerminalBalanceMedianDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Drawdown"
                                             Binding="{Binding MaxDrawdownMedianDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Best Day"
                                             Binding="{Binding BestDayRatioMedianDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Worst Day"
                                             Binding="{Binding WorstDayRatioMedianDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                     </DataGrid.Columns>
                 </DataGrid>
 
@@ -503,7 +493,6 @@
                           IsReadOnly="True"
                           CanUserSortColumns="True"
                           FontSize="11"
-                          AlternationCount="2"
                           RowHeight="22">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Batch"
@@ -512,7 +501,7 @@
                         <DataGridTextColumn Header="Window"
                                             Binding="{Binding WindowIndex}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="Strategy"
                                             Binding="{Binding StrategyName}"
                                             Width="SizeToHeader" />
@@ -525,67 +514,67 @@
                         <DataGridTextColumn Header="IS Start"
                                             Binding="{Binding IsStartBar}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="IS End"
                                             Binding="{Binding IsEndBar}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="OOS Start"
                                             Binding="{Binding OosStartBar}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="OOS End"
                                             Binding="{Binding OosEndBar}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="Parameters"
                                             Binding="{Binding ChosenParameters}"
                                             Width="*"
-                                            TextTrimming="CharacterEllipsis" />
+                                             />
                         <DataGridTextColumn Header="Objective"
                                             Binding="{Binding IsObjective}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="OOS Objective"
                                             Binding="{Binding OosObjective}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="Degradation"
                                             Binding="{Binding DegradationDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="OOS Trades"
                                             Binding="{Binding OosTradeCount}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="OOS Net PnL"
                                             Binding="{Binding OosNetPnlDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="OOS Max DD"
                                             Binding="{Binding OosMaxDrawdownDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="OOS Terminal"
                                             Binding="{Binding OosTerminalBalanceDisplay}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                         <DataGridTextColumn Header="OOS Beat Null"
                                             Binding="{Binding OosBeatNull}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="Success"
                                             Binding="{Binding Success}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="Error"
                                             Binding="{Binding Error}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Center" />
+                                             />
                         <DataGridTextColumn Header="Duration"
                                             Binding="{Binding DurationMs, Converter={StaticResource DurationConverter}}"
                                             Width="SizeToHeader"
-                                            TextAlignment="Right" />
+                                             />
                     </DataGrid.Columns>
                 </DataGrid>
 
