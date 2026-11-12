@@ -44,12 +44,9 @@ internal partial class WalkForwardJsonContext : JsonSerializerContext
     /// </summary>
     public static WalkForwardBatch? LoadWithVersionValidation(string json)
     {
+        var context = new WalkForwardJsonContext();
         var options = new JsonSerializerOptions
         {
-            SourceGenerationContext = new WalkForwardJsonContext(new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }),
             PropertyNameCaseInsensitive = true,
             NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
         };
