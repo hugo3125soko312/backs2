@@ -49,7 +49,7 @@ public static class WalkForwardAggregator
         }
 
         double meanObj = ok.Average(w => w.OosObjective);
-        double medianObj = Median(ok.Select(w => w.OosObjective).ToList());
+        double medianObj = Median(ok, w => w.OosObjective);
         double meanDeg = ok.Average(w => w.Degradation);
         double stitchedPnl = ok.Sum(w => w.OosNetPnl);
 
@@ -161,10 +161,10 @@ public static class WalkForwardAggregator
     // Statistics helpers
     // ------------------------------------------------------------------
 
-    private static double Median(List<double> values)
+    private static double Median<T>(IReadOnlyList<T> items, Func<T, double> selector)
     {
-        if (values.Count == 0) return 0.0;
-        values.Sort();
+        if (items.Count == 0) return 0.0;
+        var values = items.Select(selector).OrderBy(x => x).ToList();
         int mid = values.Count / 2;
         return (values.Count & 1) == 1
             ? values[mid]

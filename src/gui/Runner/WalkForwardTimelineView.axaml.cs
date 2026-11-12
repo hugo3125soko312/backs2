@@ -16,6 +16,8 @@ public partial class WalkForwardTimelineView : UserControl
     private readonly Canvas? _canvas;
     private readonly TextBlock? _tooltip;
     private readonly ItemsControl? _itemsControl;
+    private static readonly Avalonia.Media.IBrush _defaultBrush
+        = Avalonia.Media.Brush.Parse("#E6E6E6");
 
     public WalkForwardTimelineView()
     {
@@ -68,7 +70,7 @@ public partial class WalkForwardTimelineView : UserControl
             {
                 Text = $"W{i}",
                 FontSize = 9,
-                Foreground = Avalonia.Media.Brush.Parse("#E6E6E6")
+                Foreground = _defaultBrush
             };
             Canvas.SetLeft(text, 125 + i * 130);
             Canvas.SetTop(text, 10);

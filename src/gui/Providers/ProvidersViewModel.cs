@@ -94,8 +94,8 @@ public partial class ProviderGroupViewModel : ObservableObject
         End = maxT > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(maxT).ToString("yyyy-MM-dd") : "—";
         AverageSpan = ComputeAverageSpan(metas);
 
-        var tfs = metas.Select(m => m.Timeframe).Distinct().ToList();
-        var sortedTfs = TimeframeMap.All.Where(tfs.Contains).ToList();
+        var tfs = metas.Select(m => m.Timeframe).Distinct().ToHashSet();
+        var sortedTfs = TimeframeMap.All.Where(t => tfs.Contains(t)).ToList();
         sortedTfs.AddRange(tfs.Except(TimeframeMap.All).OrderBy(x => x));
         Timeframes = string.Join(", ", sortedTfs);
 
