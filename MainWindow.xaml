@@ -18,6 +18,8 @@
             </TreeView.ItemTemplate>
         </TreeView>
 
-        <ContentControl Grid.Column="1" Content="{Binding ActiveNode.Content}" Margin="16" Background="{StaticResource BackgroundBrush}"/>
+        <Border Grid.Column="1" Margin="16" Background="#FF0000">  <!-- RED border -->
+            <ContentControl Content="{Binding SelectedNode.Content}" Background="{StaticResource BackgroundBrush}"/>
+        </Border>
     </Grid>
 </Window>
