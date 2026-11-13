@@ -1,0 +1,186 @@
+=== THEME COLOR RESOLUTION AUDIT ===
+Date: 2026-11-14
+Scope: backs2 WPF application — all views
+
+== APPLICATION STARTUP RESOURCE PIPELINE ==
+
+  1. App.xaml (Application.Resources)
+     └─ ResourceDictionary with 8 SolidColorBrush keys + 2 converter instances + 2 implicit styles
+     │    Keys: BackgroundBrush(#181818), PanelBrush(#222222), TextPrimaryBrush(#E6EDF3),
+     │          TextSecondaryBrush(#848D97), AccentBrush(#2F81F7), WfGood(#2ECC71), WfWarn(#F5A623), WfBad(#E74C3C)
+     │
+     ├─ Implicit Style: TargetType=Window → sets Background=BackgroundBrush, Foreground=TextPrimaryBrush
+     ├─ Implicit Style: TargetType=UserControl → sets Background=BackgroundBrush, Foreground=TextPrimaryBrush
+     │    (Applies to ALL views including MonteCarloView, ChartView, OverviewView, etc.)
+     │
+  2. Program.cs Main()
+     └─ new App() → app.InitializeComponent() → app.Run()
+        └─ App.InitializeComponent() loads App.xaml via generated partial class
+        └─ App.xaml loads ResourceDictionary into Application.Resources
+        └─ WPF automatically applies implicit styles to all Window/UserControl elements
+        └─ MainWindow renders → ContentControl binds to SelectedNode.Content → view renders
+
+== MONTE CARLO SPECIFIC (MonteCarloView.xaml) ==
+
+  Root Grid:
+    Background="{StaticResource BackgroundBrush}" → #181818 (dark charcoal) ✅
+
+  KPI Card Borders:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+  KPI Card inner panels:
+    Background="{StaticResource PanelBrush}" → #222222 (slightly lighter) ✅
+
+  Text labels:
+    Foreground="{StaticResource TextPrimaryBrush}" → #E6EDF3 (light grey) ✅
+
+  Secondary text:
+    Foreground="{StaticResource TextSecondaryBrush}" → #848D97 (muted grey) ✅
+
+  Run button:
+    Background="{StaticResource AccentBrush}" → #2F81F7 (blue) ✅
+
+  Cancel button:
+    No explicit background → inherits transparent (correct for "Cancel") ✅
+
+  BoolToForegroundConverter value brushes:
+    Uses Brushes.Green/Red/White (hardcoded, not StaticResource) — acceptable ✅
+
+  BorderBrush in KPI cards:
+    {StaticResource BorderBrush} → NOT DEFINED in App.xaml ⚠️
+    → WPF will throw XamlParseException at runtime if this key is missing
+
+== MT5 TICK VIEW ==
+
+  Grid:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+  TextBlock Foreground:
+    {StaticResource TextSecondaryBrush} → #848D97 ✅
+
+== WALK-FORWARD TIMELINE VIEW ==
+
+  Root Grid: NO explicit Background → implicit UserControl style → #181818 ✅
+
+  Border:
+    Background="{StaticResource PanelBrush}" → #222222 ✅
+    BorderBrush="{StaticResource TextSecondaryBrush}" → #848D97 ✅
+    Foreground="{StaticResource TextSecondaryBrush}" → #848D97 ✅
+
+== CHART VIEW ==
+
+  Root Grid:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+  WpfPlot:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+    Foreground="{StaticResource TextPrimaryBrush}" → #E6EDF3 ✅
+
+  StatusBar:
+    Background="{StaticResource PanelBrush}" → #222222 ✅
+    Foreground="{StaticResource TextSecondaryBrush}" → #848D97 ✅
+
+== OVERVIEW VIEW ==
+
+  Root Grid:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+  DataGrid RowStyle:
+    Background="{StaticResource PanelBrush}" (alternation index 0) ✅
+    Background="Transparent" (alternation index 1) → transparent ✅
+
+== ALL OTHERVIEWS (DataView, MetricsView, AccountView, LogsView,
+    ProvidersView, DataAutomationView, ConfigView) ==
+
+  Root Grid: Background="{StaticResource BackgroundBrush}" → #181818 ✅
+  TextBlock Foreground: "{StaticResource TextSecondaryBrush}" → #848D97 ✅
+
+== RUNNER VIEW ==
+
+  XAML exists: src/gui/RunnerView.xaml
+  Code-behind: MISSING — no RunnerView.xaml.cs file
+  ⚠️  View will render but has no code-behind for logic binding
+
+== MAIN WINDOW ==
+
+  TreeView:
+    Background="{StaticResource PanelBrush}" → #222222 ✅
+    Foreground="{StaticResource TextPrimaryBrush}" → #E6EDF3 ✅
+
+  ContentControl:
+    Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+  Window:
+    Implicit style → Background="{StaticResource BackgroundBrush}" → #181818 ✅
+
+== BUILD STATUS ==
+
+  dotnet build backs2.csproj: 0 Warning(s), 0 Error(s) ✅
+
+== CRITICAL FINDINGS ==
+
+  FINDING 1: BorderBrush is undefined in App.xaml
+  ─────────────────────────────────────────────────
+  MonteCarloView.xaml line 55 references {StaticResource BorderBrush} but this key
+  is NOT defined in App.xaml's ResourceDictionary.
+
+  Impact: Will cause XamlParseException at runtime when MonteCarloView renders.
+  The KPI card Border element will fail to resolve the resource.
+
+  Severity: 🔴 HIGH — Runtime crash
+
+  Fix: Either add <SolidColorBrush x:Key="BorderBrush" Color="#333333"/> to
+       App.xaml, or remove the BorderBrush attribute from MonteCarloView.xaml
+       line 55 and rely on the implicit UserControl/UserControl style border.
+
+  FINDING 2: RunnerView.xaml has no code-behind
+  ──────────────────────────────────────────────
+  src/gui/RunnerView.xaml exists but src/gui/RunnerView.xaml.cs does not.
+  This is not a theme issue but prevents any logic from running in that view.
+
+  Severity: 🟡 MEDIUM — Missing functionality, not a theme bug
+
+  FINDING 3: Tokens.axaml does not exist
+  ───────────────────────────────────────
+  Architecture docs reference src/gui/Theme/Tokens.axaml but the file does not
+  exist in the workspace. App.xaml does not reference any external axaml files
+  (uses inline ResourceDictionary instead).
+
+  Impact: None — App.xaml is self-contained and complete. No runtime issue.
+
+  Severity: ℹ️ INFORMATIONAL — Outdated documentation reference
+
+== SUMMARY TABLE ==
+
+  View File                   | StaticResource References | Status
+  ─────────────────────────────────────────────────────────────
+  MonteCarloView.xaml         | 8 references             | 🔴 BorderBrush missing
+  Mt5TickView.xaml           | 2 references             | ✅ OK
+  WalkForwardTimelineView     | 3 references             | ✅ OK (uses implicit style for root)
+  ChartView.xaml             | 4 references             | ✅ OK
+  OverviewView.xaml          | 4 references             | ✅ OK
+  DataView.xaml              | 2 references             | ✅ OK
+  MetricsView.xaml           | 2 references             | ✅ OK
+  AccountView.xaml           | 2 references             | ✅ OK
+  LogsView.xaml              | 2 references             | ✅ OK
+  ProvidersView.xaml         | 2 references             | ✅ OK
+  DataAutomationView.xaml    | 2 references             | ✅ OK
+  ConfigView.xaml            | 1 reference              | ✅ OK
+  RunnerView.xaml            | 0 references             | ⚠️ No code-behind
+  StrategySourceWindow.xaml  | 1 reference              | ✅ OK
+  PresetPickerWindow.xaml    | 1 reference              | ✅ OK
+  QueueWindow.xaml           | 1 reference              | ✅ OK
+
+  App.xaml ResourceDictionary | 8 brushes + 2 converters | ✅ OK (but BorderBrush key missing)
+
+== RESOURCE RESOLUTION VERDICT ==
+
+  ✅ App.xaml loads correctly via InitializeComponent()
+  ✅ App.InitializeComponent() is called before app.Run() in Program.cs
+  ✅ ResourceDictionary is in Application.Resources — available to all views
+  ✅ Implicit styles (UserControl, Window) apply correctly
+  ✅ All StaticResource references resolve except BorderBrush in MonteCarloView
+  ⚠️  RunnerView missing code-behind (non-theme issue)
+
+  Theme colors RESOLVE correctly for 95% of the application.
+  One missing key (BorderBrush) will cause a runtime crash in MonteCarloView.
