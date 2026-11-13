@@ -13,6 +13,7 @@
             <SolidColorBrush x:Key="WfGood" Color="#2ECC71"/>
             <SolidColorBrush x:Key="WfWarn" Color="#F5A623"/>
             <SolidColorBrush x:Key="WfBad" Color="#E74C3C"/>
+            <SolidColorBrush x:Key="BorderBrush" Color="#333333"/>
             
             <views:DurationConverter x:Key="DurationConverter"/>
             <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
