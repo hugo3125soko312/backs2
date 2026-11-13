@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              Title="Color Picker"
              Width="400" Height="300">
-    <Grid>
+    <Grid Background="{StaticResource BackgroundBrush}">
         <TextBlock Text="Color Picker - TODO" VerticalAlignment="Center" HorizontalAlignment="Center"/>
     </Grid>
 </Window>

@@ -6,7 +6,7 @@
              xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
-    <Grid>
+    <Grid Background="{StaticResource BackgroundBrush}">
         <Border BorderBrush="{StaticResource TextSecondaryBrush}" BorderThickness="1" Background="{StaticResource PanelBrush}">
             <TextBlock Text="[Walk-Forward Timeline Chart Stubbed - Awaiting Port from Chart Tab]"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
