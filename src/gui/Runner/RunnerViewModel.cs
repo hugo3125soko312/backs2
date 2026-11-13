@@ -15,6 +15,7 @@ using ScottPlot.WPF;
 using ScottPlot.Plottables;
 using backs2.ViewModels.Messages;
 using backs2.Core;
+using backs2.ViewModels.Messages;
 using backs2.Core.Accounts;
 using backs2.Core.Optimizer;
 using backs2.Core.Overview;
@@ -557,11 +558,8 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
 
     partial void OnMcPanelExpandedChanged(bool value);
 
-    partial void OnMcIterationsChanged(int value);
 
-    partial void OnMcBlockSizeChanged(int value);
 
-    partial void OnMcRuinThresholdPercentChanged(double value);
 
     partial void OnMcBackendChanged(string value);
 

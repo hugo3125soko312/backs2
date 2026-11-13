@@ -1,165 +1,341 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core.Models;
-using backs2.ViewModels.Messages;
-using ScottPlot;
+using backs2.Core.Overview;
 using ScottPlot.WPF;
-using ScottPlot.Plottables;
 
 namespace backs2.ViewModels;
 
-using CommunityToolkit.Mvvm.ComponentModel;
-public partial class MonteCarloViewModel : ObservableObject, IRecipient<NavigateToTradeMessage>
+public partial class MonteCarloViewModel
 {
-    private readonly MonteCarloBuilder _builder = new();
-    private readonly LastRunStore _lastRunStore;
-
-    public MonteCarloViewModel(MonteCarloBuilder builder, LastRunStore lastRunStore)
-    {
-        _builder = builder;
-        _lastRunStore = lastRunStore;
-        _lastRunStore.Changed += OnLastRunChanged;
-    }
+    private const int MaxCurvesToPlot = 200;
+    private const int MaxPointsPerCurve = 1000;
 
     private WpfPlot? _histPlot;
     private WpfPlot? _curvesPlot;
-    private bool _isSettingsExpanded = true;
 
-    // Set when a NavigateToTradeMessage arrives before the target series has
-    // finished loading. Consumed by OnSeriesChanged after the series arrives.
-    private DateTime? _pendingNavigationTime;
-
-    [ObservableProperty] private bool _isHistogramVisible;
-    [ObservableProperty] private bool _isCurvesVisible;
-    [ObservableProperty] private bool _isClusterVisible;
-    [ObservableProperty] private int _selectedPlotModeOptionIndex;
-    [ObservableProperty] private bool _showEquityCurves = true;
-
-    public ObservableCollection<PlotModeOption> PlotModes { get; } = new()
-    {
-        new("Histogram"),
-        new("Equity Curves"),
-        new("Cluster Plot"),
-    };
-
-    partial void OnSelectedPlotModeOptionIndexChanged(int value)
-    {
-        IsHistogramVisible = false;
-        IsCurvesVisible = false;
-        IsClusterVisible = false;
-
-        switch (value)
-        {
-            case 0: IsHistogramVisible = true; break;
-            case 1: IsCurvesVisible = true; break;
-            case 2: IsClusterVisible = true; break;
-        }
-    }
-
-    public void Receive(NavigateToTradeMessage message) => throw new NotImplementedException();
+    private MonteCarloResult? _histRenderedFrom;
+    private McPlotMode? _histRenderedMode;
+    private MonteCarloResult? _curvesRenderedFrom;
 
     public void SetHistogramPlotControl(WpfPlot plot)
     {
         _histPlot = plot;
-        ApplyPlotTheme(plot);
+        ApplyPlotTheme(_histPlot);
+        EnsureVisiblePlotRendered();
     }
 
     public void SetCurvesPlotControl(WpfPlot plot)
     {
         _curvesPlot = plot;
-        ApplyPlotTheme(plot);
+        ApplyPlotTheme(_curvesPlot);
+        EnsureVisiblePlotRendered();
     }
 
-    partial void OnShowEquityCurvesChanged(bool value)
+    /// <summary>
+    /// Renders whichever plot is currently visible if its cache marker
+    /// does not match the current result + mode. Called on every toggle;
+    /// the cache makes plain visibility flips a no-op.
+    /// </summary>
+    private void EnsureVisiblePlotRendered()
     {
-        if (value)
+        if (ShowEquityCurves)
         {
-            SelectedPlotModeOptionIndex = 1;
+            var r = SelectedResult;
+            if (r == null || _curvesPlot == null) return;
+            if (_curvesRenderedFrom == r) return;
+            RenderEquityCurves(r);
+            _curvesRenderedFrom = r;
+            return;
         }
+
+        if (SelectedPlotMode == McPlotMode.Cluster)
+        {
+            var data = CurrentData;
+            if (data == null || _clusterPlot == null) return;
+            if (_clusterRenderedFrom == data) return;
+            RenderClusterPlot(data);
+            _clusterRenderedFrom = data;
+            return;
+        }
+
+        var histR = SelectedResult;
+        if (histR == null || _histPlot == null) return;
+        if (_histRenderedFrom == histR && _histRenderedMode == SelectedPlotMode) return;
+
+        if (SelectedPlotMode == McPlotMode.MaxDrawdown)
+            RenderMaxDdHistogram(histR);
         else
-        {
-            SelectedPlotModeOptionIndex = 0;
-        }
-    }
+            RenderPlots(histR);
 
-    private void OnLastRunChanged(object? sender, IReadOnlyList<OverviewData> batch)
-    {
-        if (batch.Count == 0) return;
-
-        var results = new List<McBatchRow>();
-        var kpis = new List<McKpiCard>();
-        var stats = new List<McStatSection>();
-
-        foreach (var d in batch)
-        {
-            results.Add(new McBatchRow(d.Symbol, "—", "—", "—"));
-        }
-
-        if (!string.IsNullOrWhiteSpace(batch[0].Error))
-        {
-            stats.Add(new McStatSection("ERROR", new ObservableCollection<McStatLine>
-            {
-                new("Error", batch[0].Error, new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 83, 80))),
-            }));
-        }
-        else
-        {
-            stats.Add(new McStatSection("RESULT", new ObservableCollection<McStatLine>()));
-        }
-
-        BatchResults = new ObservableCollection<McBatchRow>(results);
-        Kpis = new ObservableCollection<McKpiCard>(kpis);
-        Stats = new ObservableCollection<McStatSection>(stats);
-        HasBatch = results.Count > 0;
-        HasResults = true;
-
-        // Redraw plots on UI thread
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
-        {
-            RedrawPlots(batch);
-        });
-    }
-
-    private void RedrawPlots(IReadOnlyList<OverviewData> batch)
-    {
-        // Redraw histogram
-        if (_histPlot != null && batch.Count > 0)
-        {
-            var histogramData = new double[batch.Count];
-            for (int i = 0; i < batch.Count; i++) histogramData[i] = batch[i].NetPnl;
-            _builder.DrawHistogram(_histPlot, histogramData);
-        }
-
-        // Redraw curves
-        if (_curvesPlot != null && batch.Count > 0)
-        {
-            var curvesData = new List<CurveData>();
-            foreach (var d in batch) curvesData.Add(new CurveData { Xs = new[] { 0.0, 1.0 }, Ys = new[] { d.NetPnl, d.NetPnl } });
-            _builder.DrawCurves(_curvesPlot, curvesData);
-        }
+        _histRenderedFrom = histR;
+        _histRenderedMode = SelectedPlotMode;
     }
 
     private static void ApplyPlotTheme(WpfPlot? plot)
     {
         if (plot == null) return;
+        var plt = plot.Plot;
 
-        plot.Plot.FigureBackground.Color = Color.FromHex("#1E1E1E");
-        plot.Plot.DataBackground.Color = Color.FromHex("#1E1E1E");
-        plot.Plot.Axes.Color(Color.FromHex("#333333"));
+        var labelColor = ScottPlot.Color.FromHex("#C8C8C8");
+        var axisColor  = ScottPlot.Color.FromHex("#707070");
 
-        foreach (var ax in plot.Plot.Axes)
-        {
-            ax.TickLabelStyle.ForeColor = Color.FromHex("#888888");
-            ax.Label.ForeColor = Color.FromHex("#888888");
-        }
+        plt.FigureBackground.Color = ScottPlot.Color.FromHex("#0F0F0F");
+        plt.DataBackground.Color   = ScottPlot.Color.FromHex("#0F0F0F");
+
+        plt.Axes.Color(axisColor);
+        plt.Axes.Bottom.TickLabelStyle.ForeColor = labelColor;
+        plt.Axes.Left.TickLabelStyle.ForeColor   = labelColor;
+        plt.Axes.Right.TickLabelStyle.ForeColor  = labelColor;
+        plt.Axes.Bottom.Label.ForeColor = labelColor;
+        plt.Axes.Left.Label.ForeColor   = labelColor;
+        plt.Axes.Right.Label.ForeColor  = labelColor;
+
+        plt.Grid.MajorLineColor = ScottPlot.Color.FromHex("#262626");
+        plt.Grid.MinorLineColor = ScottPlot.Color.FromHex("#1A1A1A");
     }
-}
 
-public sealed class CurveData
-{
-    public double[] Xs { get; set; } = Array.Empty<double>();
-    public double[] Ys { get; set; } = Array.Empty<double>();
+    private void RenderPlots(MonteCarloResult r)
+    {
+        if (_histPlot == null) return;
+        if (r.TerminalBalances.Length == 0) return;
+
+        var plt = _histPlot.Plot;
+        plt.Clear();
+        ApplyPlotTheme(_histPlot);
+
+        var hist = ScottPlot.Statistics.Histogram.WithBinCount(40, r.TerminalBalances);
+        var barPlot = plt.Add.Bars(hist.Bins, hist.Counts);
+
+        foreach (var bar in barPlot.Bars)
+        {
+            bar.FillColor = ScottPlot.Color.FromHex("#4FC3F7");
+            bar.LineColor = ScottPlot.Colors.White;
+            bar.LineWidth = 1;
+        }
+
+        plt.Add.VerticalLine(r.TerminalBalanceP05, 1, ScottPlot.Color.FromHex("#EF5350"), ScottPlot.LinePattern.Solid);
+        plt.Add.VerticalLine(r.TerminalBalanceMedian, 1, ScottPlot.Color.FromHex("#808080"), ScottPlot.LinePattern.Solid);
+        plt.Add.VerticalLine(r.TerminalBalanceP95, 1, ScottPlot.Color.FromHex("#26A69A"), ScottPlot.LinePattern.Solid);
+
+        plt.Axes.AutoScale();
+
+        plt.Title("Terminal Balance Distribution");
+        plt.Axes.Bottom.Label.Text = "Terminal Balance";
+        plt.Axes.Left.Label.Text = "Frequency";
+
+        ApplyPlotTheme(_histPlot);
+        _histPlot.Refresh();
+    }
+
+    private void RenderMaxDdHistogram(MonteCarloResult r)
+    {
+        if (_histPlot == null) return;
+        if (r.MaxDrawdowns.Length == 0) return;
+
+        var plt = _histPlot.Plot;
+        plt.Clear();
+        ApplyPlotTheme(_histPlot);
+
+        double limit = _lastMaxLossPercent;
+        double p99 = ComputePercentile(r.MaxDrawdowns, 99.0);
+        double xMin = 0;
+        double xMax = Math.Max(p99 * 1.10, limit * 1.15);
+
+        var hist = ScottPlot.Statistics.Histogram.WithBinCount(30, r.MaxDrawdowns);
+        var barPlot = plt.Add.Bars(hist.Bins, hist.Counts);
+
+        foreach (var bar in barPlot.Bars)
+        {
+            bar.FillColor = ScottPlot.Color.FromHex("#EF5350");
+            bar.LineColor = ScottPlot.Colors.White;
+            bar.LineWidth = 1;
+        }
+
+        int breaches = 0;
+        for (int i = 0; i < r.MaxDrawdowns.Length; i++)
+            if (r.MaxDrawdowns[i] >= limit) breaches++;
+        double breachPct = (double)breaches / r.MaxDrawdowns.Length;
+
+        plt.Add.VerticalLine(limit, 2, ScottPlot.Color.FromHex("#FFB74D"), ScottPlot.LinePattern.Dashed);
+        plt.Add.VerticalLine(r.MaxDrawdownMedian, 1, ScottPlot.Color.FromHex("#808080"), ScottPlot.LinePattern.Solid);
+
+        plt.Axes.AutoScale();
+        plt.Axes.SetLimitsX(xMin, xMax);
+
+        string title = breaches > 0
+            ? $"Max Drawdown Distribution — {breachPct:P1} breach the {limit:0.##}% limit"
+            : $"Max Drawdown Distribution — 0% breach the {limit:0.##}% limit";
+        plt.Title(title);
+        plt.Axes.Bottom.Label.Text = "Max Drawdown (%)";
+        plt.Axes.Left.Label.Text = "Frequency";
+
+        ApplyPlotTheme(_histPlot);
+        _histPlot.Refresh();
+    }
+
+    private void RenderEquityCurves(MonteCarloResult r)
+    {
+        if (_curvesPlot == null) return;
+
+        var plt = _curvesPlot.Plot;
+        plt.Clear();
+        ApplyPlotTheme(_curvesPlot);
+
+        if (!r.CurvesRetained || r.EquityCurves.Length == 0)
+        {
+            plt.Title("Equity curves not retained for this run");
+            plt.Axes.Bottom.Label.Text =
+                $"Curves dropped above {MonteCarloEngine.MaxCurveCells / 1_000_000:N0}M cells " +
+                $"({r.Iterations:N0} iter × {r.TargetDurationSlices:N0} slices). " +
+                "Lower iterations to re-enable.";
+            _curvesPlot.Refresh();
+            return;
+        }
+
+        if (r.TargetDurationSlices < 2) return;
+
+        var data = CurrentData;
+        if (data?.SourceData == null || data.SourceData.Count < 2) return;
+
+        double t0 = data.SourceData[0].Timestamp.ToOADate();
+        double t1 = data.SourceData[data.SourceData.Count - 1].Timestamp.ToOADate();
+        double step = (t1 - t0) / (r.TargetDurationSlices - 1);
+
+        var xs = new double[r.TargetDurationSlices];
+        for (int k = 0; k < r.TargetDurationSlices; k++)
+            xs[k] = t0 + step * k;
+
+        var (xsDown, _) = DownsampleAxis(xs, MaxPointsPerCurve);
+        double sampleStep = xs.Length > MaxPointsPerCurve
+            ? (double)xs.Length / xsDown.Length
+            : 1.0;
+
+        var indices = SelectCurveIndices(r, MaxCurvesToPlot);
+
+        var red = ScottPlot.Color.FromHex("#EF5350").WithAlpha(0.35);
+        var green = ScottPlot.Color.FromHex("#26A69A").WithAlpha(0.35);
+        var blue = ScottPlot.Color.FromHex("#4FC3F7").WithAlpha(0.10);
+
+        foreach (var i in indices)
+        {
+            var curve = r.EquityCurves[i];
+            int elapsed = r.SlicesElapsed[i];
+            if (elapsed < 2) continue;
+
+            var ysDown = DownsampleValues(curve, elapsed, xsDown.Length, sampleStep);
+
+            var line = plt.Add.ScatterLine(xsDown, ysDown);
+            line.LineWidth = 1;
+            line.MarkerSize = 0;
+            line.Color = r.Outcomes[i] switch
+            {
+                MonteCarloOutcome.Blown => red,
+                MonteCarloOutcome.Funded => green,
+                _ => blue
+            };
+        }
+
+        plt.Axes.DateTimeTicksBottom();
+        plt.Axes.AutoScale();
+
+        plt.Title($"Equity Curves — {indices.Count} of {r.EquityCurves.Length} paths");
+        plt.Axes.Bottom.Label.Text = "Date";
+        plt.Axes.Left.Label.Text = "Balance";
+
+        ApplyPlotTheme(_curvesPlot);
+        _curvesPlot.Refresh();
+    }
+
+    private static (double[] xs, int[] sourceIndices) DownsampleAxis(double[] xs, int maxPoints)
+    {
+        if (xs.Length <= maxPoints)
+        {
+            var identity = new int[xs.Length];
+            for (int i = 0; i < xs.Length; i++) identity[i] = i;
+            return ((double[])xs.Clone(), identity);
+        }
+
+        int n = maxPoints;
+        var outXs = new double[n];
+        var srcIdx = new int[n];
+        double stepD = (double)(xs.Length - 1) / (n - 1);
+
+        for (int k = 0; k < n; k++)
+        {
+            int src = (int)Math.Round(k * stepD);
+            if (src >= xs.Length) src = xs.Length - 1;
+            outXs[k] = xs[src];
+            srcIdx[k] = src;
+        }
+
+        return (outXs, srcIdx);
+    }
+
+    private static double[] DownsampleValues(double[] curve, int elapsed, int outLen, double step)
+    {
+        var result = new double[outLen];
+        int upper = Math.Min(elapsed, curve.Length);
+
+        for (int k = 0; k < outLen; k++)
+        {
+            int src = (int)Math.Round(k * step);
+            if (src >= upper) src = upper - 1;
+            if (src < 0) src = 0;
+            result[k] = curve[src];
+        }
+
+        return result;
+    }
+
+    private static List<int> SelectCurveIndices(MonteCarloResult r, int max)
+    {
+        int n = r.EquityCurves.Length;
+        var indices = new List<int>(Math.Min(max, n));
+
+        for (int i = 0; i < n && indices.Count < max; i++)
+        {
+            if (r.Outcomes[i] != MonteCarloOutcome.Timeout)
+                indices.Add(i);
+        }
+
+        if (indices.Count >= max) return indices;
+
+        var timeouts = new List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            if (r.Outcomes[i] == MonteCarloOutcome.Timeout)
+                timeouts.Add(i);
+        }
+
+        int remaining = max - indices.Count;
+        if (timeouts.Count <= remaining)
+        {
+            indices.AddRange(timeouts);
+        }
+        else
+        {
+            double stepD = (double)timeouts.Count / remaining;
+            for (int k = 0; k < remaining; k++)
+                indices.Add(timeouts[(int)(k * stepD)]);
+        }
+
+        return indices;
+    }
+
+    private static double ComputePercentile(double[] values, double p)
+    {
+        if (values.Length == 0) return 0;
+        if (values.Length == 1) return values[0];
+
+        var sorted = (double[])values.Clone();
+        Array.Sort(sorted);
+
+        double rank = (p / 100.0) * (sorted.Length - 1);
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper) return sorted[lower];
+
+        double w = rank - lower;
+        return sorted[lower] * (1 - w) + sorted[upper] * w;
+    }
 }

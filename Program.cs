@@ -17,6 +17,7 @@ using backs2.Core.Optimizer;
 using backs2.Core.Overview;
 using backs2.Core.Models;
 using backs2.Core.Providers;
+using backs2.Core.Models;
 using backs2.Core.WalkForward;
 using backs2.Services;
 using backs2.Theme;
