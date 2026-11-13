@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows.Controls;
-using backs2.Core.WalkForward;
+using backs2.ViewModels;
 using backs2.ViewModels.Messages;
 
 namespace backs2.Views;

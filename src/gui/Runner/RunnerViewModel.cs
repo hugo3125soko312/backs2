@@ -6,6 +6,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -15,7 +17,6 @@ using ScottPlot.WPF;
 using ScottPlot.Plottables;
 using backs2.ViewModels.Messages;
 using backs2.Core;
-using backs2.ViewModels.Messages;
 using backs2.Core.Accounts;
 using backs2.Core.Optimizer;
 using backs2.Core.Overview;
@@ -23,14 +24,24 @@ using backs2.Core.Runner;
 using backs2.Core.WalkForward;
 using backs2.Services;
 using backs2.Theme;
+
+using ScottPlot;
+using ScottPlot.WPF;
+using ScottPlot.Plottables;
 using backs2.ViewModels.Messages;
+using backs2.Core;
+using backs2.Core.Accounts;
+using backs2.Core.Optimizer;
+using backs2.Core.Overview;
+using backs2.Core.Runner;
+using backs2.Core.WalkForward;
+using backs2.Services;
+using backs2.Theme;
 
 namespace backs2.ViewModels;
 
-using backs2.ViewModels.Messages;
-public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRecipient<NavigateToTradeMessage>, IRecipient<OptimizeCompletedMessage>
+public partial class RunnerViewModel : ObservableObject, INavigationTarget
 {
-    // -- Services -----------------------------------------------------
     private readonly StrategyCatalogService _catalog;
     private readonly StrategyManager _strat;
     private readonly DataManager _data;
@@ -247,6 +258,9 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
             }
         }
 
+        // Membership test against the wanted set is O(1); the per-item IndexOf
+        // below is bounded to the surviving items and only runs when the filter
+        // value actually changes, not on every collection notification.
         var wantedSet = new HashSet<StrategyDescriptor>(wanted);
 
         for (int i = FilteredStrategies.Count - 1; i >= 0; i--)
@@ -302,267 +316,133 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
 
     partial void OnSelectedStrategyChanged(StrategyDescriptor? value)
     {
-        // Implementation in another partial file
-    }
-
-    // -- Commands ------------------------------------------------------
-
-    [RelayCommand]
-    private Task RunCommand() => Run();
-
-    [RelayCommand]
-    private Task CancelCommand() => Task.CompletedTask;
-
-    [RelayCommand]
-    private Task OptimizeCommand() => RunOptimization();
-
-    [RelayCommand]
-    private Task CancelOptimizeCommand() => Task.CompletedTask;
-
-    [RelayCommand]
-    private async Task RefreshCatalogCommand() => await RefreshCatalog();
-
-    [RelayCommand]
-    private async Task RefreshResultsCommand() => await RefreshResultsAsync();
-
-    [RelayCommand]
-    private Task OpenPresetsCommand()
-    {
-        var win = new PresetPickerWindow();
-        win.Owner = Application.Current.MainWindow;
-        win.ShowDialog();
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task OpenWalkForwardFolderCommand()
-    {
-        var folder = _walkForwardRunner.OutputDirectory;
-        if (System.IO.Directory.Exists(folder))
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task ClearWalkForwardResultsCommand()
-    {
-        _walkForwardStore.Clear();
-        WalkForwardResultsInternal?.Clear();
-        return Task.CompletedTask;
-    }
-
-    [RelayCommand]
-    private Task LoadWalkForwardResultsCommand() => LoadWalkForwardResults();
-
-    [RelayCommand]
-    private Task LoadWalkForwardResults() => Task.CompletedTask;
-
-    partial void OnParametersChanged(ObservableCollection<RunnerParameterViewModel> value);
-
-    partial void OnIsMcPanelExpandedChanged(bool value);
-
-    partial void OnMcIterationsChanged(int value);
-
-    partial void OnMcBlockSizeChanged(int value);
-
-    partial void OnMcRuinThresholdPercentChanged(double value);
-
-
-    partial void OnSelectedSubtabIndexChanged(int value)
-    {
-        // Implementation in another partial file
-    }
-
-    partial void OnIsOptimizingChanged(bool value);
-
-    partial void OnEtaTextChanged(string value);
-
-    [ObservableProperty] private ObservableCollection<WalkForwardWindowResult> WalkForwardResultsInternal { get; } = new();
-    [ObservableProperty] private double WalkForwardProgress;
-    [ObservableProperty] private bool WalkForwardIsIndeterminate;
-    [ObservableProperty] private string WalkForwardStatusText = "Ready";
-    [ObservableProperty] private WalkForwardState WalkForwardState = WalkForwardState.Ready;
-    [ObservableProperty] private int WalkForwardMaxProgress;
-    [ObservableProperty] private WalkForwardWindowResult? SelectedWalkForwardResult;
-    [ObservableProperty] private StrategyRunResult? LatestResult;
-    [ObservableProperty] private string ComboSummary = "";
-    [ObservableProperty] private int TotalCombinations;
-    [ObservableProperty] private bool ExceedsCap;
-    [ObservableProperty] private string StatusText = "Ready";
-
-    private WpfPlot? _wfPlot;
-
-    public WpfPlot? WfPlot
-    {
-        get => _wfPlot;
-        set
+        if (value == null)
         {
-            _wfPlot = value;
-            OnPropertyChanged();
+            Parameters.Clear();
+            HasParameters = false;
+            CanRun = false;
+            return;
+        }
+
+        _ = LoadStrategyAsync(value);
+    }
+
+    partial void OnIsBusyChanged(bool value) { SyncQueue(); OnPropertyChanged(nameof(CanWalkForward)); }
+
+    private async Task LoadStrategyAsync(StrategyDescriptor descriptor)
+    {
+        try
+        {
+            var text = await _catalog.ReadSourceAsync(descriptor.Path);
+
+            _suppressGridPersist = true;
+            Parameters.Clear();
+            foreach (var p in StrategyParameterParser.Parse(text))
+                Parameters.Add(new RunnerParameterViewModel(p));
+
+            foreach (var p in Parameters)
+            {
+                var key = GridKey(descriptor.Name, p.Name);
+                if (_config.Settings.OptimizerGridRanges.TryGetValue(key, out var serialized))
+                    p.ApplySerializedGridRange(serialized);
+            }
+            _suppressGridPersist = false;
+
+            HasParameters = Parameters.Count > 0;
+            RecomputeCombinations();
+            StatusText = $"Loaded {descriptor.Name} ({Parameters.Count} params)";
+            SyncQueue();
+        }
+        catch (Exception ex)
+        {
+            _suppressGridPersist = false;
+            Parameters.Clear();
+            HasParameters = false;
+            StatusText = $"Failed to read {descriptor.Name}: {ex.Message}";
         }
     }
 
-    public void SetWfPlot(WpfPlot plot)
-    {
-        _wfPlot = plot;
-        RenderTimeline([]);
-    }
-
-    public void RenderTimeline(IReadOnlyList<WalkForwardWindowRow> windowRows, IReadOnlyList<DateTime> barTimestamps)
-    {
-        // Empty stub - chart logic needs to be ported from ChartView
-        var plot = _wfPlot;
-        if (plot == null) return;
-
-        plot.Plot.Clear();
-        plot.Plot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
-        plot.Plot.DataBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
-        plot.Plot.Axes.Color(ScottPlot.Color.FromHex("#333333"));
-        plot.Refresh();
-    }
-
-    public void ShowEmptyState()
-    {
-        // Empty stub
-    }
-
-    partial void OnWalkForwardStateChanged(WalkForwardState value);
-    partial void OnWalkForwardProgressChanged(double value);
-    partial void OnWalkForwardIsIndeterminateChanged(bool value);
-    partial void OnWalkForwardStatusTextChanged(string value);
-    partial void OnWalkForwardMaxProgressChanged(int value);
-    partial void OnWalkForwardEtaTextChanged(string value);
-    partial void OnWalkForwardWindowCountChanged(int value);
-    partial void OnWalkForwardTradeCountChanged(int value);
-    partial void OnHasWalkForwardResultsChanged(bool value);
-    partial void OnSelectedWalkForwardResultChanged(WalkForwardWindowResult? value);
-    partial void OnLatestResultChanged(StrategyRunResult? value);
-    partial void OnComboSummaryChanged(string value);
-    partial void OnTotalCombinationsChanged(int value);
-    partial void OnExceedsCapChanged(bool value);
-
-    partial void OnProgressChanged(double value);
-    partial void OnIsProgressVisibleChanged(bool value);
-    partial void OnIsProgressIndeterminateChanged(bool value);
-
     [RelayCommand]
-    private Task OpenFolderCommand()
+    private void RefreshCatalog()
     {
-        var folder = _config.Settings.WalkForwardOutputPath;
-        if (System.IO.Directory.Exists(folder))
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
-        return Task.CompletedTask;
+        _catalog.Refresh();
+        StatusText = $"Catalog refreshed ({Strategies.Count} strategies).";
     }
 
     [RelayCommand]
-    private void SortCombinationsCommand(string column) => SortCombinations(column);
-
-    [RelayCommand]
-    private Task SortCombinationsAsync(string column) => Task.Run(() => SortCombinations(column));
-
-    private void SortCombinations(string column)
+    private async Task ViewSourceAsync()
     {
-        // TODO: Implement sort
+        if (SelectedStrategy == null)
+        {
+            StatusText = "Select a strategy first.";
+            return;
+        }
+
+        try
+        {
+            var source = await _catalog.ReadSourceAsync(SelectedStrategy.Path);
+            ViewSourceRequested?.Invoke(this, (SelectedStrategy.Name, source));
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Failed to read source: {ex.Message}";
+        }
     }
 
-    partial void OnCanRunChanged(bool value);
-
-    partial void OnOptimizationStateChanged(OptimizationState value);
-    partial void OnOptimizationProgressChanged(double value);
-    partial void OnOptimizationMaxProgressChanged(int value);
-    partial void OnOptimizationStatusTextChanged(string value);
-    partial void OnOptimizationEtaTextChanged(string value);
-    partial void OnOptimizationCurrentPhaseChanged(int value);
-
-    [RelayCommand]
-    private Task OptimizeCommand_Executed() => RunOptimization();
-
-    private async Task RunOptimization()
+    private async Task<bool> ConfirmAsync(string title, string message, string yesLabel)
     {
-        // Empty stub - actual implementation in another file
-        await Task.CompletedTask;
+        var owner = GetMainWindow();
+        if (owner == null) return true;
+
+        bool confirmed = false;
+
+        var yes = new Button { Content = yesLabel };
+        var no = new Button { Content = "Cancel" };
+
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 500,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 13 },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { no, yes }
+                    }
+                }
+            }
+        };
+
+        yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
+        no.Click += (_, _) => { confirmed = false; dlg.Close(); };
+
+        await dlg.ShowDialog(owner);
+        return confirmed;
     }
 
-    private Task RefreshCatalog() => Task.CompletedTask;
+    public void SetWalkForwardPlotControl(WpfPlot plotView)
+    {
+        _walkForwardWpfPlot = plotView;
+        // Could be used for additional setup or binding
+    }
 
-
-    [RelayCommand]
-    private async Task AddToQueueCommand() => await Task.CompletedTask;
-
-    [RelayCommand]
-    private async Task RemoveFromQueueCommand() => await Task.CompletedTask;
-
-    [RelayCommand]
-    private async Task ClearQueueCommand() => await Task.CompletedTask;
-
-    [RelayCommand]
-    private void AddAllToQueueCommand() { }
-
-    [RelayCommand]
-    private void StopCommand() { }
-
-    [RelayCommand]
-    private void ExportCsvCommand() { }
-
-    [RelayCommand]
-    private void ExportJsonCommand() { }
-
-    [RelayCommand]
-    private void ExportWalkForwardCsvCommand() { }
-
-    [RelayCommand]
-    private void ExportWalkForwardJsonCommand() { }
-
-    [RelayCommand]
-    private async Task LoadWalkForwardResultsCommand_Executed() => await LoadWalkForwardResults();
-
-    [RelayCommand]
-    private void FilterCommand() { }
-
-    [RelayCommand]
-    private void RunCommand_Executed() => Run();
-
-    [RelayCommand]
-    private async Task RunCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task OptimizeCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task CancelCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task FilterCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task RefreshResultsCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task ExportCsvCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task ExportJsonCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task ExportWalkForwardCsvCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task ExportWalkForwardJsonCommand_CanExecute() => await Task.Run(() => { });
-
-    [RelayCommand]
-    private async Task LoadWalkForwardResultsCommand_CanExecute() => await Task.Run(() => { });
-
-    partial void OnWalkForwardAvaPlotChanged(AvaPlot? value);
-
-    partial void OnLastRunChanged(StrategyRunResult? value);
-
-
-    partial void OnMcPanelExpandedChanged(bool value);
-
-
-
-
-    partial void OnMcBackendChanged(string value);
-
-    partial void OnMcBackendOptionsChanged(IReadOnlyList<string> value);
+    private static Window? GetMainWindow()
+    {
+        if (Application.Current?.ApplicationLifetime
+            is IClassicDesktopStyleApplicationLifetime desk)
+        {
+            return desk.MainWindow;
+        }
+        return null;
+    }
 }
