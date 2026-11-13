@@ -2,7 +2,7 @@
 # Architecture: backs2 Trading Engine
 
 ## 1. Core Services & Dependency Injection
-- DI Container: Microsoft.Extensions.DependencyInjection, managed in App.axaml.cs.
+- DI Container: Microsoft.Extensions.DependencyInjection, managed in App.xaml.cs.
 - Service Lifecycle:
     - Singletons: LogManager, ConfigManager, DataManager, StrategyManager, StrategyCatalogService, PresetService, MetricRegistry, CacheManager, Mt5TickServer, Mt5TickService, ComputeWorkerManager.
     - Transients/Keyed: IDataProvider implementations (resolved via GetRequiredKeyedService).
@@ -64,7 +64,7 @@
 - Secrets: API keys are read from .env at startup and exposed as read-only ConfigManager properties (TwelveDataApiKey, TiingoApiKey, MassiveApiKey, YahooApiKey, FinnhubApiKey, FcsApiKey). Secrets are never persisted to settings.json. Placeholder values (`key`, `placeholder`, `todo`, `xxx`) are normalized to empty by `ConfigManager.NormalizeValue` so an unregistered provider short-circuits without issuing a request.
 - Dynamic Reflection Engine:
   - ConfigViewModel reflects all public instance properties on AppSettings (excluding ProviderOrder) into SettingItem wrappers.
-  - Controls are rendered dynamically in ConfigView.axaml based on data type:
+  - Controls are rendered dynamically in ConfigView.xaml based on data type:
     - int / double -> NumericUpDown (steppers with appropriate increments)
     - bool -> ToggleSwitch
     - string containing "Color" -> ColorPicker (ColorSpectrumShape="Ring")
@@ -81,7 +81,7 @@
   - Name (string)
   - Task<List<Kline>> FetchAsync(string symbol)
   - Task<List<Kline>> FetchAsync(string symbol, string timeframe)
-- Each provider is registered as a keyed transient in App.axaml.cs.
+- Each provider is registered as a keyed transient in App.xaml.cs.
 - Symbol resolution is per-provider:
     - Twelve Data: EURUSD -> EUR/USD, XAUUSD -> XAU/USD, AAPL -> AAPL
     - Tiingo: Symbols pass through directly (e.g. AAPL, EURUSD)
@@ -119,33 +119,33 @@
 
 ## 8. GUI (MVVM Toolkit)
 
-- **Shell navigation tree (formerly tab host pattern, Phase 17).** `MainWindow.axaml` hosts a left-docked `TreeView` bound to `MainViewModel.NavigationNodes`, with `SelectedItem` two-way bound to `MainViewModel.SelectedNode`. The content host is a sibling `ContentControl` bound to `MainViewModel.CurrentVm`. Tab content is never declared inline — the tree carries only header labels, and the `ContentControl` template-swaps the View via `App.axaml`'s `DataTemplate` entries. No tab's View or ViewModel is materialized until its node is selected.
+- **Shell navigation tree (formerly tab host pattern, Phase 17).** `MainWindow.xaml` hosts a left-docked `TreeView` bound to `MainViewModel.NavigationNodes`, with `SelectedItem` two-way bound to `MainViewModel.SelectedNode`. The content host is a sibling `ContentControl` bound to `MainViewModel.CurrentVm`. Tab content is never declared inline — the tree carries only header labels, and the `ContentControl` template-swaps the View via `App.xaml`'s `DataTemplate` entries. No tab's View or ViewModel is materialized until its node is selected.
 - **Tab ViewModel resolution (Phase 17).** `MainViewModel` takes `IServiceProvider` in its constructor and exposes 12 lazily-resolved tab properties (`OverviewVm`, `RunnerVm`, `MonteCarloVm`, `MetricsVm`, `AccountVm`, `DataVm`, `DataAutomationVm`, `Mt5TickVm`, `ProvidersVm`, `ChartVm`, `LogsVm`, `ConfigVm`). Each is `_xxx ??= _sp.GetRequiredService<XxxViewModel>()`, so the DI resolve fires exactly once, on first access. `OnSelectedNodeChanged` invokes the selected node's `Func<object>` factory (which routes to one of these properties) and assigns `CurrentVm`, which raises `PropertyChanged(nameof(CurrentVm))` so the `ContentControl` re-evaluates on tree selection.
-- **VM → View mapping (Phase 17).** `App.axaml` declares `<Application.DataTemplates>` with one `<DataTemplate DataType="vm:XxxViewModel"><views:XxxView /></DataTemplate>` per tab. Avalonia resolves the DataTemplate when `CurrentVm` is set, on tab switch. Views never resolve their own ViewModel and never read `Application.Current.Services`.
-- **View code-behind (Phase 17).** `InitializeComponent()` only, plus View-local wiring that does not depend on a specific ViewModel instance (event handlers, `UserInputProcessor.Disable()` calls, tunnelled `KeyDown` handlers). DataContext-dependent wiring runs from `OnDataContextChanged` — e.g. `ChartView` hands its `AvaPlot` to `ChartViewModel.SetPlotControl`, `MonteCarloView` hands the three plots to the corresponding setters, `DataView` subscribes to `OpenQueueRequested`, `DataAutomationView` subscribes to the three calibration events. The old `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern is forbidden in View constructors.
+- **VM → View mapping (Phase 17).** `App.xaml` declares `<Application.DataTemplates>` with one `<DataTemplate DataType="vm:XxxViewModel"><views:XxxView /></DataTemplate>` per tab. WPF resolves the DataTemplate when `CurrentVm` is set, on tab switch. Views never resolve their own ViewModel and never read `Application.Current.Services`.
+- **View code-behind (Phase 17).** `InitializeComponent()` only, plus View-local wiring that does not depend on a specific ViewModel instance (event handlers, `UserInputProcessor.Disable()` calls, tunnelled `KeyDown` handlers). DataContext-dependent wiring runs from `OnDataContextChanged` — e.g. `ChartView` hands its `Plot` to `ChartViewModel.SetPlotControl`, `MonteCarloView` hands the three plots to the corresponding setters, `DataView` subscribes to `OpenQueueRequested`, `DataAutomationView` subscribes to the three calibration events. The old `if (Application.Current is App app) DataContext = app.Services.GetRequiredService<TViewModel>();` pattern is forbidden in View constructors.
 - **Startup path (Phase 17).** `Program.Main` → `LogManager.Initialize()` → `BuildAvaloniaApp().StartWithClassicDesktopLifetime(...)` → `App.Initialize` (XAML load) → `App.OnFrameworkInitializationCompleted` (DI container build, `ConfigManager` resolve, `Mt5TickServer.Start()`, `MainViewModel` resolve, `MainWindow` construct). All five stages are instrumented with `Stopwatch` markers logging `[startup] ...` Info lines. Only tab 0's ViewModel (Overview) is constructed at startup — it is `CurrentVm` at first render. Every other tab's ViewModel is constructed on first selection. Measured cold start after Phase 17: ~530 ms (was ~3324 ms).
 - Source Generation: All ViewModels use CommunityToolkit.Mvvm attributes ([ObservableProperty], [RelayCommand]).
-- XAML Bindings: x:DataType on every View/UserControl root.
-- DataGrid use: Avalonia.Controls.DataGrid 11.3.13 (DataGrid versioning diverged from Avalonia at 11.3; core packages on 11.3.22).
-- ColorPicker use: Avalonia.Controls.ColorPicker 11.3.22 with `ColorSpectrumShape="Ring"`.
+- XAML Bindings (WPF): x:DataType on every View/UserControl root.
+- DataGrid use: WPF DataGrid 11.3.13.
+- ColorPicker use: WPF Controls.ColorPicker 11.3.22 with `ColorSpectrumShape="Ring"`.
 - Selectable text policy: TextBlock for clickable list rows; read-only TextBox for source preview, log output, status line.
 - RelativeSource binding inside DataTemplates: use `{Binding DataContext.Prop, RelativeSource={RelativeSource AncestorType=UserControl}}`. Do not use `$parent[UserControl].((vm:Type)DataContext).Prop`.
 - ViewModel partial-class convention: where a tab's ViewModel grows past ~600 lines it is split into partial-class files alongside the core file. Precedent: `Mt5TickViewModel` (core + `.Extraction.cs` + `.Requester.cs` + `.Parsing.cs` + `.Tkc.cs`), `MonteCarloViewModel` (core + `.Plots.cs` + `.Stats.cs` + `.Cluster.cs`), and `RunnerViewModel` (core + `.Run.cs` + `.Optimize.cs` + `.Grid.cs` + `.Presets.cs`, plus `RunnerParameterViewModel.cs` extracted to its own file). Each partial owns a disjoint set of private fields; cross-partial invalidation happens through a coordinator method on the core partial (e.g. `InvalidateAll` for Monte Carlo, `RecomputeCombinations` for the Runner).
 
 ## 8a. GUI Shell & Design Tokens
 
-- **Custom chrome.** `MainWindow.axaml` uses `ExtendClientAreaToDecorationsHint="True"` + `ExtendClientAreaChromeHints="NoChrome"` + `ExtendClientAreaTitleBarHeightHint="32"`. The OS title bar is not drawn; the app renders its own 32px title bar containing the menu and window controls.
-- **Fullscreen.** `WindowState.FullScreen` is applied from `MainWindow.Opened` and re-applied from `Activated` whenever the window returns to `Normal` (taskbar restore path). Not `Maximized` — on Windows 11, Maximized combined with ExtendClientArea leaves DWM rounded corners and a caption shadow on the window. `SystemDecorations="Full"` + `NoChrome` avoids both. `CanResize="False"` prevents Windows Snap. Alt+F4, Alt+Tab, and minimize-to-taskbar all work normally.
-- **Menu bar.** A `Menu` inside the custom title bar, VS Code-style. Items without implementations are present as `IsEnabled="False"` placeholders so the menu structure is legible. Navigation items bind to commands in `MainViewModel.Shell.cs` — they set `SelectedNode` and nothing else. Window operations (Minimize, Exit) are `Click` handlers in `MainWindow.axaml.cs` since they need the Window instance.
+- **Custom chrome.** `MainWindow.xaml` uses `ExtendClientAreaToDecorationsHint="True"` + `ExtendClientAreaChromeHints="NoChrome"` + `ExtendClientAreaTitleBarHeightHint="32"`. The OS title bar is not drawn; the app renders its own 32px title bar containing the menu and window controls.
+- **Fullscreen.** `WindowState.FullScreen` is applied from `MainWindow.Opened` and re-applied from `Activated` whenever the window returns to `Normal` (taskbar restore path). Not `FullScreen` — on Windows 11, FullScreen combined with ExtendClientArea leaves DWM rounded corners and a caption shadow on the window. `SystemDecorations="Full"` + `NoChrome` avoids both. `CanResize="False"` prevents Windows Snap. Alt+F4, Alt+Tab, and minimize-to-taskbar all work normally.
+- **Menu bar.** A `Menu` inside the custom title bar, VS Code-style. Items without implementations are present as `IsEnabled="False"` placeholders so the menu structure is legible. Navigation items bind to commands in `MainViewModel.Shell.cs` — they set `SelectedNode` and nothing else. Window operations (Minimize, Exit) are `Click` handlers in `MainWindow.xaml.cs` since they need the Window instance.
 - **Left navigation tree.** A `TreeView` on the left, width 220, `ItemsSource` bound to `MainViewModel.NavigationNodes` and `SelectedItem` two-way bound to `MainViewModel.SelectedNode`. Root nodes map to top-level tabs; child nodes represent subtabs of a parent (Runner to Runner | Optimization Results). Each `NavigationNode` carries a `Func<object>` factory that lazily resolves the target tab ViewModel and an optional `SubtabIndex` for child nodes. Selecting a node sets `MainViewModel.CurrentVm`, which the `ContentControl` template-swaps. Selecting a child additionally invokes `INavigationTarget.Navigate(subtabIndex)` on the resolved ViewModel; the parent's `SelectedSubtabIndex` flips, and its internal `TabControl` (strip hidden via a `/template/ ItemsPresenter` style) binds `SelectedIndex` to that property. Cross-tab navigation (`NavigateToTradeMessage`) and every menu command target tree nodes by reference, not by index.
 - **Status bar.** Two-cell bottom bar. Left cell binds `MainViewModel.StatusText`. Right cell is a static placeholder reserved for a future contextual value (active account, queue count). Per-tab status lines (Data, Runner, MT5) remain inside their own views — the shell status bar is a separate strip, not a replacement.
 - **Snap-to-monitor gesture (2026-10-28).** WindowDragHelper.AttachTitleBarDrag (src/core/Utils/WindowDragHelper.cs) attaches a pointer-drag handler to the custom title bar; on release the window snaps to the monitor under the cursor if it straddles a boundary. A click without movement is ignored; interactive children (Button / TextBox / Menu / MenuItem / ComboBox / CheckBox) are excluded. Called from the MainWindow ctor after InitializeComponent.
 - **DPI change reaction (2026-10-28, Phase 37 candidate 2).** MainWindow.ScalingChanged forces a re-render of the shell chrome and refreshes every ScottPlot control (Chart, MC histogram / curves / cluster) so a window dragged to a monitor with a different DPI scale does not blur or clip. Manual test plan: docs/TEST-2026-10-28.md.
-- **Design tokens.** `src/gui/Theme/Tokens.axaml` is a `ResourceDictionary` of `SolidColorBrush`, `x:Double`, `FontFamily`, and `CornerRadius` entries. Merged into `App.axaml` via `<ResourceInclude Source="avares://backs2/src/gui/Theme/Tokens.axaml"/>`. Every shell element uses `{DynamicResource TokenName}` — never hardcoded hex.
+- **Design tokens.** `src/gui/Theme/Tokens.axaml` is a `ResourceDictionary` of `SolidColorBrush`, `x:Double`, `FontFamily`, and `CornerRadius` entries. Merged into `App.xaml` via `<ResourceInclude Source="avares://backs2/src/gui/Theme/Tokens.axaml"/>`. Every shell element uses `{DynamicResource TokenName}` — never hardcoded hex.
 - **`MainViewModel.Shell.cs`** is a partial-class file holding only navigation commands (one per tab). No DI graph, no state, no logic — pure `SelectedNode = _xxxNode` setters.
-- **Theme configuration.** `AppSettings` carries 14 `Theme*Color` ARGB hex strings (`ThemeAppBgColor`, `ThemeAccentColor`, etc.), defaulted in `ConfigManager.LoadConfig` for backward compatibility with pre-theme `settings.json`. `src/gui/Theme/ThemeApplier.cs` parses each string with `Avalonia.Media.Color.TryParse` and writes a `SolidColorBrush` into `Application.Current.Resources[key]` for the matching token key. Called from `App.axaml.cs` right after `ConfigManager` resolves and again from `ConfigViewModel.ApplyThemePreview` when the user clicks OK in the color picker.
-- **Color picker dialog.** `src/gui/Config/ColorPickerWindow.axaml` is a modal `Window` built from the color primitives (`ColorSpectrum`, `ColorSlider`, `ColorPreviewer`) — not `ColorPicker` / `ColorView`, which exhibited first-click lazy-load freezes and rendering failures in Avalonia 11.0.x (discussions #9128 / #9098). `ConfigView.axaml.cs` opens it via `ShowDialog<bool>`, and on OK applies the result to the `SettingItem` and calls `ConfigViewModel.ApplyThemePreview`. The shell recolors live on OK; persistence still requires the Save Settings button.
-- **Config tab layout.** `SettingItem`s whose name contains "Color" are routed into `ConfigViewModel.ThemeSettings`; everything else stays in `DynamicSettings`. `ConfigView.axaml` renders the theme collection inside a collapsed `Expander` ("Theme Colors") above the Provider Order section, so the flat engine settings are not visually swamped by 14 color rows.
+- **Theme configuration.** `AppSettings` carries 14 `Theme*Color` ARGB hex strings (`ThemeAppBgColor`, `ThemeAccentColor`, etc.), defaulted in `ConfigManager.LoadConfig` for backward compatibility with pre-theme `settings.json`. `src/gui/Theme/ThemeApplier.cs` parses each string with `Avalonia.Media.Color.TryParse` and writes a `SolidColorBrush` into `Application.Current.Resources[key]` for the matching token key. Called from `App.xaml.cs` right after `ConfigManager` resolves and again from `ConfigViewModel.ApplyThemePreview` when the user clicks OK in the color picker.
+- **Color picker dialog.** `src/gui/Config/ColorPickerWindow.axaml` is a modal `Window` built from the color primitives (`ColorSpectrum`, `ColorSlider`, `ColorPreviewer`) — not `ColorPicker` / `ColorView`, which exhibited first-click lazy-load freezes and rendering failures in WPFalonia 11.0.x (discussions #9128 / #9098). `ConfigView.xaml.cs` opens it via `ShowDialog<bool>`, and on OK applies the result to the `SettingItem` and calls `ConfigViewModel.ApplyThemePreview`. The shell recolors live on OK; persistence still requires the Save Settings button.
+- **Config tab layout.** `SettingItem`s whose name contains "Color" are routed into `ConfigViewModel.ThemeSettings`; everything else stays in `DynamicSettings`. `ConfigView.xaml` renders the theme collection inside a collapsed `Expander` ("Theme Colors") above the Provider Order section, so the flat engine settings are not visually swamped by 14 color rows.
 - **Resolution target.** 1080p @ 100% scaling is the reference. Grid rows 26px, base text 12px, panel headers 16px, status bar 11px.
 
 ## 9. Tabs
@@ -159,14 +159,14 @@
 - Data Automation — three subtabs (Extraction / Parsing / Analysis). See §18.
 - MT5 Ticks — raw tick streaming from MetaTrader 5, broker-side history sync into the local `.tkc` cache, direct `.tkc` decoding into kline cache, and tick-CSV parsing into kline cache. Four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (SYNC_TICKS_RANGE), **.tkc Extract** (local .tkc files → kline cache), **Parsing** (tick CSV → kline cache). See §19 and §20.
 - Providers — Collapsible per-provider cache diagnostics. See §16.
-- Chart — ScottPlot.Avalonia 5.0.55 candlestick + volume via secondary axis. Keyboard-only navigation: ScottPlot's `UserInputProcessor` is disabled on the plot; arrow keys pan 10% of the visible span per press, `+`/`-` zoom the X-axis by 10% per press. PointerMoved drives the crosshair readout; the plot's context menu retains Auto/Percent/Indexed-to-100. The Chart tab is also the target of cross-tab navigation from the Monte Carlo cluster plot (see §14) and reacts to `NavigateToTradeMessage` by selecting the queued dataset and setting a 200-bar X-axis window centered on the requested timestamp.
+- Chart — ScottPlot.WPF 5.0.55 candlestick + volume via secondary axis. Keyboard-only navigation: ScottPlot's `UserInputProcessor` is disabled on the plot; arrow keys pan 10% of the visible span per press, `+`/`-` zoom the X-axis by 10% per press. PointerMoved drives the crosshair readout; the plot's context menu retains Auto/Percent/Indexed-to-100. The Chart tab is also the target of cross-tab navigation from the Monte Carlo cluster plot (see §14) and reacts to `NavigateToTradeMessage` by selecting the queued dataset and setting a 200-bar X-axis window centered on the requested timestamp.
 - Logs — event-driven live log view.
 - Config — auto-generated settings editor, dynamic provider discovery and ordering list.
 
 ## 10. Logging
 
 - LogManager is a **static class** in `src/core/LogManager.cs`. It is the sole static in the codebase, and the only exception to the "no static globals" rule — it must initialize before the DI container exists.
-- Bootstrap: `Program.Main` calls `LogManager.Initialize()` before `BuildAvaloniaApp().StartWithClassicDesktopLifetime(...)`. The log file is open and writable before any Avalonia XAML loads.
+- Bootstrap: `Program.Main` calls `LogManager.Initialize()` before `BuildAvaloniaApp().StartWithClassicDesktopLifetime(...)`. The log file is open and writable before any WPF XAML loads.
 - Crash safety: the entire `Main` body is wrapped in try/catch. Any exception at process level is written to the log with the `[App]` tag, then rethrown so the process exits non-zero.
 - Tag enum `LogTag`: `App`, `Cache`, `Data`, `Provider`, `Strategy`, `Runner`, `Account`, `MonteCarlo`, `Overview`, `Chart`, `Config`, `Metric`. Providers use a single `Provider` tag; the provider name is embedded in the message. MT5 tick data also logs under `Provider`.
 - Severity levels:
@@ -232,7 +232,7 @@
   - `AccountView.axaml` — three-column grid. Left: `ListBox` of descriptors, `Firm` bold with `Plan · Size` subtitle. Right: detail pane rendering the resolved `PlanSize.Phases` as label/value rows.
   - `AccountViewModel` — `Accounts`, `PhaseRules`, `SelectedAccount`, `ActiveAccountName`, `HasSelection`. Commands: `RefreshCommand`, `SetActiveCommand`, `OpenFolderCommand`.
   - `AccountRuleRow` — `Label`, `Value` record.
-- Tab position: `MainWindow.axaml` places Accounts between Metrics and Data.
+- Tab position: `MainWindow.xaml` places Accounts between Metrics and Data.
 - Template: `data/accounts/_TEMPLATE.account.json` documents every field with placeholder values. Copy it to add a new firm. To exclude it from the scan, rename it to `.account.json.txt`.
 - Config tab interaction: the three `ActiveAccount*` string properties auto-render as TextBoxes in the Config tab. Editing them is not equivalent to `SetActive` — the tab's `Set Active` button is the only supported path that also reloads and caches.
 
@@ -262,8 +262,8 @@
 
 - Purpose: evaluate the most recent strategy run against prop-firm rules using the time-domain block-bootstrap engine (see §17). Produces per-dataset outcome probabilities, terminal-balance and max-drawdown distributions, equity curves, and a trade-cluster view.
 - GUI (`src/gui/MonteCarlo/`):
-  - `MonteCarloView.axaml` — Grid with four rows: collapsible settings expander (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,6,*"`: stats rail left, splitter, plot pane right. The plot pane hosts three `AvaPlot` controls (`HistogramPlot`, `CurvesPlot`, `ClusterPlot`) stacked in a single Grid cell and toggled by `IsVisible` bindings (`IsHistogramVisible` / `IsCurvesVisible` / `IsClusterVisible`). The toggle avoids ScottPlot rebuilding the render tree on every mode change.
-  - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, wires the three plots through `SetHistogramPlotControl` / `SetCurvesPlotControl` / `SetClusterPlotControl`. Disables `AvaPlot.UserInputProcessor` on all three (see Keyboard navigation) and installs a `KeyDown` handler for arrow pan and `+`/`-` zoom. Attaches the cluster plot's `PointerPressed` to `HandleClusterPlotClick`.
+  - `MonteCarloView.axaml` — Grid with four rows: collapsible settings expander (Row 0), source info banner (Row 1), main content (Row 2), status line (Row 3). Main content is `ColumnDefinitions="440,6,*"`: stats rail left, splitter, plot pane right. The plot pane hosts three `Plot` controls (`HistogramPlot`, `CurvesPlot`, `ClusterPlot`) stacked in a single Grid cell and toggled by `IsVisible` bindings (`IsHistogramVisible` / `IsCurvesVisible` / `IsClusterVisible`). The toggle avoids ScottPlot rebuilding the render tree on every mode change.
+  - `MonteCarloView.axaml.cs` — resolves `MonteCarloViewModel` via DI, wires the three plots through `SetHistogramPlotControl` / `SetCurvesPlotControl` / `SetClusterPlotControl`. Disables `Plot.UserInputProcessor` on all three (see Keyboard navigation) and installs a `KeyDown` handler for arrow pan and `+`/`-` zoom. Attaches the cluster plot's `PointerPressed` to `HandleClusterPlotClick`.
   - `MonteCarloViewModel` — split into four partial-class files under `src/gui/MonteCarlo/`:
     - `MonteCarloViewModel.cs` — core: DI wiring, observable properties, lifecycle subscriptions (`LastRunStore.Changed`, `AccountService.ActiveChanged`), batch orchestration (`RunAsync`, `Cancel`, `TestWorkerAsync`), field invalidation (`InvalidateAll`), view-model records (`McPlotMode`, `PlotModeOption`, `McKpiCard`, `McStatSection`, `McStatLine`, `McBatchRow`).
     - `MonteCarloViewModel.Plots.cs` — histogram and equity-curve rendering, plot theming (`ApplyPlotTheme`), downsampling helpers, `EnsureVisiblePlotRendered`, render-cache markers for the histogram and curves plots.
@@ -311,16 +311,16 @@
   - `KMeansClusterer` is deterministic (fixed RNG seed 42) so the same trades produce the same clusters on every run.
 
 - Cross-tab navigation (see §21 for the messaging contract):
-  - `MainViewModel.Receive(NavigateToTradeMessage)` sets `SelectedNode = _chartNode` (Chart is the 10th tab in `MainWindow.axaml`).
+  - `MainViewModel.Receive(NavigateToTradeMessage)` sets `SelectedNode = _chartNode` (Chart is the 10th tab in `MainWindow.xaml`).
   - `ChartViewModel.Receive(NavigateToTradeMessage)` selects the matching queued dataset (loading if needed) and sets `_pendingNavigationTime`, consumed by `ApplyPendingNavigation` after the series loads. The chart's X-axis is set to a 200-bar window centered on the target timestamp.
   - If the target `Symbol @ Timeframe` is not in the `SelectionQueue`, the Chart view shows a warning — navigation does not mutate the queue.
 
 - Keyboard navigation (all plots in the tab and the Chart tab):
-  - `AvaPlot.UserInputProcessor.Disable()` on every plot so pointer drag cannot get stuck mid-pan.
+  - `Plot.UserInputProcessor.Disable()` on every plot so pointer drag cannot get stuck mid-pan.
   - Arrow keys pan 10% of the visible span per press. `+` (main `=` or numpad `+`) trims 10% off each end of the X-axis; `-` (main `-` or numpad `-`) grows the window by 10% on each side.
   - Plots are `Focusable="True"`; keys register after a single click to focus.
 
-- Tab position: `MainWindow.axaml` places Monte Carlo between Runner and Metrics.
+- Tab position: `MainWindow.xaml` places Monte Carlo between Runner and Metrics.
 
 ## 15. Selection Queue
 
@@ -422,7 +422,7 @@ Trades cannot overlap today — `TradeRecorder._hasOpen` enforces it. If multi-p
 - Location:
   - Core: `src/core/DataAutomation/` — `ExtractionCore.cs` (window detection, input, capture, calibration, orchestrator), `ParsingCore.cs` (OCR parsing pipeline), `BatchedOcrRecognizer.cs` (ONNX Runtime wrapper), `OcrWorkerHost.cs` / `OcrWorkerClient.cs` (out-of-process worker), `AnalysisService.cs` (parsed-file diagnostics).
   - GUI: `src/gui/DataAutomation/DataAutomationView.axaml`, `.axaml.cs`, `DataAutomationViewModel.cs`.
-- Tab position: `MainWindow.axaml` places Data Automation between Data and MT5 Ticks.
+- Tab position: `MainWindow.xaml` places Data Automation between Data and MT5 Ticks.
 
 ### Extraction subtab
 
@@ -623,14 +623,14 @@ The EA serializes `GET_TICKS` responses into a pre-sized `uchar[]` byte buffer v
   - `JobObjectHandle.cs` — Win32 Job Object wrapper. `TryAttach(processHandle, memoryLimitMb, out error)` creates the job on first call, sets `JOB_OBJECT_LIMIT_PROCESS_MEMORY` via `SetInformationJobObject(JobObjectExtendedLimitInformation)`, then `AssignProcessToJobObject`. No-op on non-Windows (returns false with `"Job Objects are Windows-only"`). Disposal closes the handle, which terminates any surviving child process.
   - `WorkerHost.cs` — worker-side main loop. Parses `--in=... --out=...` args, opens `AnonymousPipeClientStream` streams, then reads envelopes: responds to `Ping` with `Pong`, returns on `Cancel`, runs the placeholder job on `Start` (5 progress frames over ~1s + a result). All diagnostics go to `Console.Error` (captured by the parent as `[worker <pid> stderr]` Debug lines).
   - `ComputeWorkerManager.cs` — UI-side singleton. `RunJobAsync(config, progress, ct)` spawns the worker process, wires two anonymous pipes, assigns the child to a Job Object, sends `Start`, pumps envelopes until `Result` (returned) or `Error` (thrown). Best-effort `Cancel` message on cancellation, then unconditionally `Kill(entireProcessTree: true)`. Captures worker stderr/stdout into the parent log at Debug level.
-- Process model: the worker is the same `backs2.exe` binary invoked with `--worker`. `Program.Main` dispatches `--worker` and `--ocr-worker` before touching Avalonia or `LogManager` — the worker does not initialize Avalonia, does not open the log file, and does not touch the DI container. `ComputeWorkerManager.ResolveHost` handles both `dotnet <entry>.dll` and self-contained deployments.
+- Process model: the worker is the same `backs2.exe` binary invoked with `--worker`. `Program.Main` dispatches `--worker` and `--ocr-worker` before touching the GUI framework or `LogManager` — the worker does not initialize the GUI framework, does not open the log file, and does not touch the DI container. `ComputeWorkerManager.ResolveHost` handles both `dotnet <entry>.dll` and self-contained deployments.
 - Wire format: one `WorkerEnvelope` per frame, JSON, newline-delimited at the frame boundary (length-prefix, not newline). Pipe directions from the parent: `serverOut` (parent writes / worker reads) and `serverIn` (parent reads / worker writes). The client handles passed to the worker must match the worker's own direction — `--in` receives the client handle of `serverOut`, `--out` receives the client handle of `serverIn`.
 - Dispatch from `Program.Main`:
   ```
   --ocr-worker       → OcrWorkerHost.RunAsync()
   --worker           → WorkerHost.RunAsync(args)
   --compute-selftest → RunComputeSelfTest(args)   ; CLI smoke test
-  (none)             → Avalonia app
+  (none)             → WPF app
   ```
 - UI-side smoke test: the Monte Carlo settings expander has a **Test Worker** button bound to `TestWorkerCommand`. It constructs a `JobConfig` with `MemoryLimitMb = 512` and awaits `ComputeWorkerManager.RunJobAsync`, streaming progress into the status line. Expected log lines on success: `Compute worker started (pid N, mem cap 512 MB)`, `Compute worker pid N: job complete — trades=0, "placeholder job complete"`. Intended to be removed when Phase 3 lands and `MonteCarloViewModel.RunAsync` routes through the worker.
 
@@ -650,7 +650,7 @@ The contract every backend implements. Two methods, both returning a `MonteCarlo
 ### ISimulationKernel (`src/core/Computing/Backends/ISimulationKernel.cs`)
 
 - `MonteCarloIterationOutcome Simulate(TimeSlice[] slices, MonteCarloSimulationRequest request, Random rng, int iteration, double[]? curve)` — the per-iteration kernel seam. Keeps the parallel skeleton separate from the Monte Carlo state machine: implementations must be pure, safe to call concurrently, and deterministic for a given `(rng, iteration)`, which is why the RNG is injected per iteration rather than captured. `MonteCarloIterationOutcome` is the full per-iteration result — terminal balance, outcome, slices elapsed, max drawdown, best-day ratio, longest losing streak, longest flat stretch and ruin cause.
-- Implemented by `SimulationKernelCpu` (the `SimulateOnce` that shipped through Phase 29A, moved here statement for statement) and by the GPU path in `SimulationKernelGpu`. Both are stateless, so `App.axaml.cs` registers one shared CPU instance and a fresh RNG per iteration is the only per-call state; the null-object `PlaceholderKernel` is gone.
+- Implemented by `SimulationKernelCpu` (the `SimulateOnce` that shipped through Phase 29A, moved here statement for statement) and by the GPU path in `SimulationKernelGpu`. Both are stateless, so `App.xaml.cs` registers one shared CPU instance and a fresh RNG per iteration is the only per-call state; the null-object `PlaceholderKernel` is gone.
 
 ### CpuBackend (`src/core/Computing/Backends/CpuBackend.cs`)
 
@@ -680,7 +680,7 @@ The contract every backend implements. Two methods, both returning a `MonteCarlo
 
 ### DI wiring
 
-- `App.axaml.cs` registers `SimulationKernelCpu` (shared, stateless), `CpuBackend`, `GpuBackend`, both backends as `IComputeBackend` registrations, and `IComputeDispatcher` -> `CpuComputeDispatcher`, all as singletons.
+- `App.xaml.cs` registers `SimulationKernelCpu` (shared, stateless), `CpuBackend`, `GpuBackend`, both backends as `IComputeBackend` registrations, and `IComputeDispatcher` -> `CpuComputeDispatcher`, all as singletons.
 - `GpuBackend` **is** registered in the parent process as of Phase 29B. The parent holds the DirectX 12 device because the Monte Carlo workload runs in process; `CpuComputeDispatcher` scans the registered backends and resolves the accelerated one, so CPU-vs-GPU selection lives in the dispatcher rather than at every call site. A machine without a device resolves `CpuBackend` and behaves exactly as it did through Phase 28B.
 - Forward pointer: only the worker-process migration of the scheduler and the device remains, and it is wiring behind `IComputeDispatcher` and `IComputeBackend` — the loop, the chunk size, and the backend seam do not move.
 

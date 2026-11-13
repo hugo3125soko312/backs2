@@ -106,7 +106,7 @@ backs2/
 │   ├── PERF_AUDIT_LLM_BUGS.md
 │   └── ...
 ├── src/
-│   ├── gui/                   # Avalonia UI
+│   ├── gui/                   # WPF UI
 │   │   ├── MainWindow.axaml
 │   │   ├── App.axaml
 │   │   └── Runner/
@@ -180,7 +180,7 @@ git log --oneline -10
 ls -la src/
 
 # 4. Review architecture docs
-cat project_oop.md
+type docs\\ARCHITECTURE.md
 
 # 5. Check build status
 dotnet build -c Release 2>&1 | tail -3
@@ -231,15 +231,15 @@ bash(command="grep -n 'new' path/to/file.cs")
 
 **Fix:** ALWAYS re-read file immediately before edit if ANY other tool modified it.
 
-### 3. XML/Avalonia XAML Corruption
+### 3. XAML Corruption
 
 **Symptoms:**
-- `AXN0001: Unable to parse "0,{Binding Y}" as a thickness`
+- `XAML: Unable to parse "0,{Binding Y}" as a thickness`
 
 **Fix:** Prefer complete file rewrite over string replacement for XAML:
 
 ```python
-with open('file.axaml', 'w') as f:
+with open('file.xaml', 'w') as f:
     f.write('<UserControl ...>...</UserControl>')
 ```
 
@@ -302,13 +302,13 @@ for filepath, (pattern, replacement) in files_to_edit.items():
 
 ```python
 # For XAML files, read-modify-write is usually safe:
-with open('file.axaml', 'r') as f:
+with open('file.xaml', 'r') as f:
     content = f.read()
 
 # Make your changes
 content = content.replace('old', 'new')
 
-with open('file.axaml', 'w') as f:
+with open('file.xaml', 'w') as f:
     f.write(content)
 
 # Verify XAML is valid
@@ -384,10 +384,10 @@ grep -rn "ToList()" src --include="*.cs" | head -10
 
 **Fix:** Re-read before edit.
 
-### 14.3 XML/Avalonia XAML Corruption
+### 14.3 XAML Corruption
 
 **Symptoms:**
-- `AXN0001: Unable to parse`
+- `XAML: Unable to parse`
 
 **Fix:** Use complete file rewrite for XAML.
 

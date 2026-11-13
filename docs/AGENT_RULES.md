@@ -1,7 +1,7 @@
 <!-- docs\AGENT_RULES.md -->
 # Agent Interaction Rules
 
-- You are an expert C# Avalonia developer.
+- You are an expert C# WPF developer.
 - Always check for the namespace backs2.Core or backs2.ViewModels before referencing classes.
 - Prefer CommunityToolkit.Mvvm for all UI logic.
 - Before suggesting a new package, verify it exists on public NuGet.
@@ -41,7 +41,7 @@ section wins.
   fence, not just the command inside it.**
 
 ### 2. File contents are always wrapped in an outer fence
-Your response is rendered as Markdown. If you emit a `.md`, `.cs`, `.axaml`,
+Your response is rendered as Markdown. If you emit a `.md`, `.cs`, `.xaml`,
 `.json`, `.ps1`, or any other text file inside a ``` fence, and that file
 itself contains ``` fences (or ~~~~ fences, or any run of 3+ backticks),
 the outer fence will close early and the message will render as a mess.
@@ -71,11 +71,11 @@ per response — do not bundle both directions.**
 User" — repeated here for emphasis.) Emit exactly one fenced block:
 
 ```powershell
-Get-Content path\to\file1.cs, path\to\file2.axaml | Set-Clipboard
+Get-Content path\to\file1.cs, path\to\file2.xaml | Set-Clipboard
 ```
 
 **(b) The user asks YOU for a file's contents.** ("show me X.cs", "what's in
-RULES.md", "give me the current App.axaml") Emit exactly one fenced block:
+RULES.md", "give me the current App.xaml") Emit exactly one fenced block:
 
 ```powershell
 Get-Content path\to\file.cs -Raw | Set-Clipboard
@@ -118,7 +118,7 @@ Triggers for escalation (any one is sufficient):
 
 Do NOT escalate when:
 - The problem is answerable from the bundled docs, from project rules, or
-  from standard .NET / Avalonia / C# knowledge.
+  from standard .NET / WPF / C# knowledge.
 - You are missing a file. Use §3(a) (the clipboard request command) instead.
 - The task is routine implementation, refactoring, or bug-fixing.
 - The task is implementation, even if it is large. Large ≠ planning.
@@ -328,7 +328,7 @@ Close the response with a single sentence confirming what the commit covers.
 - Format:
 
 ```powershell
-Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipboard
+Get-Content path\to\file1.cs, path\to\file2.xaml, path\to\file3.cs | Set-Clipboard
 ```
 
 - Use relative paths from the project root. Comma-separated. No line breaks.
@@ -340,7 +340,7 @@ Get-Content path\to\file1.cs, path\to\file2.axaml, path\to\file3.cs | Set-Clipbo
 - You may propose PowerShell 7 commands to perform diagnostic or file-system tasks.
 - File Access Constraint: before reading, writing, or modifying any file, state the file path and request permission or wait for the user to confirm the operation.
 - Execution Protocol: if an action requires terminal interaction, propose the exact PowerShell command inside a powershell-fenced block, wait for the user to execute it and provide the output, then analyze the results before proceeding.
-- Build staleness: Avalonia + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
+- Build staleness: .NET + CommunityToolkit source-generator errors (AXSG0111, phantom CS1061 on generated members) are resolved by wiping obj/ and bin/ and running `dotnet build --no-incremental`. Do not propose code changes to those symptoms until a clean rebuild has been tried.
 - Diagnosis first: when an error is reported, do not guess. Propose diagnostic commands that surface the actual state of the filesystem or compiler output before proposing code changes. Exception: when the error message itself identifies a specific missing file (e.g. "Unable to resolve type X", "Root element is missing"), rewrite the file directly instead of running a diagnostic loop.
 - Search official sources before troubleshooting. For library-specific visual or API bugs, check the library's issue tracker and documentation before iterating on speculative fixes.
 

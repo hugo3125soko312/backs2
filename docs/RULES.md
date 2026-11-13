@@ -4,14 +4,14 @@ ONLY SPEAK IN ENGLISH
 # Development Rules
 - ALWAYS check namespace before writing code (backs2.Core for logic, backs2.ViewModels for UI).
 - ViewModels: public partial class inheriting ObservableObject.
-- AXAML: always set x:Class="backs2.Views.YourView" and x:DataType for compiled bindings.
+- XAML: always set x:Class="backs2.Views.YourView" and x:DataType for compiled bindings.
 - Keep file paths shallow.
 - Style: High-Performance C# — minimal allocations, List<T> over LINQ in hot paths.
 - Architecture:
     - No static global variables. Enforce xManager/DI.
     - All I/O non-blocking (Async/Await).
     - UI progress via IProgress<T>.
-    - Strictly typed bindings required for all AXAML.
+    - Strictly typed bindings required for all XAML.
 - Metrics:
     - Every `IMetric` must return a defined value for degenerate inputs and must never throw.
     - Metrics are pure and stateless.
@@ -77,10 +77,10 @@ ONLY SPEAK IN ENGLISH
     - Navigation commands go in `src/gui/MainViewModel.Shell.cs`. They set `ActiveTabIndex` and do nothing else.
     - Fullscreen is set from `MainWindow.Opened` and re-applied from `Activated` when the state returns to `Normal`. Never use `WindowState="Maximized"` — DWM applies rounded corners to Maximized + ExtendClientArea windows on Windows 11.
     - Theme colors live on `AppSettings` as `Theme*Color` ARGB hex strings. Add a new themable color by declaring the property, adding a default in `ConfigManager.LoadConfig` and in `Tokens.axaml`, and mapping it in `ThemeApplier.Apply`. The Config tab auto-renders it in the Theme Colors expander.
-    - Never use Avalonia's `ColorPicker` or `ColorView` in this app. Both exhibit first-click lazy-load freezes and blank-render bugs in 11.0.x (Avalonia discussions #9128 / #9098). The supported picker is `src/gui/Config/ColorPickerWindow.axaml`, built from `ColorSpectrum` + `ColorSlider` + `ColorPreviewer`.
+    - Never use WPF's `ColorPicker` or `ColorView` in this app. Both exhibit first-click lazy-load freezes and blank-render bugs in 11.0.x (WPF discussions #9128 / #9098). The supported picker is `src/gui/Config/ColorPickerWindow.xaml`, built from `ColorSpectrum` + `ColorSlider` + `ColorPreviewer`.
     - Clicking OK in the color picker applies the theme live via `ConfigViewModel.ApplyThemePreview`. Persistence still requires the Save Settings button. Do not auto-save from the color dialog.
 - Charting:
-    - ScottPlot.Avalonia 5.0.55 is the standard.
+    - ScottPlot.WPF 5.0.55 is the standard.
 - Tab host & ViewModel resolution:
     - Views must not resolve their own ViewModels in the constructor. `Application.Current is App app` → `app.Services.GetRequiredService<TViewModel>()` inside a View ctor is forbidden — it forces eager construction of every tab's ViewModel and its transitive singleton dependencies at startup.
     - `MainViewModel` exposes one lazily-resolved property per tab (`OverviewVm`, `RunnerVm`, ...). `CurrentVm` is a switch on `ActiveTabIndex` returning the correct property; `OnActiveTabIndexChanged` raises `PropertyChanged(nameof(CurrentVm))`.

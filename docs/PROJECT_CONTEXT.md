@@ -1,6 +1,6 @@
 <!-- docs\PROJECT_CONTEXT.md -->
 # Project: backs2 Trading Engine
-- GUI: Avalonia 11.0.11
+- GUI: WPF
 - Core: .NET 8.0, DI-based xManager Pattern
 - Core Dependencies:
     - Microsoft.Extensions.DependencyInjection
@@ -8,9 +8,9 @@
     - CommunityToolkit.Mvvm 8.4.0
     - Microsoft.CodeAnalysis.CSharp.Scripting 4.8.0
     - Microsoft.Extensions.Http.Resilience
-    - Avalonia.Controls.DataGrid 11.0.11
-    - Avalonia.Controls.ColorPicker 11.0.11
-    - ScottPlot.Avalonia 5.0.55
+    - WPF DataGrid 11.3.13
+    - WPF Controls.ColorPicker
+    - ScottPlot.WPF 5.0.55
     - Vortice.Direct3D11 3.6.2
     - Vortice.DXGI 3.6.2
     - System.Drawing.Common 8.0.0
@@ -41,7 +41,7 @@
     - src/gui/Runner/: RunnerView.axaml + .axaml.cs + RunnerViewModel.cs plus partials `.Run.cs`, `.Optimize.cs`, `.Grid.cs`, `.Presets.cs`, `.Results.cs`, `RunnerParameterViewModel.cs`, and `OptimizationResultRow.cs`. The view is a `TabControl` with two subtabs — Runner (strategy list + parameter grid) and Optimization Results (batches from data/optimizations/, sortable by any McSummary field plus NetPnl/Cagr). Seven partial-class files owning disjoint private fields; cross-partial invalidation flows through `RecomputeCombinations` on the core partial. See ARCHITECTURE §8 (partial-class convention) and §11 (Runner & Presets).
     - src/gui/DataAutomation/: DataAutomationView.axaml + .axaml.cs + DataAutomationViewModel.cs. Three subtabs (Extraction / Parsing / Analysis). Calibration overlay class lives in the view's code-behind.
     - src/gui/MT5/: Mt5TickView.axaml + .axaml.cs + Mt5TickViewModel.cs plus partials `.Extraction.cs`, `.Requester.cs`, `.Parsing.cs`, `.Tkc.cs`, and RangeObservableCollection.cs. `TabControl` with four subtabs: **Extraction** (fetch + Verify Range panel), **Requester** (broker-side history download into local `.tkc`), **.tkc Extract** (terminal .tkc cache → kline cache), and **Parsing** (tick CSV → kline cache). Grid cap at 100k rows; `PopulateGrid` toggle skips the DataGrid bulk-insert on large fetches while CSV streaming continues.
-    - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before Avalonia. Tagged severity API: Info / Debug / Warn / Error. No filtering.
+    - Logging: static LogManager in src/core/LogManager.cs. Sole static in the codebase. Initialized in Program.Main before WPF. Tagged severity API: Info / Debug / Warn / Error. No filtering.
     - Providers: Multi-provider with ordered fallback via AddKeyedTransient.
     - Strategies: Disk-streamed. .cs files live in data/strategies/. No in-app builder. **See docs/strats_guide.md for authoring instructions.**
     - Strategy parameters: `// @param Name Type = Default [options: ...]` lines must appear **above any `using` directives** — StrategyParameterParser stops at the first non-comment, non-blank line. See RULES.md.
@@ -82,7 +82,7 @@
     - ScottPlot's `UserInputProcessor` is disabled on every `AvaPlot` in the app. Mouse drag cannot pan or zoom. Pan/zoom is keyboard-only: arrow keys pan 10% of the visible span, `+`/`-` zoom the X-axis by 10%. Plots are `Focusable="True"`. Never re-enable `UserInputProcessor` — the drag state could get stuck on some driver configurations.
     - The Monte Carlo trade-cluster plot dispatches `NavigateToTradeMessage` via `WeakReferenceMessenger.Default`. Receivers are `MainViewModel` (switches the Chart tab) and `ChartViewModel` (selects dataset, scrolls to timestamp). Never wire cross-tab navigation through direct ViewModel references; use the messenger. Navigation does not mutate the SelectionQueue — an unqueued target produces a status-line warning.
     - `KMeansClusterer.Cluster` is deterministic (fixed RNG seed). Do not change the seed — the same trades must produce the same clusters on every render.
-    - Compute worker: process-isolated infrastructure in `src/core/Compute/`. The worker is `backs2.exe --worker`, dispatched in `Program.Main` before Avalonia or LogManager initialize. It writes nothing to `logs/`; diagnostics go to `Console.Error` and are captured by the parent as `[worker <pid> stderr]` Debug lines. Do not add DI registration for the worker side, and do not introduce Avalonia dependencies in the worker path.
+    - Compute worker: process-isolated infrastructure in `src/core/Compute/`. The worker is `backs2.exe --worker`, dispatched in `Program.Main` before WPF or LogManager initialize. It writes nothing to `logs/`; diagnostics go to `Console.Error` and are captured by the parent as `[worker <pid> stderr]` Debug lines. Do not add DI registration for the worker side, and do not introduce WPF dependencies in the worker path.
     - Compute worker IPC uses length-prefixed JSON frames over anonymous pipes (`WorkerIpc`). Anonymous-pipe directions are load-bearing: `serverOut` is parent-writes/worker-reads and maps to the worker's `--in`; `serverIn` is parent-reads/worker-writes and maps to the worker's `--out`. Swapping them causes immediate EOF on the worker side.
     - Compute worker memory cap uses Win32 Job Objects (`JobObjectHandle`) with `JOB_OBJECT_LIMIT_PROCESS_MEMORY`. Non-Windows platforms degrade gracefully (attach returns false with a Warn log). Never raise the cap silently; the caller passes `JobConfig.MemoryLimitMb` explicitly.
     - Data Automation captures via PrintWindow with PW_RENDERFULLCONTENT; do not switch to DXGI Desktop Duplication (returns black on Chromium windows).
