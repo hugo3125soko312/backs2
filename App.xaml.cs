@@ -12,11 +12,6 @@ using backs2.Core.WalkForward;
 using backs2.Services;
 using backs2.Theme;
 using backs2.ViewModels;
-using backs2.Core.GuiLoading;
-using backs2.Core.Overview;
-using backs2.Core.Overview;
-using backs2.Core.Runner;
-using backs2.Core.WalkForward;
 using backs2.Views;
 using Microsoft.Extensions.DependencyInjection;
 

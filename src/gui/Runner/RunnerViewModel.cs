@@ -5,39 +5,17 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
-using Microsoft.Win32;
-using ScottPlot;
-using ScottPlot.WPF;
-using ScottPlot.Plottables;
-using backs2.ViewModels.Messages;
 using backs2.Core;
 using backs2.Core.Accounts;
 using backs2.Core.Optimizer;
 using backs2.Core.Overview;
 using backs2.Core.Runner;
 using backs2.Core.WalkForward;
-using backs2.Services;
-using backs2.Theme;
 
-using ScottPlot;
 using ScottPlot.WPF;
-using ScottPlot.Plottables;
-using backs2.ViewModels.Messages;
-using backs2.Core;
-using backs2.Core.Accounts;
-using backs2.Core.Optimizer;
-using backs2.Core.Overview;
-using backs2.Core.Runner;
-using backs2.Core.WalkForward;
-using backs2.Services;
-using backs2.Theme;
-
+using System.Windows;
 namespace backs2.ViewModels;
 
 public partial class RunnerViewModel : ObservableObject, INavigationTarget
@@ -194,7 +172,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(ApplyAccountDefaults);
+        Application.Current.Dispatcher.BeginInvoke(ApplyAccountDefaults);
     }
 
     private void ApplyAccountDefaults()
@@ -216,7 +194,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(() => SyncCatalog(e.Strategies));
+        Application.Current.Dispatcher.BeginInvoke(() => SyncCatalog(e.Strategies));
     }
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
@@ -282,7 +260,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnQueueChanged(object? sender, EventArgs e)
     {
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(SyncQueue);
+        Application.Current.Dispatcher.BeginInvoke(SyncQueue);
     }
 
     private void SyncQueue()
@@ -426,7 +404,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
         no.Click += (_, _) => { confirmed = false; dlg.Close(); };
 
-        await dlg.ShowDialog(owner);
+        owner.ShowDialog();
         return confirmed;
     }
 
