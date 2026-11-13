@@ -5,14 +5,14 @@
              xmlns:views="clr-namespace:backs2.Views">
     <Application.Resources>
         <ResourceDictionary>
-            <SolidColorBrush x:Key="BackgroundBrush" Color="#181818"/>
-            <SolidColorBrush x:Key="PanelBrush" Color="#222222"/>
-            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E6EDF3"/>
-            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#848D97"/>
-            <SolidColorBrush x:Key="AccentBrush" Color="#2F81F7"/>
-            <SolidColorBrush x:Key="WfGood" Color="#2ECC71"/>
-            <SolidColorBrush x:Key="WfWarn" Color="#F5A623"/>
-            <SolidColorBrush x:Key="WfBad" Color="#E74C3C"/>
+            <SolidColorBrush x:Key="BackgroundBrush" Color="#FF00FF"/>
+            <SolidColorBrush x:Key="PanelBrush" Color="#00FFFF"/>
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFF00"/>
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#00FF00"/>
+            <SolidColorBrush x:Key="AccentBrush" Color="#FF0000"/>
+            <SolidColorBrush x:Key="WfGood" Color="#FF00FF"/>
+            <SolidColorBrush x:Key="WfWarn" Color="#FF00FF"/>
+            <SolidColorBrush x:Key="WfBad" Color="#FF00FF"/>
             
             <views:DurationConverter x:Key="DurationConverter"/>
             <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
