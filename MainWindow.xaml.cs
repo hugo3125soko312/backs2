@@ -19,7 +19,7 @@ public partial class MainWindow : Window
     private void ApplyFullScreen()
     {
         WindowState = WindowState.Normal;
-        WindowState = WindowState.FullScreen;
+        WindowState = WindowState.Maximized;
     }
 
     private void OnActivated(object sender, EventArgs e)
