@@ -22,7 +22,7 @@
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             </Style>
             <Style TargetType="UserControl">
-                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             </Style>
 
