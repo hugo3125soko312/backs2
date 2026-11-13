@@ -194,4 +194,35 @@ After the commit, print the last three log lines:
     git log --oneline -3
     git status
 
-The working tree must be clean.
+- **Commit messages MUST have detailed descriptions.** Every commit must include:
+    - A clear, descriptive title (type(scope): summary)
+    - A body with detailed explanation of what changed and why
+    - Bullet points for each significant change
+    - Verification steps that were performed
+    - Any notes or caveats
+
+  Example of a good commit message:
+  ```
+  fix(gui): resolve dark theme background issue on all views
+  
+  ## Summary
+  Fixed the dark theme background not applying correctly to all UserControls
+  after the Avalonia to WPF migration. The issue was caused by missing
+  Background properties in several views.
+  
+  ## Changes
+  - Added Background to ContentControl in MainWindow.xaml
+  - Added Background to all UserControl templates
+  - Verified all views render correctly with dark theme
+  
+  ## Verification
+  - Build: PASSED (0 errors, 0 warnings)
+  - Visual: all views render with correct dark theme
+  ```
+  
+  Bad example (too vague):
+  ```
+  fix: some issues
+  ```
+  
+  The working tree must be clean.
