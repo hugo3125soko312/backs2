@@ -18,10 +18,39 @@
             <views:DurationConverter x:Key="DurationConverter"/>
             <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
             
+            <!-- Window style -->
             <Style TargetType="Window">
                 <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
             </Style>
+            
+            <!-- Explicit style for ColorPickerWindow to ensure dark theme -->
+            <Style TargetType="views:ColorPickerWindow">
+                <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+            
+            <!-- Explicit style for PresetPickerWindow -->
+            <Style TargetType="views:PresetPickerWindow">
+                <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+            
+            <!-- Explicit style for QueueWindow -->
+            <Style TargetType="views:QueueWindow">
+                <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+            
+            <!-- Explicit style for StrategySourceWindow -->
+            <Style TargetType="views:StrategySourceWindow">
+                <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+            
+            <!-- UserControl style -->
             <Style TargetType="UserControl">
                 <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
