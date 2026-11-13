@@ -1,7 +1,7 @@
 <Window x:Class="backs2.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="clr-namespace:backs2.ViewModels"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         Title="Backs2 Workbench" Height="900" Width="1400"
         WindowStartupLocation="CenterScreen">
     <Grid>
