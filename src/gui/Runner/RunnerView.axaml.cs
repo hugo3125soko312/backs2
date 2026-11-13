@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using backs2.ViewModels;
@@ -47,7 +49,8 @@ public partial class RunnerView : UserControl
                     {
                         Dispatcher.UIThread.Invoke(() =>
                         {
-                            timelineView.RenderTimeline(vm.WalkForwardWindowRows);
+                            // Generate dummy timestamps
+timelineView.RenderTimeline(vm.WalkForwardWindowRows, Enumerable.Range(0, vm.WalkForwardWindowRows.Count).Select(i => DateTime.MinValue.AddDays(i)).ToList());
                         });
                     }
                 };
@@ -57,7 +60,8 @@ public partial class RunnerView : UserControl
                 {
                     Dispatcher.UIThread.Invoke(() =>
                     {
-                        timelineView.RenderTimeline(vm.WalkForwardWindowRows);
+                        // Generate dummy timestamps
+timelineView.RenderTimeline(vm.WalkForwardWindowRows, Enumerable.Range(0, vm.WalkForwardWindowRows.Count).Select(i => DateTime.MinValue.AddDays(i)).ToList());
                     });
                 }
             }

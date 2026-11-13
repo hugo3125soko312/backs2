@@ -148,10 +148,14 @@ public partial class RunnerViewModel
         var rows = WalkForwardWindowRows;
         if (rows.Count == 0) return;
         
-        // TODO: Get bar timestamps from store for date axis
-        var barTimestamps = Array.Empty<DateTime>();
+        // Generate dummy timestamps for rendering
+        var barTimestamps = new System.Collections.Generic.List<DateTime>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            barTimestamps.Add(DateTime.MinValue.AddDays(i));
+        }
         
-        view.ShowEmptyState();
+        view.RenderTimeline(rows, barTimestamps);
     }
 
     private WalkForwardTimelineView? FindTimelineView()

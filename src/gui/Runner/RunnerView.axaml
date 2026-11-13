@@ -3,6 +3,7 @@
              xmlns:vm="using:backs2.ViewModels"
              xmlns:views="using:backs2.Views"
              xmlns:core="using:backs2.Core"
+             xmlns:scottPlot="using:ScottPlot.Avalonia"
              x:Class="backs2.Views.RunnerView"
              x:DataType="vm:RunnerViewModel">
 
@@ -498,8 +499,16 @@
             </Grid>
         </Grid>
 
+                <Border Classes="chartFrame" Margin="0,4,0,0">
+                    <Panel Classes="chartHost">
+                        <AvaPlot x:Name="TimelinePlot"
+                                           HorizontalAlignment="Stretch"
+                                           VerticalAlignment="Stretch" />
+                    </Panel>
+                </Border>
+
         <!-- ========== Status line ========== -->
-        <TextBox Grid.Row="3"
+        <TextBox Grid.Row="4"
                  IsReadOnly="True"
                  Text="{Binding StatusText}"
                  FontSize="10"
