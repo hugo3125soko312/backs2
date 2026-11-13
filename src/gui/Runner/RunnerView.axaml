@@ -498,8 +498,12 @@
             </Grid>
         </Grid>
 
+                <views:WalkForwardTimelineView Grid.Row="3"
+                              x:Name="TimelineView"
+                              Margin="0,4,0,0" />
+
         <!-- ========== Status line ========== -->
-        <TextBox Grid.Row="3"
+        <TextBox Grid.Row="4"
                  IsReadOnly="True"
                  Text="{Binding StatusText}"
                  FontSize="10"

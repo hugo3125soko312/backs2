@@ -23,6 +23,12 @@ public partial class WalkForwardTimelineView : UserControl
         InitializeComponent();
         _plotView = this.FindControl<AvaPlot>("AvaPlotControl");
         
+        // Disable default user input and use our own handlers
+        if (_plotView != null)
+        {
+            _plotView.UserInputProcessor.Disable();
+        }
+        
         // Hook up pointer events for hover
         PointerMoved += OnPointerMoved;
         PointerExited += OnPointerExited;
@@ -31,7 +37,15 @@ public partial class WalkForwardTimelineView : UserControl
 
     public void RenderTimeline(IReadOnlyList<WalkForwardWindowRow> windowRows, IReadOnlyList<DateTime> barTimestamps)
     {
-        ScottPlot.Plot spPlot = _plotView!.Plot;
+        if (_plotView == null)
+        {
+            System.Diagnostics.Debug.WriteLine("ERROR: AvaPlotControl is null");
+            return;
+        }
+        
+        System.Diagnostics.Debug.WriteLine($"DEBUG: Rendering {windowRows.Count} bars");
+        
+        ScottPlot.Plot spPlot = _plotView.Plot;
         spPlot.Clear();
 
         if (windowRows.Count == 0)
@@ -144,6 +158,16 @@ public partial class WalkForwardTimelineView : UserControl
         badText.LabelFontSize = 9;
     }
 
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        
+        if (_plotView != null && DataContext is RunnerViewModel vm)
+        {
+            vm.SetWalkForwardPlotControl(_plotView);
+        }
+    }
+    
     private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
         if (_plotView == null || _bars.Count == 0) return;
