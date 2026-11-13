@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -12,12 +13,12 @@ namespace backs2.ViewModels;
 public partial class RunnerViewModel
 {
     [RelayCommand]
-    private async Task OpenPresetsAsync()
+    private Task OpenPresetsAsync()
     {
         if (SelectedStrategy == null)
         {
             StatusText = "Select a strategy first.";
-            return;
+            return Task.CompletedTask;
         }
 
         var vm = new PresetPickerViewModel(_presets, SelectedStrategy.Name);
@@ -27,16 +28,18 @@ public partial class RunnerViewModel
         if (owner == null)
         {
             StatusText = "No main window available for the preset picker.";
-            return;
+            return Task.CompletedTask;
         }
 
         window.Owner = owner;
         var dialogResult = window.ShowDialog();
-        if (dialogResult != true) return;
+        if (dialogResult != true) return Task.CompletedTask;
         var preset = vm.Result;
+        if (preset == null) return Task.CompletedTask;
 
         ApplyPreset(preset);
         StatusText = $"Applied preset {preset.PresetName}";
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -85,10 +88,10 @@ public partial class RunnerViewModel
         PersistAllGridRanges();
     }
 
-    private async Task<string?> PromptForNameAsync(string defaultName)
+    private Task<string?> PromptForNameAsync(string defaultName)
     {
         var owner = GetMainWindow();
-        if (owner == null) return defaultName;
+        if (owner == null) return Task.FromResult<string?>(defaultName);
 
         var box = new TextBox { Text = defaultName, Width = 300 };
         var ok = new Button { Content = "OK" };
@@ -125,6 +128,6 @@ public partial class RunnerViewModel
 
         dlg.Owner = owner;
         dlg.ShowDialog();
-        return result;
+        return Task.FromResult<string?>(result);
     }
 }

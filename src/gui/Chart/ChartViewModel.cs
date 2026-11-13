@@ -11,37 +11,12 @@ using backs2.Core;
 using backs2.Core.Models;
 using backs2.ViewModels.Messages;
 using ScottPlot.WPF;
-
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core;
-using backs2.Core.Data;
-using backs2.Core.Models;
-using backs2.ViewModels.Messages;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core;
-using backs2.Core.Models;
 using backs2.Core.Providers;
-using backs2.ViewModels.Messages;
+using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
-using ScottPlot.WPF;
+
 
 namespace backs2.ViewModels;
 
@@ -215,13 +190,13 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
             var result = await _data.GetSymbolDataAsync(dataset.Symbol, dataset.Timeframe, progress).ConfigureAwait(true);
             result ??= new List<Kline>();
 
-            _series = result.ToList();
-            if (_series.Count > 0)
+            Series = result.ToList();
+            if (Series.Count > 0)
             {
                 RefreshAvailableTimeframes(dataset);
             }
 
-            OnSeriesChanged(_series);
+            OnSeriesChanged(Series);
 
             if (result.Count() > 0)
             {
@@ -291,9 +266,9 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         if (_wpfPlot == null) return;
 
         var t = _pendingNavigationTime.Value;
-        var xs = (_series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray());
+        var xs = (Series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray());
         int idx = NearestIndex(xs, t);
-        if (idx >= 0 && idx < _series.Count)
+        if (idx >= 0 && idx < Series.Count)
         {
             var limits = _wpfPlot.Plot.Axes.GetLimits();
             double windowHalf = (limits.Right - limits.Left) / 4;
@@ -322,12 +297,12 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     {
         if (_wpfPlot == null) return;
         _builder.MoveCrosshair(_wpfPlot, dataX);
-        var xs = (_wpfPlot != null ? _series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray() : Array.Empty<double>());
+        var xs = (_wpfPlot != null ? Series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray() : Array.Empty<double>());
 
         int i = NearestIndex(dataX);
-        if (i >= 0 && i < _series.Count)
+        if (i >= 0 && i < Series.Count)
         {
-            var k = _series[i];
+            var k = Series[i];
             var barTs = k.Timestamp.AddTicks((long)(dataX - xs[i]));
             ReadoutTime = barTs.ToString("yyyy-MM-dd HH:mm");
             ReadoutOpen = k.Open.ToString("N2");
@@ -349,7 +324,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 
     private int NearestIndex(double dataX)
     {
-        var timestamps = _series.Select(k => k.Timestamp).ToList();
+        var timestamps = Series.Select(k => k.Timestamp).ToList();
         if (timestamps.Count == 0) return -1;
         var dt = DateTime.FromOADate(dataX);
         int best = 0;
