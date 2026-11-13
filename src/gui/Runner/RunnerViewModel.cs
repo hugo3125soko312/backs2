@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using ScottPlot.Avalonia;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -36,6 +37,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
     private readonly WalkForwardRunner _walkForwardRunner;
     private readonly WalkForwardStore _walkForwardStore;
+    private AvaPlot? _walkForwardAvaPlot;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -408,6 +410,12 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
         await dlg.ShowDialog(owner);
         return confirmed;
+    }
+
+    public void SetWalkForwardPlotControl(AvaPlot plotView)
+    {
+        _walkForwardAvaPlot = plotView;
+        // Could be used for additional setup or binding
     }
 
     private static Window? GetMainWindow()

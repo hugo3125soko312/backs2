@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using backs2.ViewModels;
 using backs2.Views;
 
 namespace backs2.Views;
-
 public partial class RunnerView : UserControl
 {
     private EventHandler<(string Name, string Source)>? _viewSourceHandler;
@@ -20,7 +18,6 @@ public partial class RunnerView : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
-
         if (_viewSourceHandler != null && DataContext is RunnerViewModel oldVm)
             oldVm.ViewSourceRequested -= _viewSourceHandler;
 
@@ -32,13 +29,12 @@ public partial class RunnerView : UserControl
             {
                 var owner = TopLevel.GetTopLevel(this) as Window;
                 if (owner == null) return;
-
                 var win = new StrategySourceWindow();
                 win.Initialize(payload.Name, payload.Source);
                 await win.ShowDialog(owner);
             };
             vm.ViewSourceRequested += _viewSourceHandler;
-            
+
             // Hook up timeline view to render when walk-forward results change
             var timelineView = this.FindControl<WalkForwardTimelineView>("TimelineView");
             if (timelineView != null)
@@ -49,8 +45,13 @@ public partial class RunnerView : UserControl
                     {
                         Dispatcher.UIThread.Invoke(() =>
                         {
-                            // Generate dummy timestamps
-timelineView.RenderTimeline(vm.WalkForwardWindowRows, Enumerable.Range(0, vm.WalkForwardWindowRows.Count).Select(i => DateTime.MinValue.AddDays(i)).ToList());
+                            // Generate dummy timestamps for now
+                            var timestamps = new List<DateTime>();
+                            for (int i = 0; i < vm.WalkForwardWindowRows.Count; i++)
+                            {
+                                timestamps.Add(DateTime.MinValue.AddDays(i));
+                            }
+                            timelineView.RenderTimeline(vm.WalkForwardWindowRows, timestamps);
                         });
                     }
                 };
@@ -61,7 +62,12 @@ timelineView.RenderTimeline(vm.WalkForwardWindowRows, Enumerable.Range(0, vm.Wal
                     Dispatcher.UIThread.Invoke(() =>
                     {
                         // Generate dummy timestamps
-timelineView.RenderTimeline(vm.WalkForwardWindowRows, Enumerable.Range(0, vm.WalkForwardWindowRows.Count).Select(i => DateTime.MinValue.AddDays(i)).ToList());
+                        var timestamps = new List<DateTime>();
+                        for (int i = 0; i < vm.WalkForwardWindowRows.Count; i++)
+                        {
+                            timestamps.Add(DateTime.MinValue.AddDays(i));
+                        }
+                        timelineView.RenderTimeline(vm.WalkForwardWindowRows, timestamps);
                     });
                 }
             }
