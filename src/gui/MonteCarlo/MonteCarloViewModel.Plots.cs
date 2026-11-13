@@ -11,6 +11,7 @@ using ScottPlot.Plottables;
 
 namespace backs2.ViewModels;
 
+using CommunityToolkit.Mvvm.ComponentModel;
 public partial class MonteCarloViewModel : ObservableObject, IRecipient<NavigateToTradeMessage>
 {
     private readonly MonteCarloBuilder _builder = new();
