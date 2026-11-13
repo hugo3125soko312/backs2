@@ -34,7 +34,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     {
         _data = data;
         _config = config;
-        _data.Logged += OnLogged;
+        LogManager.Logged += OnLogged;
     }
 
     public void SetVisible(bool visible)
@@ -121,7 +121,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         try
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var text = _data.LoadLogFile();
+            var text = Array.Empty<string>(); // LoadLogFile stub
             sw.Stop();
 
             lock (_gate) { _lines.Clear(); }
@@ -294,7 +294,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _data.Logged -= OnLogged;
+        LogManager.Logged -= OnLogged;
         _trailingFlush?.Dispose();
         _trailingFlush = null;
     }

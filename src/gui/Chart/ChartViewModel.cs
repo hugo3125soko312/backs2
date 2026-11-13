@@ -12,6 +12,21 @@ using backs2.Core.Models;
 using backs2.ViewModels.Messages;
 using ScottPlot.WPF;
 
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
+using backs2.Core.Data;
+using backs2.Core.Models;
+using backs2.ViewModels.Messages;
+using ScottPlot.WPF;
+
 namespace backs2.ViewModels;
 
 public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTradeMessage>

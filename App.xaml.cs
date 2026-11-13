@@ -8,12 +8,54 @@ using backs2.Core.Diagnostics;
 using backs2.Core.MT5;
 using backs2.Core.Optimizer;
 using backs2.Core.Providers;
-using backs2.Core.WalkForward;
 using backs2.Services;
 using backs2.Theme;
 using backs2.ViewModels;
 using backs2.Views;
 using Microsoft.Extensions.DependencyInjection;
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
+using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
+using backs2.Core.Accounts;
+using backs2.Core.Data;
+using backs2.Core.Diagnostics;
+using backs2.Core.Optimizer;
+using backs2.Core.Runner;
+using backs2.Services;
+using backs2.Theme;
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
+using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
+using backs2.Core.Accounts;
+using backs2.Core.Data;
+using backs2.Core.Diagnostics;
+using backs2.Core.Optimizer;
+using backs2.Core.Runner;
+using backs2.Theme;
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
+using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
+using backs2.Core.Accounts;
+using backs2.Core.Data;
+using backs2.Core.Diagnostics;
+using backs2.Core.Optimizer;
+using backs2.Core.Runner;
+using backs2.Theme;
 
 namespace backs2;
 

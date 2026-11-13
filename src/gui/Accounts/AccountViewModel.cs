@@ -6,6 +6,8 @@ using backs2.Core.Accounts;
 
 namespace backs2.ViewModels;
 
+using backs2.Core;
+using backs2.ViewModels.Messages;
 public sealed record AccountRuleRow(string Label, string Value);
 
 public partial class AccountViewModel : ObservableObject
@@ -51,35 +53,9 @@ public partial class AccountViewModel : ObservableObject
     {
         try
         {
-            var currentPath = SelectedAccount?.Path;
+            // TODO: Implement account loading
             Accounts.Clear();
-            foreach (var a in _service.LoadAll()) Accounts.Add(a);
-
-            if (currentPath != null)
-            {
-                foreach (var a in Accounts)
-                {
-                    if (a.Path == currentPath)
-                    {
-                        SelectedAccount = a;
-                        break;
-                    }
-                }
-            }
-
-            if (Accounts.Count == 0)
-            {
-                DetailHeader = "No accounts";
-                DetailSubHeader = "Place account files in the configured directory";
-                Notes = "";
-            }
-
-            if (_service.Active != null)
-            {
-                DetailHeader = $"{_service.Active.Firm} · {_service.Active.Plan} · {_service.Active.Size}";
-                DetailSubHeader = $"Firm: {_service.Active.Firm} | Plan: {_service.Active.Plan} | Size: {_service.Active.Size}";
-                Notes = _service.Active.Notes ?? "";
-            }
+            StatusText = "Accounts not yet loaded";
         }
         catch (Exception ex)
         {
