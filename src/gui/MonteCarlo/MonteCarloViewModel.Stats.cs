@@ -2,16 +2,18 @@ using System;
 using System.Collections.Generic;
 using backs2.Core.Overview;
 
+using System.Windows;
+using System.Windows.Media;
 namespace backs2.ViewModels;
 
 public partial class MonteCarloViewModel
 {
-    private static readonly System.Windows.Media.Brush ToneNeutral = new SolidColorBrush(Color.Parse("#E0E0E0"));
-    private static readonly System.Windows.Media.Brush ToneDim     = new SolidColorBrush(Color.Parse("#7A7A7A"));
-    private static readonly System.Windows.Media.Brush ToneWarn    = new SolidColorBrush(Color.Parse("#EF5350"));
-    private static readonly System.Windows.Media.Brush ToneGood    = new SolidColorBrush(Color.Parse("#26A69A"));
-    private static readonly System.Windows.Media.Brush ToneAmber   = new SolidColorBrush(Color.Parse("#FFB74D"));
-    private static readonly System.Windows.Media.Brush ToneAccent  = new SolidColorBrush(Color.Parse("#4FC3F7"));
+    private static readonly System.Windows.Media.Brush ToneNeutral = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#E0E0E0")!);
+    private static readonly System.Windows.Media.Brush ToneDim     = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#7A7A7A")!);
+    private static readonly System.Windows.Media.Brush ToneWarn    = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#EF5350")!);
+    private static readonly System.Windows.Media.Brush ToneGood    = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#26A69A")!);
+    private static readonly System.Windows.Media.Brush ToneAmber   = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFB74D")!);
+    private static readonly System.Windows.Media.Brush ToneAccent  = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#4FC3F7")!);
 
     // Threshold below which Edge % is treated as indistinguishable from random.
     // Reads as "the strategy's directional skill is within noise of a coin flip."

@@ -16,6 +16,8 @@ using backs2.Core.WalkForward;
 
 using ScottPlot.WPF;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 namespace backs2.ViewModels;
 
 public partial class RunnerViewModel : ObservableObject, INavigationTarget
@@ -146,7 +148,8 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         _walkForwardRunner = walkForwardRunner;
     }
 
-    /// <summary>Called by the shell when a Runner subtab node is selected.</summary>
+    /// <summary>
+    /// Called by the shell when a Runner subtab node is selected.</summary>
     public void Navigate(int subtabIndex) => SelectedSubtabIndex = subtabIndex;
 
     /// <summary>
@@ -172,7 +175,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {
-        Application.Current.Dispatcher.BeginInvoke(ApplyAccountDefaults);
+        System.Windows.Application.Current.Dispatcher.Invoke(ApplyAccountDefaults);
     }
 
     private void ApplyAccountDefaults()
@@ -194,7 +197,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
-        Application.Current.Dispatcher.BeginInvoke(() => SyncCatalog(e.Strategies));
+        System.Windows.Application.Current.Dispatcher.Invoke(() => SyncCatalog(e.Strategies));
     }
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
@@ -260,7 +263,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnQueueChanged(object? sender, EventArgs e)
     {
-        Application.Current.Dispatcher.BeginInvoke(SyncQueue);
+        System.Windows.Application.Current.Dispatcher.Invoke(SyncQueue);
     }
 
     private void SyncQueue()
@@ -350,12 +353,6 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     [RelayCommand]
     private async Task ViewSourceAsync()
     {
-        if (SelectedStrategy == null)
-        {
-            StatusText = "Select a strategy first.";
-            return;
-        }
-
         try
         {
             var source = await _catalog.ReadSourceAsync(SelectedStrategy.Path);
@@ -386,7 +383,6 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
             Content = new StackPanel
             {
                 Margin = new Thickness(16),
-                Spacing = 12,
                 Children =
                 {
                     new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 13 },
@@ -394,13 +390,14 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
+                        Margin = new Thickness(0, 12, 0, 0),
                         Children = { no, yes }
                     }
                 }
             }
         };
 
+        dlg.Owner = owner;
         yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
         no.Click += (_, _) => { confirmed = false; dlg.Close(); };
 
@@ -416,11 +413,6 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private static Window? GetMainWindow()
     {
-        if (Application.Current?.ApplicationLifetime
-            is IClassicDesktopStyleApplicationLifetime desk)
-        {
-            return desk.MainWindow;
-        }
-        return null;
+        return Application.Current?.MainWindow;
     }
 }

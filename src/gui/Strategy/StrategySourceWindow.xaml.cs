@@ -6,9 +6,4 @@ public partial class StrategySourceWindow : System.Windows.Window
     {
         InitializeComponent();
     }
-
-    private void OnCloseClick(object sender, System.Windows.RoutedEventArgs e)
-    {
-        Close();
-    }
 }

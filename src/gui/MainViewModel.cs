@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Windows.Controls;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using backs2.Core;
 using backs2.ViewModels.Messages;
@@ -131,32 +133,17 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
         try
         {
-            Action<TimeSpan>? frame = null;
-            frame = _ =>
-            {
-                _perf.OnFrame();
-
-                if (window.IsActive)
-                {
-                    window.RequestAnimationFrame(frame!);
-                }
-                else
-                {
-                    // Cap at ~10 FPS when unfocused. Re-requesting
-                    // unconditionally forced the compositor to render
-                    // continuously for a window nobody was looking at, which is
-                    // both wasted GPU time and a distorted FPS reading.
-                    System.Windows.Threading.DispatcherTimer.RunOnce(
-                        () => window.RequestAnimationFrame(frame!),
-                        TimeSpan.FromMilliseconds(100));
-                }
-            };
-            window.RequestAnimationFrame(frame);
+            CompositionTarget.Rendering += OnCompositionTargetRendering;
         }
         catch (Exception ex)
         {
-            LogManager.Warn(LogTag.App, "perf frame loop failed: " + ex.Message);
+            LogManager.Warn(LogTag.App, "perf composition target failed: " + ex.Message);
         }
+    }
+
+    private void OnCompositionTargetRendering(object? sender, EventArgs e)
+    {
+        _perf.OnFrame();
     }
 
     private void OnPerfSampled(backs2.Core.Diagnostics.PerfSnapshot s)

@@ -12,6 +12,7 @@ using backs2.Core;
 using backs2.Core.Accounts;
 using backs2.Core.Compute;
 using backs2.Core.Overview;
+using System.Windows.Controls;
 
 namespace backs2.ViewModels;
 
@@ -140,7 +141,7 @@ public partial class MonteCarloViewModel : ObservableObject
 
     private void OnLastRunChanged(object? sender, IReadOnlyList<OverviewData> batch)
     {
-        Dispatcher.UIThread.Post(() =>
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             _batch = batch ?? Array.Empty<OverviewData>();
 
@@ -182,7 +183,7 @@ public partial class MonteCarloViewModel : ObservableObject
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
-        Dispatcher.UIThread.Post(() => ApplyAccountDefaults());
+        System.Windows.Application.Current.Dispatcher.Invoke(() => ApplyAccountDefaults());
     }
 
     private void ApplyAccountDefaults()

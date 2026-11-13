@@ -1,61 +1,24 @@
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core.Accounts;
 using backs2.Core.Compute;
 using backs2.Core.Computing;
 using backs2.Core.Computing.Backends;
 using backs2.Core.DataAutomation;
 using backs2.Core.Diagnostics;
+using backs2.Core.GuiLoading;
+using backs2.Core.Metrics;
 using backs2.Core.MT5;
 using backs2.Core.Optimizer;
+using backs2.Core.Overview;
 using backs2.Core.Providers;
+using backs2.Core.Runner;
+using backs2.Core.WalkForward;
+using backs2.Core;
 using backs2.Services;
-using backs2.Theme;
 using backs2.ViewModels;
 using backs2.Views;
 using Microsoft.Extensions.DependencyInjection;
-
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Caching.Memory;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core;
-using backs2.Core.Accounts;
-using backs2.Core.Data;
-using backs2.Core.Diagnostics;
-using backs2.Core.Optimizer;
-using backs2.Core.Runner;
-using backs2.Services;
-using backs2.Theme;
-
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Caching.Memory;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core;
-using backs2.Core.Accounts;
-using backs2.Core.Data;
-using backs2.Core.Diagnostics;
-using backs2.Core.Optimizer;
-using backs2.Core.Runner;
-using backs2.Theme;
-
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Caching.Memory;
-using CommunityToolkit.Mvvm.Messaging;
-using backs2.Core;
-using backs2.Core.Accounts;
-using backs2.Core.Data;
-using backs2.Core.Diagnostics;
-using backs2.Core.Optimizer;
-using backs2.Core.Runner;
-using backs2.Theme;
 
 namespace backs2;
 
@@ -99,7 +62,7 @@ public partial class App : Application
         services.AddSingleton<backs2.Core.Data.IQueueOriginGate, backs2.Core.Data.QueueOriginGate>();
         services.AddSingleton<backs2.Core.Data.IDataOriginResolver, backs2.Core.Data.DataOriginResolver>();
         services.AddSingleton<backs2.Core.Data.ITickCompiler, backs2.Core.Data.Mt5TickCompiler>();
-        services.AddSingleton<Core.DataAutomation.IStreamingLoaderFactory, Core.GuiLoading.StreamingLoaderFactory>();
+        services.AddSingleton<backs2.Core.GuiLoading.IStreamingLoaderFactory, backs2.Core.GuiLoading.StreamingLoaderFactory>();
         services.AddSingleton<MonteCarloEngine>();
         services.AddSingleton<ComputeWorkerManager>();
         services.AddSingleton<SimulationKernelCpu>();

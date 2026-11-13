@@ -3,9 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:vm="using:backs2.ViewModels"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
-             d:DesignWidth="800" d:DesignHeight="450">
+             d:DesignHeight="600" d:DesignWidth="800">
     <Grid>
+        <Border BorderBrush="{StaticResource TextSecondaryBrush}" BorderThickness="1" Background="{StaticResource PanelBrush}">
+            <TextBlock Text="[Walk-Forward Timeline Chart Stubbed - Awaiting Port from Chart Tab]"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="16"/>
+        </Border>
     </Grid>
 </UserControl>

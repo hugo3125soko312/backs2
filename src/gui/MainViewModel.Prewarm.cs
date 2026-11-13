@@ -1,5 +1,8 @@
 using System;
 using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using System.Threading.Tasks;
 
 namespace backs2.ViewModels;
@@ -18,7 +21,7 @@ public partial class MainViewModel
     /// </summary>
     private void StartPrewarm()
     {
-        Dispatcher.UIThread.Post(() =>
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             _prewarmStarted = true;
             _prewarmCts = new CancellationTokenSource();

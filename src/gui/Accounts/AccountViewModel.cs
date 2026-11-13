@@ -76,11 +76,8 @@ public partial class AccountViewModel : ObservableObject
 
         DetailHeader = $"{value.Firm} · {value.Plan} · {value.Size}";
         DetailSubHeader = $"Firm: {value.Firm} | Plan: {value.Plan} | Size: {value.Size}";
-        Notes = value.Notes ?? "";
+        
 
-        PhaseRules.Clear();
-        foreach (var rule in value.Rules)
-            PhaseRules.Add(new AccountRuleRow(rule.Key, rule.Value));
     }
 
     [RelayCommand]

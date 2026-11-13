@@ -1,0 +1,74 @@
+<UserControl x:Class="backs2.Views.MonteCarloView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:scottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="800">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Toolbar -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="8">
+            <TextBlock Text="Iterations:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox Text="{Binding Iterations, UpdateSourceTrigger=PropertyChanged}" Width="60" VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Text="Mean Block:" VerticalAlignment="Center" Margin="8,0"/>
+            <TextBox Text="{Binding MeanBlockSize, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Text="Ruin %:" VerticalAlignment="Center" Margin="8,0"/>
+            <TextBox Text="{Binding RuinThresholdPercent, UpdateSourceTrigger=PropertyChanged}" Width="50" VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+            <CheckBox Content="Show Curves" IsChecked="{Binding ShowEquityCurves}" Margin="8,0"/>
+            <ComboBox ItemsSource="{Binding PlotModes}" SelectedItem="{Binding SelectedPlotModeOption}" DisplayMemberPath="Label" Margin="8,0"/>
+            <Button Command="{Binding RunCommand}" Content="Run" Padding="12,4" Background="{StaticResource AccentBrush}" Foreground="White"/>
+            <Button Command="{Binding CancelCommand}" Content="Cancel" Padding="12,4"/>
+        </StackPanel>
+        
+        <!-- KPI Cards -->
+<ItemsControl Grid.Row="1" ItemsSource="{Binding Kpis}" Margin="8" Background="{StaticResource PanelBrush}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Margin="8">
+                    </StackPanel>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+<Border Background="{StaticResource BackgroundBrush}" Margin="4" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Label}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="Bold" Foreground="{Binding ValueBrush, Converter={StaticResource BoolToForegroundConverter}}"/>
+                            <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        
+        <!-- Stats -->
+        <ItemsControl Grid.Row="2" ItemsSource="{Binding Stats}" Margin="8">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+<Border Background="{StaticResource PanelBrush}" Margin="4" Padding="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Header}" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <ItemsControl ItemsSource="{Binding Lines}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="2,0">
+                                            <TextBlock Text="{Binding Label}" Width="120" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            <TextBlock Text="{Binding Value}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</UserControl>

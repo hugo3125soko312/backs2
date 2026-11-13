@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core.Runner;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace backs2.ViewModels;
 
@@ -18,7 +21,7 @@ public partial class RunnerViewModel
         }
 
         var vm = new PresetPickerViewModel(_presets, SelectedStrategy.Name);
-        var window = new Views.PresetPickerWindow(vm);
+        var window = new Views.PresetPickerWindow();
 
         var owner = GetMainWindow();
         if (owner == null)
@@ -27,8 +30,10 @@ public partial class RunnerViewModel
             return;
         }
 
-        var preset = await window.ShowDialog<Preset?>(owner);
-        if (preset == null) return;
+        window.Owner = owner;
+        var dialogResult = window.ShowDialog();
+        if (dialogResult != true) return;
+        var preset = vm.Result;
 
         ApplyPreset(preset);
         StatusText = $"Applied preset {preset.PresetName}";
@@ -96,11 +101,10 @@ public partial class RunnerViewModel
             Title = "Preset name",
             Width = 380,
             Height = 160,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            WindowStartupLocation = System.Windows.WindowStartupLocation.CenterOwner,
             Content = new StackPanel
             {
                 Margin = new Thickness(12),
-                Spacing = 10,
                 Children =
                 {
                     new TextBlock { Text = "Name for this preset:" },
@@ -109,7 +113,7 @@ public partial class RunnerViewModel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
+                        Margin = new Thickness(0, 0, 8, 0),
                         Children = { cancel, ok }
                     }
                 }
@@ -119,7 +123,8 @@ public partial class RunnerViewModel
         ok.Click += (_, _) => { result = box.Text; dlg.Close(); };
         cancel.Click += (_, _) => { result = null; dlg.Close(); };
 
-        await dlg.ShowDialog(owner);
+        dlg.Owner = owner;
+        dlg.ShowDialog();
         return result;
     }
 }
