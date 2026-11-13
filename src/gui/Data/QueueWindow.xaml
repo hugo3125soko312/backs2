@@ -5,7 +5,7 @@
              xmlns:vm="clr-namespace:backs2.ViewModels"
              Title="Queue Window"
              Width="600" Height="450">
-    <Grid>
+    <Grid Background="{StaticResource BackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
