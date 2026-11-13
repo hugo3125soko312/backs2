@@ -22,7 +22,7 @@ public partial class MainWindow : Window
         WindowState = WindowState.Maximized;
     }
 
-    private void OnActivated(object sender, EventArgs e)
+    private void OnActivated(object? sender, EventArgs e)
     {
         if (WindowState == WindowState.Normal && _everMinimized)
         {
@@ -31,12 +31,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnDeactivated(object sender, EventArgs e)
+    private void OnDeactivated(object? sender, EventArgs e)
     {
         // Not needed for basic implementation
     }
 
-    private void OnStateChanged(object sender, EventArgs e)
+    private void OnStateChanged(object? sender, EventArgs e)
     {
         if (WindowState == WindowState.Minimized)
             _everMinimized = true;

@@ -18,7 +18,6 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     private const int MaxDisplayLines = 500;
     private const int MinFlushIntervalMs = 250;
 
-    private long _lastFlushTicks;
     private System.Threading.Timer? _trailingFlush;
     private readonly object _gate = new();
     private readonly Queue<string> _lines = new(MaxDisplayLines + 16);
@@ -150,7 +149,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private async Task CopyAllAsync()
+    private Task CopyAllAsync()
     {
         var text = LogText ?? "";
         try
@@ -162,6 +161,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         {
             CommandStatus = $"Copy failed: {ex.Message}";
         }
+        return Task.CompletedTask;
     }
 
     [RelayCommand]

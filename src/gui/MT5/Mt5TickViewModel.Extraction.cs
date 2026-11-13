@@ -52,11 +52,6 @@ public partial class Mt5TickViewModel
     [NotifyCanExecuteChangedFor(nameof(LoadLastFetchRangeCommand))]
     private bool _hasLastFetch;
 
-    private long _lastFetchFromMsc = 0;
-    private long _lastFetchEndMsc  = 0;
-    private int  _lastFetchCount   = 0;
-    private int  _lastVerifyCount  = 0;
-
     partial void OnTargetTicksChanged(int value)
     {
         if (value > 500_000 && PopulateGrid)
@@ -67,29 +62,29 @@ public partial class Mt5TickViewModel
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
-    private async Task FetchTicks()
+    private Task FetchTicks()
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
-    private static async Task DrainAndCloseAsync(
+    private static Task DrainAndCloseAsync(
         Channel<IReadOnlyList<Mt5Tick>>? channel,
         Task? flushTask,
         Mt5TickStreamWriter? writer)
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
-    private async Task GetTerminalInfo()
+    private Task GetTerminalInfo()
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
-    private async Task SaveCsv()
+    private Task SaveCsv()
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
     partial void OnVerifySpanValueChanged(int value)          => UpdateResolvedPreview();
@@ -100,28 +95,26 @@ public partial class Mt5TickViewModel
     private bool CanLoadLastFetchRange() => HasLastFetch;
 
     [RelayCommand(CanExecute = nameof(CanLoadLastFetchRange))]
-    private void LoadLastFetchRange()
+    private Task LoadLastFetchRange()
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
-    private async Task VerifyRange()
+    private Task VerifyRange()
     {
-        // Implementation continues in original file
+        return Task.CompletedTask;
     }
 
     [RelayCommand(CanExecute = nameof(CanRunIdle))]
     private void ApplyToFetch()
     {
-        // Implementation continues in original file
     }
 
     private static bool TryComputeRange(
         string anchorStr, int spanValue, string spanUnit, double utcOffsetHours,
         out long fromMsc, out long toMsc, out string err)
     {
-        // Implementation continues in original file
         fromMsc = 0;
         toMsc = 0;
         err = "";
@@ -130,12 +123,10 @@ public partial class Mt5TickViewModel
 
     private void UpdateResolvedPreview()
     {
-        // Implementation continues in original file
     }
 
     private static bool TryParseTimestamp(string s, double utcOffsetHours, out long msc, out string err)
     {
-        // Implementation continues in original file
         msc = 0;
         err = "";
         return false;
@@ -155,7 +146,6 @@ public partial class Mt5TickViewModel
 
     private static string FormatDuration(long ms)
     {
-        // Implementation continues in original file
         return "";
     }
 }

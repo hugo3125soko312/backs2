@@ -355,6 +355,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     {
         try
         {
+            if (SelectedStrategy == null) return;
             var source = await _catalog.ReadSourceAsync(SelectedStrategy.Path);
             ViewSourceRequested?.Invoke(this, (SelectedStrategy.Name, source));
         }
@@ -364,10 +365,10 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         }
     }
 
-    private async Task<bool> ConfirmAsync(string title, string message, string yesLabel)
+    private Task<bool> ConfirmAsync(string title, string message, string yesLabel)
     {
         var owner = GetMainWindow();
-        if (owner == null) return true;
+        if (owner == null) return Task.FromResult(true);
 
         bool confirmed = false;
 
@@ -402,7 +403,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         no.Click += (_, _) => { confirmed = false; dlg.Close(); };
 
         owner.ShowDialog();
-        return confirmed;
+        return Task.FromResult(confirmed);
     }
 
     public void SetWalkForwardPlotControl(WpfPlot plotView)
