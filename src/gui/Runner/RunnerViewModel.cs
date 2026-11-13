@@ -27,6 +27,7 @@ using backs2.ViewModels.Messages;
 
 namespace backs2.ViewModels;
 
+using backs2.ViewModels.Messages;
 public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRecipient<NavigateToTradeMessage>, IRecipient<OptimizeCompletedMessage>
 {
     // -- Services -----------------------------------------------------
