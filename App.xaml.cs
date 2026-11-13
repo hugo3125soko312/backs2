@@ -18,6 +18,7 @@ using backs2.Core;
 using backs2.Services;
 using backs2.ViewModels;
 using backs2.Views;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace backs2;
@@ -43,6 +44,7 @@ public partial class App : Application
 
     private void ConfigureServices(IServiceCollection services)
     {
+        services.AddMemoryCache();
         services.AddSingleton<IDialogService, WpfDialogService>();
         services.AddSingleton<StrategyCatalogService>();
         services.AddSingleton<StrategyManager>();
