@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <UseWPF>true</UseWPF>
+    <StartupObject>backs2.Program</StartupObject>
 
     <!-- Phase 22A — build performance. -->
     <EmitCompilerGeneratedFiles>false</EmitCompilerGeneratedFiles>
