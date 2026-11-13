@@ -109,7 +109,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
     /// OnFrameworkInitializationCompleted crashed the process, which is why
     /// it lives here and why every step is guarded.
     /// </summary>
-    public void StartPerf(Avalonia.Controls.Window window)
+    public void StartPerf(System.Windows.Window window)
     {
         if (_perfStarted) return;
         _perfStarted = true;
@@ -146,7 +146,7 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
                     // unconditionally forced the compositor to render
                     // continuously for a window nobody was looking at, which is
                     // both wasted GPU time and a distorted FPS reading.
-                    Avalonia.Threading.DispatcherTimer.RunOnce(
+                    System.Windows.Threading.DispatcherTimer.RunOnce(
                         () => window.RequestAnimationFrame(frame!),
                         TimeSpan.FromMilliseconds(100));
                 }

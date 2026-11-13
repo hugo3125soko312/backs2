@@ -1,4 +1,4 @@
-// src\gui\Config\ConfigViewModel.Theme.cs
+// src/gui/Config/ConfigViewModel.Theme.cs
 using backs2.Theme;
 
 namespace backs2.ViewModels;
@@ -7,8 +7,7 @@ public partial class ConfigViewModel
 {
     /// <summary>
     /// Resets every Theme*Color property on AppSettings back to the
-    /// default palette shipped in Tokens.axaml. Does not save — the user
-    /// still clicks Save Settings to persist the reset.
+    /// default palette.
     /// </summary>
     public void ResetThemeToDefaults()
     {
@@ -31,16 +30,14 @@ public partial class ConfigViewModel
         foreach (var item in ThemeSettings)
         {
             var val = item.Property.GetValue(_config.Settings) as string ?? "";
-            if (Avalonia.Media.Color.TryParse(val, out var c))
+            if (System.Windows.Media.ColorConverter.ConvertFromString(val) is System.Windows.Media.Color c)
                 item.ColorValue = c;
         }
     }
 
     /// <summary>
     /// Applies a single SettingItem's current value to AppSettings and
-    /// re-runs ThemeApplier so the shell recolors live. Called when the
-    /// user clicks OK in the color picker dialog. Does NOT write to disk
-    /// — the user still clicks Save Settings to persist.
+    /// re-runs ThemeApplier so the shell recolors live.
     /// </summary>
     public void ApplyThemePreview(SettingItem item)
     {

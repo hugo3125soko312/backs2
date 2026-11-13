@@ -2,13 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 
 namespace backs2.Core.GuiLoading;
 
 /// <summary>
 /// Streams a producer into a sink in bounded batches, yielding to the
-/// Avalonia dispatcher between flushes so the UI stays interactive.
+/// WPF dispatcher between flushes so the UI stays interactive.
 /// Lifted from the LogsViewModel pattern (Phase 22E) into a reusable
 /// core module (ROADMAP Phase 38A).
 /// </summary>
@@ -69,13 +68,13 @@ public sealed class StreamingLoader<T> : IDisposable
 
                 var toApply = batch;
                 batch = new List<T>(_batchSize);
-                await Dispatcher.UIThread.InvokeAsync(() => _sink(toApply));
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => _sink(toApply));
             }
 
             if (batch.Count > 0 && !token.IsCancellationRequested)
             {
                 var toApply = batch;
-                await Dispatcher.UIThread.InvokeAsync(() => _sink(toApply));
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => _sink(toApply));
             }
         }
         catch (OperationCanceledException) { }

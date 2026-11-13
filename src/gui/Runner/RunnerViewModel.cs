@@ -5,12 +5,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
-using ScottPlot.Avalonia;
-using Avalonia.Layout;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
@@ -37,7 +31,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
     private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
     private readonly WalkForwardRunner _walkForwardRunner;
     private readonly WalkForwardStore _walkForwardStore;
-    private AvaPlot? _walkForwardAvaPlot;
+    private WpfPlot? _walkForwardWpfPlot;
 
     public ObservableCollection<StrategyDescriptor> Strategies { get; } = new();
     public ObservableCollection<StrategyDescriptor> FilteredStrategies { get; } = new();
@@ -176,7 +170,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnActiveAccountChanged(object? sender, AccountDescriptor? descriptor)
     {
-        Dispatcher.UIThread.Post(ApplyAccountDefaults);
+        Application.Current.Dispatcher.BeginInvoke(ApplyAccountDefaults);
     }
 
     private void ApplyAccountDefaults()
@@ -198,7 +192,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnCatalogChanged(object? sender, StrategyCatalogChangedEventArgs e)
     {
-        Dispatcher.UIThread.Post(() => SyncCatalog(e.Strategies));
+        Application.Current.Dispatcher.BeginInvoke(() => SyncCatalog(e.Strategies));
     }
 
     private void SyncCatalog(IReadOnlyList<StrategyDescriptor> latest)
@@ -264,7 +258,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
 
     private void OnQueueChanged(object? sender, EventArgs e)
     {
-        Dispatcher.UIThread.Post(SyncQueue);
+        Application.Current.Dispatcher.BeginInvoke(SyncQueue);
     }
 
     private void SyncQueue()
@@ -393,7 +387,7 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 13 },
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 13 },
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
@@ -408,13 +402,13 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget
         yes.Click += (_, _) => { confirmed = true; dlg.Close(); };
         no.Click += (_, _) => { confirmed = false; dlg.Close(); };
 
-        await dlg.ShowDialog(owner);
+        owner.ShowDialog();
         return confirmed;
     }
 
-    public void SetWalkForwardPlotControl(AvaPlot plotView)
+    public void SetWalkForwardPlotControl(WpfPlot plotView)
     {
-        _walkForwardAvaPlot = plotView;
+        _walkForwardWpfPlot = plotView;
         // Could be used for additional setup or binding
     }
 

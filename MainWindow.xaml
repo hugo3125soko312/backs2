@@ -1,0 +1,23 @@
+<Window x:Class="backs2.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:backs2.ViewModels"
+        Title="Backs2 Workbench" Height="900" Width="1400"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TreeView Grid.Column="0" ItemsSource="{Binding NavigationNodes}" Background="{StaticResource PanelBrush}" BorderThickness="0,0,1,0" BorderBrush="#333333">
+            <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                    <TextBlock Text="{Binding Header}" Padding="8,6" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
+                </HierarchicalDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+
+        <ContentControl Grid.Column="1" Content="{Binding ActiveNode.Content}" Margin="16"/>
+    </Grid>
+</Window>

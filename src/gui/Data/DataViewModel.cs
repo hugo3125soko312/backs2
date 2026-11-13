@@ -40,7 +40,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     [ObservableProperty] private string _filterSize = "";
     [ObservableProperty] private string _filterModified = "";
     [ObservableProperty] private string _filterPath = "";
-[ObservableProperty] private string _filterRange = "";
+    [ObservableProperty] private string _filterRange = "";
 
     [ObservableProperty] private backs2.Core.Data.DataOrigin _originFilter = backs2.Core.Data.DataOrigin.TimeframeFetch;
 
@@ -173,7 +173,7 @@ public partial class DataViewModel : ObservableObject, INavigationTarget
     public string ModifiedSortGlyph  => GlyphFor("LastModifiedLocal");
     public string PathSortGlyph      => GlyphFor("Path");
     public string HasVolumeSortGlyph => GlyphFor("HasVolume");
-public string RangeSortGlyph => GlyphFor("RangeTicks");
+    public string RangeSortGlyph => GlyphFor("RangeTicks");
 
     public DataViewModel(DataManager dataManager, SelectionQueue queue, ConfigManager config, backs2.Core.Data.ITickCompiler tickCompiler, CacheManager cacheManager)
     {
@@ -409,7 +409,7 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
         _ = Task.Delay(150, ct).ContinueWith(t =>
         {
             if (t.IsCanceled) return;
-            Avalonia.Threading.Dispatcher.UIThread.Post(ApplyView);
+            System.Windows.Application.Current.Dispatcher.Invoke(ApplyView);
         }, TaskScheduler.Default);
     }
 
@@ -426,7 +426,7 @@ public string RangeSortGlyph => GlyphFor("RangeTicks");
         OnPropertyChanged(nameof(ModifiedSortGlyph));
         OnPropertyChanged(nameof(PathSortGlyph));
         OnPropertyChanged(nameof(HasVolumeSortGlyph));
-OnPropertyChanged(nameof(RangeSortGlyph));
+        OnPropertyChanged(nameof(RangeSortGlyph));
     }
 
     private string GlyphFor(string column)
@@ -457,9 +457,9 @@ OnPropertyChanged(nameof(RangeSortGlyph));
             query = query.Where(e => Contains(e.Path, FilterPath));
 
         if (!string.IsNullOrWhiteSpace(FilterRange))
-query = query.Where(e => Contains(e.RangeDisplay, FilterRange));
+            query = query.Where(e => Contains(e.RangeDisplay, FilterRange));
 
-var groupedRows = query
+        var groupedRows = query
             .GroupBy(e => e.Symbol, StringComparer.OrdinalIgnoreCase)
             .Select(g => new
             {
@@ -515,15 +515,24 @@ var groupedRows = query
     private IOrderedEnumerable<DataRowViewModel> OrderWithinGroup(
         IGrouping<string, DataRowViewModel> g)
     {
-        string col = SortColumn ?? "Symbol"; if (string.Equals(col, "Timeframe", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => TimeframeOrder(r.Timeframe)).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => TimeframeOrder(r.Timeframe)).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "Tier", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.Tier, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.Tier, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "Provider", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "HasVolume", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.HasVolume).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.HasVolume).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "SizeBytes", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.SizeBytes).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.SizeBytes).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "LastModifiedLocal", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.LastModifiedLocal).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.LastModifiedLocal).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); if (string.Equals(col, "RangeTicks", StringComparison.OrdinalIgnoreCase))
-            return SortAscending
-                ? g.OrderBy(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
-                : g.OrderByDescending(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase);
-
-        if (string.Equals(col, "Path", StringComparison.OrdinalIgnoreCase)) return SortAscending ? g.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase) : g.OrderByDescending(r => r.Path, StringComparer.OrdinalIgnoreCase); return g.OrderByDescending(r => TimeframeOrder(r.Timeframe))
-                .ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase);
+        string col = SortColumn ?? "Symbol"; 
+        if (string.Equals(col, "Timeframe", StringComparison.OrdinalIgnoreCase)) 
+            return SortAscending ? g.OrderBy(r => TimeframeOrder(r.Timeframe)).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase) 
+                : g.OrderByDescending(r => TimeframeOrder(r.Timeframe)).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); 
+        if (string.Equals(col, "Tier", StringComparison.OrdinalIgnoreCase)) 
+            return SortAscending ? g.OrderBy(r => r.Tier, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+                : g.OrderByDescending(r => r.Tier, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); 
+        if (string.Equals(col, "Provider", StringComparison.OrdinalIgnoreCase)) 
+            return SortAscending ? g.OrderBy(r => r.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+                : g.OrderByDescending(r => r.Provider, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase); 
+        if (string.Equals(col, "Path", StringComparison.OrdinalIgnoreCase)) 
+            return SortAscending ? g.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase) 
+                : g.OrderByDescending(r => r.Path, StringComparer.OrdinalIgnoreCase);
+        return SortAscending
+            ? g.OrderBy(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
+            : g.OrderByDescending(r => r.RangeTicks).ThenBy(r => r.Path, StringComparer.OrdinalIgnoreCase);
     }
 
-private static bool Contains(string haystack, string needle)
+    private static bool Contains(string haystack, string needle)
         => haystack?.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
 }

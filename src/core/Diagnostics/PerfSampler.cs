@@ -1,9 +1,7 @@
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
-using Avalonia.Threading;
 
 namespace backs2.Core.Diagnostics;
 
@@ -153,11 +151,11 @@ public sealed class PerfSampler : IDisposable
 
         var fired = UpdateStreaks(snap, breaches);
 
-        Dispatcher.UIThread.Post(() =>
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
             Sampled?.Invoke(snap);
             if (fired.Count > 0) SustainedBreach?.Invoke(snap, fired);
-        });
+        }));
     }
 
     private IReadOnlyList<string> UpdateStreaks(PerfSnapshot snap, string[] breaches)

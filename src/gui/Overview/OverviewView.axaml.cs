@@ -1,8 +1,6 @@
-using Avalonia.Controls;
-
 namespace backs2.Views;
 
-public partial class OverviewView : UserControl
+public partial class OverviewView : System.Windows.Controls.UserControl
 {
     public OverviewView()
     {

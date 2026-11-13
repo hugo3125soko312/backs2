@@ -1,9 +1,9 @@
-// src\gui\Chart\ChartPlotBuilder.cs
+// src/gui/Chart/ChartPlotBuilder.cs
 using System;
 using System.Collections.Generic;
 using backs2.Core.Models;
 using ScottPlot;
-using ScottPlot.Avalonia;
+using ScottPlot.WPF;
 using ScottPlot.Plottables;
 
 namespace backs2.ViewModels;
@@ -14,9 +14,9 @@ internal sealed class ChartPlotBuilder
 {
     private VerticalLine? _crosshair;
 
-    public void Rebuild(AvaPlot avaPlot, IReadOnlyList<Kline> series, ChartScaleState scale)
+    public void Rebuild(WpfPlot wpfPlot, IReadOnlyList<Kline> series, ChartScaleState scale)
     {
-        var plot = avaPlot.Plot;
+        var plot = wpfPlot.Plot;
         plot.Clear();
 
         plot.FigureBackground.Color = Color.FromHex("#1E1E1E");
@@ -31,7 +31,7 @@ internal sealed class ChartPlotBuilder
         if (series == null || series.Count == 0)
         {
             ApplyAxisLabelColor(plot);
-            avaPlot.Refresh();
+            wpfPlot.Refresh();
             return;
         }
 
@@ -110,7 +110,7 @@ internal sealed class ChartPlotBuilder
 
         ApplyAxisLabelColor(plot);
 
-        avaPlot.Refresh();
+        wpfPlot.Refresh();
     }
 
     private static void ApplyAxisLabelColor(Plot plot)
@@ -124,18 +124,18 @@ internal sealed class ChartPlotBuilder
         plot.Axes.Right.Label.ForeColor = labelColor;
     }
 
-    public void MoveCrosshair(AvaPlot avaPlot, double dataX)
+    public void MoveCrosshair(WpfPlot wpfPlot, double dataX)
     {
         if (_crosshair == null) return;
         _crosshair.X = dataX;
         _crosshair.IsVisible = true;
-        avaPlot.Refresh();
+        wpfPlot.Refresh();
     }
 
-    public void HideCrosshair(AvaPlot avaPlot)
+    public void HideCrosshair(WpfPlot wpfPlot)
     {
         if (_crosshair == null || !_crosshair.IsVisible) return;
         _crosshair.IsVisible = false;
-        avaPlot.Refresh();
+        wpfPlot.Refresh();
     }
 }

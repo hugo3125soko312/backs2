@@ -1,17 +1,16 @@
-// src\gui\Chart\ChartViewModel.cs
+// src/gui/Chart/ChartViewModel.cs
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using backs2.Core;
 using backs2.Core.Models;
 using backs2.ViewModels.Messages;
-using ScottPlot.Avalonia;
+using ScottPlot.WPF;
 
 namespace backs2.ViewModels;
 
@@ -21,7 +20,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     private readonly SelectionQueue _queue;
     private readonly backs2.Core.Data.IQueueOriginGate _queueGate;
     private readonly ChartPlotBuilder _builder = new();
-    private AvaPlot? _avaPlot;
+    private WpfPlot? _wpfPlot;
     private bool _suppressTimeframeReload;
 
     // Set when a NavigateToTradeMessage arrives before the target series
@@ -66,17 +65,14 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     {
         _data = data;
         _queue = queue;
-
-        _queue.Changed += OnQueueChanged;
-        SyncQueue();
-
-        WeakReferenceMessenger.Default.Register(this);
         _queueGate = queueGate;
+        _queue.Changed += OnQueueChanged;
+        AvailableTimeframes.AddRange(TimeframeMap.All);
     }
 
-    public void SetPlotControl(AvaPlot plotView)
+    public void SetPlotControl(WpfPlot plotView)
     {
-        _avaPlot = plotView;
+        _wpfPlot = plotView;
         RebuildPlotModel();
     }
 
@@ -89,88 +85,48 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     /// </summary>
     public void Receive(NavigateToTradeMessage message)
     {
-        Dispatcher.UIThread.Post(() =>
+        if (_queueGate.IsOrigin(message.Origin))
         {
-            QueuedDataset? match = null;
-            foreach (var item in QueuedItems)
+            var ds = QueuedItems.FirstOrDefault(d => string.Equals(d.Symbol, message.Symbol, StringComparison.OrdinalIgnoreCase));
+            if (ds == null)
             {
-                if (string.Equals(item.Symbol, message.Symbol, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(item.Timeframe, message.Timeframe, StringComparison.OrdinalIgnoreCase))
-                {
-                    match = item;
-                    break;
-                }
+                StatusText = $"Trade {message.Symbol} not in current queue.";
+                return;
             }
-
-            if (match == null)
+            if (message.Timeframe != ds.Timeframe)
             {
-                StatusText = $"Navigate requested for {message.Symbol} @ {message.Timeframe}, " +
-                             $"but it is not queued. Add it in the Data tab first.";
+                StatusText = $"Timeframe mismatch: trade is {message.Timeframe}, dataset is {ds.Timeframe}.";
                 return;
             }
 
-            _pendingNavigationTime = message.TargetTime;
+            SelectedDataset = ds;
+            _suppressTimeframeReload = true;
+            SelectedTimeframe = ds.Timeframe;
+            _suppressTimeframeReload = false;
 
-            bool sameDataset = SelectedDataset != null &&
-                string.Equals(SelectedDataset.Key, match.Key, StringComparison.OrdinalIgnoreCase);
-
-            if (!sameDataset)
-            {
-                // Dataset change triggers RefreshAvailableTimeframes + LoadAsync.
-                // The pending target survives until OnSeriesChanged fires.
-                SelectedDataset = match;
-            }
-            else if (!string.Equals(SelectedTimeframe, message.Timeframe, StringComparison.OrdinalIgnoreCase))
-            {
-                // Same dataset, different timeframe — force a reload.
-                SelectedTimeframe = message.Timeframe;
-            }
-            else if (Series.Count > 0)
-            {
-                // Series already loaded; apply immediately.
-                ApplyPendingNavigation();
-            }
-        });
+            _ = LoadAsync(ds);
+        }
+        else
+        {
+            StatusText = $"Trade from '{message.Origin}' not in current queue.";
+        }
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)
     {
-        Dispatcher.UIThread.Post(SyncQueue);
+        System.Windows.Application.Current.Dispatcher.Invoke(SyncQueue);
     }
 
     private void SyncQueue()
     {
-        var previousKey = SelectedDataset?.Key;
-
         QueuedItems.Clear();
-        foreach (var item in _queue.Snapshot())
-            QueuedItems.Add(item);
-
-        if (previousKey != null)
-        {
-            foreach (var item in QueuedItems)
-            {
-                if (string.Equals(item.Key, previousKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    SelectedDataset = item;
-                    return;
-                }
-            }
-        }
-
-        SelectedDataset = QueuedItems.Count > 0 ? QueuedItems[0] : null;
+        foreach (var q in _queue.Items) QueuedItems.Add(q);
+        StatusText = $"{QueuedItems.Count} datasets queued.";
     }
 
     partial void OnSelectedDatasetChanged(QueuedDataset? value)
     {
-        if (value == null)
-        {
-            AvailableTimeframes.Clear();
-            Series = new List<Kline>();
-            StatusText = "Queue is empty — add data in the Data tab first.";
-            return;
-        }
-
+        if (value == null) return;
         RefreshAvailableTimeframes(value);
         _ = LoadAsync(value);
     }
@@ -186,36 +142,20 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 
     private void RefreshAvailableTimeframes(QueuedDataset dataset)
     {
-        var cached = _data.GetCachedTimeframes(dataset.Symbol);
-
-        _suppressTimeframeReload = true;
+        AvailableTimeframes.Clear();
         try
         {
-            AvailableTimeframes.Clear();
-            foreach (var tf in cached)
-                AvailableTimeframes.Add(tf);
-
-            if (AvailableTimeframes.Count == 0)
+            var meta = _data.GetMetadata(dataset.Symbol, dataset.Timeframe);
+            var cache = meta?.CachedFiles ?? Array.Empty<string>();
+            foreach (var f in cache)
             {
-                AvailableTimeframes.Add(dataset.Timeframe);
-                SelectedTimeframe = dataset.Timeframe;
-                return;
+                var tf = System.IO.Path.GetFileNameWithoutExtension(f).Split('_').LastOrDefault();
+                if (!string.IsNullOrEmpty(tf)) AvailableTimeframes.Add(tf);
             }
-
-            if (cached.Any(tf => string.Equals(tf, dataset.Timeframe, StringComparison.OrdinalIgnoreCase)))
-            {
-                SelectedTimeframe = dataset.Timeframe;
-                return;
-            }
-
-            if (cached.Any(tf => string.Equals(tf, SelectedTimeframe, StringComparison.OrdinalIgnoreCase)))
-                return;
-
-            SelectedTimeframe = cached[0];
         }
-        finally
+        catch
         {
-            _suppressTimeframeReload = false;
+            foreach (var tf in TimeframeMap.All) AvailableTimeframes.Add(tf);
         }
     }
 
@@ -228,44 +168,49 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 
     private async Task LoadAsync(QueuedDataset dataset)
     {
-        if (IsLoading) return;
-
-        try
-        {
-            var gate = await _queueGate.CheckAsync(new[] { dataset });
-            if (gate.Decision == backs2.Core.Data.QueueGateDecision.Warn)
-                StatusText = gate.Message;
-        }
-        catch { }
-
         try
         {
             IsLoading = true;
-            IsProgressDeterminate = false;
             LoadingProgress = 0;
-
-            string timeframe = string.IsNullOrWhiteSpace(SelectedTimeframe)
-                ? dataset.Timeframe
-                : SelectedTimeframe;
+            StatusText = $"Loading {dataset.Symbol}@{dataset.Timeframe}...";
 
             var progress = new Progress<DataProgress>(p =>
             {
-                StatusText = p.Message;
-                IsProgressDeterminate = p.IsDeterminate;
                 LoadingProgress = p.Percent;
+                IsLoading = p.Percent < 100;
+                if (p.IsDeterminate)
+                {
+                    StatusText = $"Loading {dataset.Symbol}@{dataset.Timeframe}... ({p.Message}) {p.Percent}%";
+                }
+                else
+                {
+                    StatusText = $"Loading {dataset.Symbol}@{dataset.Timeframe}...";
+                }
             });
 
-            var data = await _data.GetSymbolDataAsync(dataset.Symbol, timeframe, progress);
+            var result = await _data.GetKlinesAsync(dataset.Symbol, dataset.Timeframe, dataset.Provider, progress, CancellationToken.None).ConfigureAwait(true);
+            result = result ?? Array.Empty<Kline>();
 
-            if (data == null || data.Count == 0)
+            _series = result.ToList();
+            if (_series.Count > 0)
             {
-                StatusText = $"No data for {dataset.Symbol} @ {timeframe}.";
-                Series = new List<Kline>();
-                return;
+                RefreshAvailableTimeframes(dataset);
             }
 
-            Series = data;
-            StatusText = $"Loaded {data.Count} bars — {dataset.Symbol} @ {timeframe}";
+            OnSeriesChanged(_series);
+
+            if (result.Count() > 0)
+            {
+                StatusText = $"{dataset.Symbol}@{dataset.Timeframe} — {result.Count()} bars loaded.";
+            }
+            else
+            {
+                StatusText = $"No data for {dataset.Symbol}@{dataset.Timeframe}.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Load cancelled.";
         }
         catch (Exception ex)
         {
@@ -286,9 +231,9 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     [RelayCommand]
     private void AutoScale()
     {
-        if (_avaPlot == null) return;
-        _avaPlot.Plot.Axes.AutoScale();
-        _avaPlot.Refresh();
+        if (_wpfPlot == null) return;
+        _wpfPlot.Plot.Axes.AutoScale();
+        _wpfPlot.Refresh();
     }
 
     [RelayCommand]
@@ -311,8 +256,8 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 
     private void RebuildPlotModel()
     {
-        if (_avaPlot == null) return;
-        _builder.Rebuild(_avaPlot, Series, ScaleState);
+        if (_wpfPlot == null) return;
+        _builder.Rebuild(_wpfPlot, Series, ScaleState);
         HasCrosshair = false;
     }
 
@@ -323,108 +268,62 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     private void ApplyPendingNavigation()
     {
         if (_pendingNavigationTime == null) return;
-        if (_avaPlot == null || Series.Count == 0) return;
+        if (_wpfPlot == null) return;
 
-        var target = _pendingNavigationTime.Value;
+        var t = _pendingNavigationTime.Value;
+        var xs = _wpfPlot.Plot.GetXs(_series.Select(k => k.Timestamp).ToArray());
+        int idx = NearestIndex(xs, t);
+        if (idx >= 0 && idx < _series.Count)
+        {
+            var range = _wpfPlot.Plot.Axes.GetXRange();
+            var window = (range.Max - range.Min) / 4;
+            _wpfPlot.Plot.Axes.SetXLim(t.AddTicks(-(long)window.Ticks), t.AddTicks((long)window.Ticks));
+        }
         _pendingNavigationTime = null;
-
-        int idx = FindNearestIndexByTime(target);
-        if (idx < 0) return;
-
-        const int windowBars = 200;
-        int lo = Math.Max(0, idx - windowBars / 2);
-        int hi = Math.Min(Series.Count - 1, lo + windowBars - 1);
-        if (hi - lo < 5) { lo = 0; hi = Series.Count - 1; }
-
-        double xMin = Series[lo].Timestamp.ToOADate();
-        double xMax = Series[hi].Timestamp.ToOADate();
-
-        _avaPlot.Plot.Axes.SetLimitsX(xMin, xMax);
-        _avaPlot.Refresh();
-
-        StatusText = $"Jumped to {Series[idx].Timestamp:yyyy-MM-dd HH:mm}";
     }
 
-    private int FindNearestIndexByTime(DateTime target)
+    private int NearestIndex(double[] xs, DateTime t)
     {
-        if (Series.Count == 0) return -1;
-
-        int lo = 0, hi = Series.Count - 1;
-        while (lo < hi)
+        if (xs.Length == 0) return -1;
+        var dt = t.Ticks;
+        int best = 0;
+        for (int i = 1; i < xs.Length; i++)
         {
-            int mid = (lo + hi) / 2;
-            if (Series[mid].Timestamp < target) lo = mid + 1;
-            else hi = mid;
+            if (Math.Abs(xs[i] - dt) < Math.Abs(xs[best] - dt)) best = i;
         }
-
-        if (lo > 0)
-        {
-            long diffLo = Math.Abs((Series[lo].Timestamp - target).Ticks);
-            long diffPrev = Math.Abs((Series[lo - 1].Timestamp - target).Ticks);
-            if (diffPrev < diffLo) return lo - 1;
-        }
-        return lo;
+        return best;
     }
 
     public void UpdateCrosshair(double dataX, double dataY)
     {
-        if (Series.Count == 0)
+        if (_wpfPlot == null) return;
+        _builder.MoveCrosshair(_wpfPlot, dataX);
+
+        int i = NearestIndex(dataX);
+        if (i >= 0 && i < _series.Count)
         {
-            ClearCrosshair();
-            return;
-        }
-
-        int idx = NearestIndex(dataX);
-        if (idx < 0)
-        {
-            ClearCrosshair();
-            return;
-        }
-
-        var k = Series[idx];
-        double prevClose = idx > 0 ? Series[idx - 1].Close : k.Open;
-        double change = k.Close - prevClose;
-
-        ReadoutTime = k.Timestamp.ToString("yyyy-MM-dd HH:mm");
-        ReadoutOpen = k.Open.ToString("0.#####");
-        ReadoutHigh = k.High.ToString("0.#####");
-        ReadoutLow = k.Low.ToString("0.#####");
-        ReadoutClose = k.Close.ToString("0.#####");
-        ReadoutVolume = k.Volume.ToString("0");
-        ReadoutChange = (change >= 0 ? "+" : "") + change.ToString("0.#####");
-
-        HasCrosshair = true;
-
-        if (_avaPlot != null)
-        {
-            _builder.MoveCrosshair(_avaPlot, k.Timestamp.ToOADate());
+            var k = _series[i];
+            var barTs = k.Timestamp.AddTicks((long)(dataX - xs[i]));
+            ReadoutTime = barTs.ToString("yyyy-MM-dd HH:mm");
+            ReadoutOpen = k.Open.ToString("N2");
+            ReadoutHigh = k.High.ToString("N2");
+            ReadoutLow = k.Low.ToString("N2");
+            ReadoutClose = k.Close.ToString("N2");
+            ReadoutVolume = k.Volume.ToString("N0");
+            var chg = k.Close - k.Open;
+            ReadoutChange = chg >= 0 ? $"+{chg:N2}" : $"{chg:N2}";
+            HasCrosshair = true;
         }
     }
 
     public void ClearCrosshair()
     {
         HasCrosshair = false;
-        if (_avaPlot != null) _builder.HideCrosshair(_avaPlot);
+        if (_wpfPlot != null) _builder.HideCrosshair(_wpfPlot);
     }
 
     private int NearestIndex(double dataX)
     {
-        if (Series.Count == 0) return -1;
-        int lo = 0, hi = Series.Count - 1;
-        while (lo < hi)
-        {
-            int mid = (lo + hi) / 2;
-            double midX = Series[mid].Timestamp.ToOADate();
-            if (midX < dataX) lo = mid + 1;
-            else hi = mid;
-        }
-
-        double loX = Series[lo].Timestamp.ToOADate();
-        if (lo > 0)
-        {
-            double prevX = Series[lo - 1].Timestamp.ToOADate();
-            if (Math.Abs(prevX - dataX) < Math.Abs(loX - dataX)) return lo - 1;
-        }
-        return lo;
+        return NearestIndex(_wpfPlot?.Plot.GetXs(_series.Select(k => k.Timestamp).ToArray()) ?? Array.Empty<double>(), dataX);
     }
 }

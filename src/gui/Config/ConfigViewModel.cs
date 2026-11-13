@@ -1,4 +1,4 @@
-// src\gui\Config\ConfigViewModel.cs
+// src/gui/Config/ConfigViewModel.cs
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -23,7 +23,7 @@ public partial class SettingItem : ObservableObject
     [ObservableProperty] private double _doubleValue;
     [ObservableProperty] private string _stringValue = "";
     [ObservableProperty] private bool _boolValue;
-    [ObservableProperty] private Avalonia.Media.Color _colorValue;
+    [ObservableProperty] private System.Windows.Media.Color _colorValue;
 
     public bool IsInt => Property.PropertyType == typeof(int);
     public bool IsDouble => Property.PropertyType == typeof(double);
@@ -44,7 +44,8 @@ public partial class SettingItem : ObservableObject
         else if (IsColor)
         {
             var s = (string)(val ?? "#FF0D1117");
-            if (Avalonia.Media.Color.TryParse(s, out var c)) ColorValue = c;
+            if (System.Windows.Media.ColorConverter.ConvertFromString(s) is System.Windows.Media.Color c)
+                ColorValue = c;
         }
         else if (IsString) StringValue = (string)(val ?? "");
     }

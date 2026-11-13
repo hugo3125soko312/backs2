@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using backs2.Core.Overview;
 
@@ -63,7 +62,7 @@ public partial class OverviewViewModel : ObservableObject
 
     private void OnStoreChanged(object? sender, IReadOnlyList<OverviewData> batch)
     {
-        Dispatcher.UIThread.Post(() =>
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             Rows.Clear();
 

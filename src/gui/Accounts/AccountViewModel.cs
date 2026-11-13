@@ -1,6 +1,5 @@
 using System;
 using System.Collections.ObjectModel;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core.Accounts;
@@ -27,29 +26,19 @@ public partial class AccountViewModel : ObservableObject
     public AccountViewModel(AccountService service)
     {
         _service = service;
-
-        if (_service.IsInitialized)
-        {
-            RefreshList();
-            UpdateActiveBanner();
-        }
-        else
-        {
-            _service.Initialized += OnServiceInitialized;
-        }
-
+        _service.Initialized += OnServiceInitialized;
         _service.ActiveChanged += OnActiveChanged;
     }
 
     private void OnServiceInitialized(object? sender, EventArgs e)
     {
         _service.Initialized -= OnServiceInitialized;
-        Dispatcher.UIThread.Post(() => { RefreshList(); UpdateActiveBanner(); });
+        System.Windows.Application.Current.Dispatcher.Invoke(() => { RefreshList(); UpdateActiveBanner(); });
     }
 
     private void OnActiveChanged(object? sender, AccountDescriptor? descriptor)
     {
-        Dispatcher.UIThread.Post(UpdateActiveBanner);
+        System.Windows.Application.Current.Dispatcher.Invoke(UpdateActiveBanner);
     }
 
     private void UpdateActiveBanner()
@@ -60,112 +49,62 @@ public partial class AccountViewModel : ObservableObject
 
     private void RefreshList()
     {
-        var prevStem = SelectedAccount?.FileStem;
-        var prevPlan = SelectedAccount?.Plan;
-        var prevSize = SelectedAccount?.Size;
-
-        Accounts.Clear();
-        foreach (var d in _service.Descriptors)
-            Accounts.Add(d);
-
-        if (prevStem != null && prevPlan != null && prevSize != null)
+        try
         {
-            foreach (var d in Accounts)
+            var currentPath = SelectedAccount?.Path;
+            Accounts.Clear();
+            foreach (var a in _service.LoadAll()) Accounts.Add(a);
+
+            if (currentPath != null)
             {
-                if (string.Equals(d.FileStem, prevStem, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(d.Plan, prevPlan, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(d.Size, prevSize, StringComparison.OrdinalIgnoreCase))
+                foreach (var a in Accounts)
                 {
-                    SelectedAccount = d;
-                    return;
+                    if (a.Path == currentPath)
+                    {
+                        SelectedAccount = a;
+                        break;
+                    }
                 }
             }
-        }
 
-        var active = _service.Active;
-        if (active != null)
-        {
-            foreach (var d in Accounts)
+            if (Accounts.Count == 0)
             {
-                if (string.Equals(d.FileStem, active.FileStem, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(d.Plan, active.Plan, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(d.Size, active.Size, StringComparison.OrdinalIgnoreCase))
-                {
-                    SelectedAccount = d;
-                    return;
-                }
+                DetailHeader = "No accounts";
+                DetailSubHeader = "Place account files in the configured directory";
+                Notes = "";
+            }
+
+            if (_service.Active != null)
+            {
+                DetailHeader = $"{_service.Active.Firm} · {_service.Active.Plan} · {_service.Active.Size}";
+                DetailSubHeader = $"Firm: {_service.Active.Firm} | Plan: {_service.Active.Plan} | Size: {_service.Active.Size}";
+                Notes = _service.Active.Notes ?? "";
             }
         }
-
-        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
+        catch (Exception ex)
+        {
+            StatusText = $"Load failed: {ex.Message}";
+        }
     }
 
     partial void OnSelectedAccountChanged(AccountDescriptor? value)
     {
+        HasSelection = value != null;
         if (value == null)
         {
-            PhaseRules.Clear();
-            HasSelection = false;
             DetailHeader = "Select an account";
             DetailSubHeader = "";
             Notes = "";
             return;
         }
 
-        var planSize = _service.ResolvePlanSize(value);
-        if (planSize == null)
-        {
-            PhaseRules.Clear();
-            HasSelection = false;
-            DetailHeader = $"{value.Firm} · {value.Plan} · {value.Size}";
-            DetailSubHeader = "(failed to resolve)";
-            Notes = "";
-            StatusText = $"Failed to resolve {value.Firm} {value.Plan} {value.Size}";
-            return;
-        }
-
         DetailHeader = $"{value.Firm} · {value.Plan} · {value.Size}";
-        DetailSubHeader = $"{value.Firm} · {value.Plan} · USD {planSize.StartingCapital:N0}";
-        Notes = planSize.Notes ?? "";
-        HasSelection = true;
+        DetailSubHeader = $"Firm: {value.Firm} | Plan: {value.Plan} | Size: {value.Size}";
+        Notes = value.Notes ?? "";
 
         PhaseRules.Clear();
-        foreach (var phase in planSize.Phases)
-        {
-            PhaseRules.Add(new AccountRuleRow("— " + phase.PhaseName + " —", ""));
-
-            if (phase.ProfitTargetPercent.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Profit Target", $"{phase.ProfitTargetPercent.Value:0.##}%"));
-
-            if (phase.MaxLossPercent.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Max Loss", $"{phase.MaxLossPercent.Value:0.##}%"));
-
-            if (phase.MaxDailyLossPercent.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Max Daily Loss", $"{phase.MaxDailyLossPercent.Value:0.##}%"));
-
-            if (phase.MinTradingDays.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Min Trading Days", phase.MinTradingDays.Value.ToString()));
-
-            if (phase.TradingPeriodDays.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Trading Period", $"{phase.TradingPeriodDays.Value} days"));
-
-            if (phase.BestDayRulePercent.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Best Day Rule", $"{phase.BestDayRulePercent.Value:0.##}%"));
-
-            if (phase.ProfitSplitPercent.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Profit Split", $"{phase.ProfitSplitPercent.Value:0.##}%"));
-
-            if (phase.Refundable.HasValue)
-                PhaseRules.Add(new AccountRuleRow("Refundable", phase.Refundable.Value ? "Yes" : "No"));
-
-            if (!string.IsNullOrWhiteSpace(phase.DrawdownType))
-                PhaseRules.Add(new AccountRuleRow("Drawdown Type", phase.DrawdownType));
-        }
-
-        if (!string.IsNullOrWhiteSpace(planSize.ConsistencyScoreRule))
-            PhaseRules.Add(new AccountRuleRow("Consistency Score", planSize.ConsistencyScoreRule));
-
-        StatusText = $"Loaded {value.Firm} {value.Plan} {value.Size}";
+        foreach (var rule in value.Rules)
+            PhaseRules.Add(new AccountRuleRow(rule.Key, rule.Value));
     }
 
     [RelayCommand]
@@ -179,31 +118,24 @@ public partial class AccountViewModel : ObservableObject
     [RelayCommand]
     private void SetActive()
     {
-        if (SelectedAccount == null)
-        {
-            StatusText = "No account selected.";
-            return;
-        }
+        if (SelectedAccount == null) return;
 
-        _service.SetActive(SelectedAccount);
-        StatusText = $"Active: {SelectedAccount.Firm} · {SelectedAccount.Plan} · {SelectedAccount.Size}";
+        try
+        {
+            _service.SetActive(SelectedAccount);
+            StatusText = $"Set active: {SelectedAccount.Firm} {SelectedAccount.Plan}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Set active failed: {ex.Message}";
+        }
     }
 
     [RelayCommand]
     private void OpenFolder()
     {
-        try
-        {
-            var path = System.IO.Path.GetFullPath("data/accounts");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Open folder failed: {ex.Message}";
-        }
+        var folder = _service.RootDirectory;
+        if (System.IO.Directory.Exists(folder))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
     }
 }

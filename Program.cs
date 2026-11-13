@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia;
 using backs2.Core;
 using backs2.Core.Compute;
 using backs2.Core.Computing;

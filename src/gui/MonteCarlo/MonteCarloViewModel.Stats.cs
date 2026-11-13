@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Avalonia.Media;
 using backs2.Core.Overview;
 
 namespace backs2.ViewModels;

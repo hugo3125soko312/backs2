@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 
 namespace backs2.ViewModels;
 
@@ -131,12 +130,12 @@ TaskScheduler.Default);
 
 private void Apply(T value)
 {
-if (Dispatcher.UIThread.CheckAccess())
+if (System.Windows.Application.Current.Dispatcher.CheckAccess())
 {
 _apply(value);
 return;
 }
 
-Dispatcher.UIThread.Post(() => _apply(value));
+System.Windows.Application.Current.Dispatcher.BeginInvoke(() => _apply(value));
 }
 }
