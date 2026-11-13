@@ -381,10 +381,6 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
     [ObservableProperty] private string WalkForwardStatusText = "Ready";
     [ObservableProperty] private WalkForwardState WalkForwardState = WalkForwardState.Ready;
     [ObservableProperty] private int WalkForwardMaxProgress;
-    [ObservableProperty] private string WalkForwardEtaText = "";
-    [ObservableProperty] private int WalkForwardWindowCount;
-    [ObservableProperty] private int WalkForwardTradeCount;
-    [ObservableProperty] private bool HasWalkForwardResults;
     [ObservableProperty] private WalkForwardWindowResult? SelectedWalkForwardResult;
     [ObservableProperty] private StrategyRunResult? LatestResult;
     [ObservableProperty] private string ComboSummary = "";
@@ -487,7 +483,6 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
 
     private Task RefreshCatalog() => Task.CompletedTask;
 
-    private Task RefreshResultsAsync() => Task.CompletedTask;
 
     [RelayCommand]
     private async Task AddToQueueCommand() => await Task.CompletedTask;
@@ -557,15 +552,8 @@ public partial class RunnerViewModel : ObservableObject, INavigationTarget, IRec
 
     partial void OnWalkForwardAvaPlotChanged(AvaPlot? value);
 
-    partial void OnParameterCombosChanged(ObservableCollection<ParameterComboViewModel> value);
-
-    partial void OnLogTextChanged(string value);
-
     partial void OnLastRunChanged(StrategyRunResult? value);
 
-    partial void OnIsProgressVisibleChanged(bool value);
-
-    partial void OnIsProgressIndeterminateChanged(bool value);
 
     partial void OnMcPanelExpandedChanged(bool value);
 
