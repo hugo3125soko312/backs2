@@ -1,5 +1,7 @@
 // src/gui/Config/ConfigViewModel.Theme.cs
-using backs2.Theme;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace backs2.ViewModels;
 
@@ -41,7 +43,6 @@ public partial class ConfigViewModel
     /// </summary>
     public void ApplyThemePreview(SettingItem item)
     {
-        item.Apply(_config.Settings);
-        ThemeApplier.Apply(_config.Settings);
+        // ThemeApplier.Apply(_config.Settings);
     }
 }

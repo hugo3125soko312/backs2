@@ -362,6 +362,33 @@ MaxT: meta?.MaxT ?? 0,
         return ordered;
     }
 
+    public CacheMetadata? GetMetadata(string symbol, string timeframe)
+    {
+        var cacheKey = symbol + '@' + timeframe;
+        var path = GetCachePath(cacheKey);
+        if (path == null) return null;
+        return _diskCache.ReadCacheMetadata(path);
+    }
+
+    private string? GetCachePath(string cacheKey)
+    {
+        var files = Directory.GetFiles("data/cache", cacheKey + ".json");
+        return files.Length > 0 ? files[0] : null;
+    }
+
+    public Task ExecuteCommandAsync(string command)
+    {
+        var parts = command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return Task.CompletedTask;
+        var symbol = parts[1];
+        var timeframe = parts.Length > 2 ? parts[2] : "1D";
+        if (string.Equals(parts[0], "fetch", StringComparison.OrdinalIgnoreCase))
+            return GetSymbolDataAsync(symbol, timeframe);
+        if (string.Equals(parts[0], "test", StringComparison.OrdinalIgnoreCase))
+            return GetSymbolDataAsync(symbol, timeframe);
+        return Task.CompletedTask;
+    }
+
     public (bool Cached, string Provider)? GetCacheInfo(string symbol, string timeframe)
     {
         var cacheKey = $"{symbol}@{timeframe}";

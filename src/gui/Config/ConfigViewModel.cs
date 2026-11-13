@@ -9,9 +9,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using backs2.Core;
 using backs2.Core.Providers;
-using backs2.Theme;
 using Microsoft.Extensions.DependencyInjection;
-
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 namespace backs2.ViewModels;
 
 public partial class SettingItem : ObservableObject
@@ -169,7 +170,7 @@ public partial class ConfigViewModel : ObservableObject
         _config.Settings.ProviderOrder = new List<string>(ProviderOrder);
 
         _config.SaveConfig();
-        ThemeApplier.Apply(_config.Settings);
+        // ThemeApplier.Apply(_config.Settings);
         LogManager.Info(LogTag.Config, "settings saved");
     }
 }

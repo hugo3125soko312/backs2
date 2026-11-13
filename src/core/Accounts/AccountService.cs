@@ -49,6 +49,8 @@ public sealed class AccountService
     private readonly Dictionary<string, FirmConfig> _firmCache = new(StringComparer.OrdinalIgnoreCase);
     private AccountDescriptor? _active;
 
+    public string RootDirectory => AccountsFolder;
+
     public AccountService(ConfigManager cfg)
     {
         _cfg = cfg;

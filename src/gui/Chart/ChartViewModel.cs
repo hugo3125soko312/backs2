@@ -25,6 +25,22 @@ using backs2.Core;
 using backs2.Core.Data;
 using backs2.Core.Models;
 using backs2.ViewModels.Messages;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using backs2.Core;
+using backs2.Core.Models;
+using backs2.Core.Providers;
+using backs2.ViewModels.Messages;
+using System.Windows;
+using System.Windows.Media;
 using ScottPlot.WPF;
 
 namespace backs2.ViewModels;
@@ -82,7 +98,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         _queue = queue;
         _queueGate = queueGate;
         _queue.Changed += OnQueueChanged;
-        AvailableTimeframes.AddRange(TimeframeMap.All);
+        foreach (var tf in TimeframeMap.All) AvailableTimeframes.Add(tf);
     }
 
     public void SetPlotControl(WpfPlot plotView)
@@ -100,31 +116,24 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     /// </summary>
     public void Receive(NavigateToTradeMessage message)
     {
-        if (_queueGate.IsOrigin(message.Origin))
+        var ds = QueuedItems.FirstOrDefault(d => string.Equals(d.Symbol, message.Symbol, StringComparison.OrdinalIgnoreCase));
+        if (ds == null)
         {
-            var ds = QueuedItems.FirstOrDefault(d => string.Equals(d.Symbol, message.Symbol, StringComparison.OrdinalIgnoreCase));
-            if (ds == null)
-            {
-                StatusText = $"Trade {message.Symbol} not in current queue.";
-                return;
-            }
-            if (message.Timeframe != ds.Timeframe)
-            {
-                StatusText = $"Timeframe mismatch: trade is {message.Timeframe}, dataset is {ds.Timeframe}.";
-                return;
-            }
-
-            SelectedDataset = ds;
-            _suppressTimeframeReload = true;
-            SelectedTimeframe = ds.Timeframe;
-            _suppressTimeframeReload = false;
-
-            _ = LoadAsync(ds);
+            StatusText = $"Trade {message.Symbol} not in current queue.";
+            return;
         }
-        else
+        if (message.Timeframe != ds.Timeframe)
         {
-            StatusText = $"Trade from '{message.Origin}' not in current queue.";
+            StatusText = $"Timeframe mismatch: trade is {message.Timeframe}, dataset is {ds.Timeframe}.";
+            return;
         }
+
+        SelectedDataset = ds;
+        _suppressTimeframeReload = true;
+        SelectedTimeframe = ds.Timeframe;
+        _suppressTimeframeReload = false;
+
+        _ = LoadAsync(ds);
     }
 
     private void OnQueueChanged(object? sender, EventArgs e)
@@ -161,7 +170,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         try
         {
             var meta = _data.GetMetadata(dataset.Symbol, dataset.Timeframe);
-            var cache = meta?.CachedFiles ?? Array.Empty<string>();
+            var cache = meta != null ? Directory.GetFiles("data/cache", dataset.Symbol + "@" + dataset.Timeframe + ".json") : Array.Empty<string>();
             foreach (var f in cache)
             {
                 var tf = System.IO.Path.GetFileNameWithoutExtension(f).Split('_').LastOrDefault();
@@ -203,8 +212,8 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
                 }
             });
 
-            var result = await _data.GetKlinesAsync(dataset.Symbol, dataset.Timeframe, dataset.Provider, progress, CancellationToken.None).ConfigureAwait(true);
-            result = result ?? Array.Empty<Kline>();
+            var result = await _data.GetSymbolDataAsync(dataset.Symbol, dataset.Timeframe, progress).ConfigureAwait(true);
+            result ??= new List<Kline>();
 
             _series = result.ToList();
             if (_series.Count > 0)
@@ -226,10 +235,6 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         catch (OperationCanceledException)
         {
             StatusText = "Load cancelled.";
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"Load failed: {ex.Message}";
         }
         finally
         {
@@ -286,13 +291,17 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
         if (_wpfPlot == null) return;
 
         var t = _pendingNavigationTime.Value;
-        var xs = _wpfPlot.Plot.GetXs(_series.Select(k => k.Timestamp).ToArray());
+        var xs = (_series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray());
         int idx = NearestIndex(xs, t);
         if (idx >= 0 && idx < _series.Count)
         {
-            var range = _wpfPlot.Plot.Axes.GetXRange();
-            var window = (range.Max - range.Min) / 4;
-            _wpfPlot.Plot.Axes.SetXLim(t.AddTicks(-(long)window.Ticks), t.AddTicks((long)window.Ticks));
+            var limits = _wpfPlot.Plot.Axes.GetLimits();
+            double windowHalf = (limits.Right - limits.Left) / 4;
+            double tOA = t.ToOADate();
+            _wpfPlot.Plot.Axes.SetLimits(
+                tOA - windowHalf,
+                tOA + windowHalf,
+                limits.Bottom, limits.Top);
         }
         _pendingNavigationTime = null;
     }
@@ -313,6 +322,7 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
     {
         if (_wpfPlot == null) return;
         _builder.MoveCrosshair(_wpfPlot, dataX);
+        var xs = (_wpfPlot != null ? _series.Select(k => k.Timestamp).Select(dt => dt.ToOADate()).ToArray() : Array.Empty<double>());
 
         int i = NearestIndex(dataX);
         if (i >= 0 && i < _series.Count)
@@ -339,6 +349,17 @@ public partial class ChartViewModel : ObservableObject, IRecipient<NavigateToTra
 
     private int NearestIndex(double dataX)
     {
-        return NearestIndex(_wpfPlot?.Plot.GetXs(_series.Select(k => k.Timestamp).ToArray()) ?? Array.Empty<double>(), dataX);
+        var timestamps = _series.Select(k => k.Timestamp).ToList();
+        if (timestamps.Count == 0) return -1;
+        var dt = DateTime.FromOADate(dataX);
+        int best = 0;
+        long dataTicks = dt.Ticks;
+        for (int i = 1; i < timestamps.Count; i++)
+        {
+            long diff = Math.Abs(timestamps[i].Ticks - dataTicks);
+            long bestDiff = Math.Abs(timestamps[best].Ticks - dataTicks);
+            if (diff < bestDiff) best = i;
+        }
+        return best;
     }
 }

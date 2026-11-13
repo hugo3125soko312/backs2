@@ -2,9 +2,39 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
              Title="Preset Picker"
-             Width="400" Height="300">
+             Width="600" Height="450">
     <Grid>
-        <TextBlock Text="Preset Picker - TODO" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock Grid.Row="0" Text="Select Strategy Presets" Padding="8,6" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
+        
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Presets}"
+                  AutoGenerateColumns="False"
+                  CanUserSortColumns="True"
+                  Background="{StaticResource BackgroundBrush}"
+                  Foreground="{StaticResource TextPrimaryBrush}"
+                  RowHeight="24">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsAlternatingRow, RelativeSource={RelativeSource AncestorType=DataGrid}}" Value="True">
+                            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" IsReadOnly="True"/>
+                <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding IsEnabled}" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Window>

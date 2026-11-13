@@ -64,7 +64,7 @@ public partial class MonteCarloViewModel
                 int n = trades.Count;
                 int k = Math.Max(3, Math.Min(8, (int)Math.Sqrt(n / 10.0)));
                 var assignments = KMeansClusterer.Cluster(trades, k);
-                Dispatcher.UIThread.Post(() => DrawClusterPlotOnUi(data, trades, assignments, k));
+                System.Windows.Application.Current.Dispatcher.Invoke(() => DrawClusterPlotOnUi(data, trades, assignments, k));
             }
             catch (Exception ex)
             {
