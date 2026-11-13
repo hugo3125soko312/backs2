@@ -26,7 +26,8 @@
                     IsVisible="{Binding IsOptimizing}" />
             <ProgressBar Value="{Binding Progress}"
                          Maximum="{Binding MaxProgress}"
-                         Width="200" />
+                         Width="200"
+                         Visibility="{Binding IsOptimizing, ConverterParameter=Visibility, Converter={StaticResource BoolToVisibilityConverter}}" />
             <TextBlock Text="{Binding EtaText}"
                        Foreground="{DynamicResource TextSecondary}" />
             <Button Content="Presets..."
@@ -48,10 +49,8 @@
                       Margin="0,4,0,0" />
 
         <!-- ========== Status line ========== -->
-        <TextBlock Grid.Row="4"
-                   Text="Ready"
+        <StatusBar Grid.Row="4"
                    Padding="6"
-                   Margin="0,0,0,4"
-                   Foreground="{DynamicResource TextSecondary}" />
+                   Margin="0,0,0,4" />
     </Grid>
 </UserControl>

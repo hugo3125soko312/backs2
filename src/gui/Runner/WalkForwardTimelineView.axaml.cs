@@ -5,16 +5,11 @@ using backs2.Core.WalkForward;
 using ScottPlot.Avalonia;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace backs2.Views;
-
 public partial class WalkForwardTimelineView : UserControl
 {
-    private const double BarHeight = 0.35;
     private AvaPlot? _plotView;
-    private IReadOnlyList<WalkForwardTimelineBuilder.TimelineBar> _bars = Array.Empty<WalkForwardTimelineBuilder.TimelineBar>();
-    private double[] _yPositions = Array.Empty<double>();
 
     public WalkForwardTimelineView()
     {
@@ -26,48 +21,52 @@ public partial class WalkForwardTimelineView : UserControl
     {
         if (_plotView == null) return;
         
-        _bars = new List<WalkForwardTimelineBuilder.TimelineBar>();
         var plt = _plotView.Plot;
         plt.Clear();
         
         if (windowRows.Count == 0)
         {
-            ShowEmptyState();
+            plt.Add.Text("No data", 0.5, 1);
+            _plotView.Refresh();
             return;
         }
         
         // Build timeline bars
-        _bars = WalkForwardTimelineBuilder.Build(windowRows, barTimestamps).ToList();
-        int count = _bars.Count;
-        _yPositions = new double[count];
-        
-        for (int i = 0; i < count; i++)
-        {
-            _yPositions[i] = count - i;
-        }
+        var bars = WalkForwardTimelineBuilder.Build(windowRows, barTimestamps);
+        int count = bars.Count;
         
         // Draw bars
         for (int i = 0; i < count; i++)
         {
-            var bar = _bars[i];
-            double y = _yPositions[i];
-            double yMin = y - BarHeight;
-            double yMax = y + BarHeight;
+            var bar = bars[i];
+            double y = count - i;
             
             // Out-of-sample bar (colored by health)
-            var oosBar = plt.Add.Rectangle(
-                0, 1, yMin, yMax);
-            oosBar.FillStyle.Color = GetHealthColor(bar.Degradation, bar.OosNetPnl);
-            oosBar.LineStyle.Color = ScottPlot.Color.FromHex("#444444");
+            plt.Add.Rectangle(
+                bar.OosStart.ToOADate(),
+                bar.OosEnd.ToOADate(),
+                y - 0.3, y + 0.3)
+                .FillStyle.Color = GetHealthColor(bar.Degradation, bar.OosNetPnl);
         }
         
-        // Configure axes
-        plt.Axes.DateTimeTicksBottom();
+        // Basic theme
         plt.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
+        plt.Axes.DateTimeTicksBottom();
         
         AddColorThresholdLegend(plt, count);
         
         _plotView.Refresh();
+    }
+
+    private ScottPlot.Color GetHealthColor(double degradation, double oosNetPnl)
+    {
+        string health = WalkForwardTimelineBuilder.GetHealthColor(degradation, oosNetPnl);
+        return health switch
+        {
+            "Red" => ScottPlot.Color.FromHex("#CC3333"),
+            "Amber" => ScottPlot.Color.FromHex("#CC8833"),
+            _ => ScottPlot.Color.FromHex("#44AA44")
+        };
     }
 
     public void ShowEmptyState()
@@ -83,33 +82,54 @@ public partial class WalkForwardTimelineView : UserControl
         _plotView!.Refresh();
     }
 
-    private ScottPlot.Color GetHealthColor(double degradation, double oosNetPnl)
+    private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
-        string health = WalkForwardTimelineBuilder.GetHealthColor(degradation, oosNetPnl);
-        return health switch
+        if (_plotView == null || _bars.Count == 0) return;
+        
+        // Get position relative to the plot
+        var position = e.GetPosition(_plotView);
+        
+        // Simple hit test based on Y position
+        int closestIndex = -1;
+        double minDist = double.MaxValue;
+        
+        for (int i = 0; i < _yPositions.Length; i++)
         {
-            "Red" => ScottPlot.Color.FromHex("#CC3333"),
-            "Amber" => ScottPlot.Color.FromHex("#CC8833"),
-            _ => ScottPlot.Color.FromHex("#44AA44")
-        };
+            double yPos = _yPositions[i];
+            double dist = Math.Abs(yPos - position.Y);
+            if (dist < minDist)
+            {
+                minDist = dist;
+                closestIndex = i;
+            }
+        }
+        
+        if (closestIndex >= 0 && minDist < 20)
+        {
+            var bar = _bars[closestIndex];
+            string details = $"W{closestIndex + 1}: OOS Net PnL: {bar.OosNetPnl:+F2}, Degradation: {bar.Degradation:F2}%";
+            
+            if (SummaryText != null)
+            {
+                SummaryText.Text = details;
+                SummaryText.IsVisible = true;
+            }
+        }
     }
     
-    private void AddColorThresholdLegend(ScottPlot.Plot spPlot, int count)
+    private void OnPointerExited(object? sender, PointerEventArgs e)
     {
-        // Add color threshold indicators
-        var goodText = spPlot.Add.Text("✓ < 5%", 0.5, count + 1);
-        goodText.LabelFontColor = ScottPlot.Color.FromHex("#44AA44");
-        goodText.LabelFontSize = 9;
-        
-        var warnText = spPlot.Add.Text("⚠ 5-15%", 0.5, count);
-        warnText.LabelFontColor = ScottPlot.Color.FromHex("#CC8833");
-        warnText.LabelFontSize = 9;
-        
-        var badText = spPlot.Add.Text("✗ > 15%", 0.5, count - 1);
-        badText.LabelFontColor = ScottPlot.Color.FromHex("#CC3333");
-        badText.LabelFontSize = 9;
+        if (SummaryText != null)
+        {
+            SummaryText.IsVisible = false;
+        }
     }
-
+    
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // Could be used for clicking on bars to select them
+    }
+    
     private void ApplyPlotTheme(ScottPlot.Plot spPlot)
     {
         spPlot.FigureBackground.Color = ScottPlot.Color.FromHex("#1E1E1E");
