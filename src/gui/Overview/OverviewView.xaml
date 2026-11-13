@@ -36,4 +36,7 @@
                   IsReadOnly="True">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Strategy" Binding="{Binding SymbolDisplay}" Width="*"/>
-                <DataGridTextColumn Header="Trades" Binding="{Binding TradesText}" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
