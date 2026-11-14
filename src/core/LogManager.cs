@@ -49,7 +49,7 @@ public static class LogManager
             if (_logger != null) return;
 
             Directory.CreateDirectory("logs");
-            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
             CurrentLogFilePath = Path.Combine("logs", $"runtime-{stamp}.log");
 
             _logger = new LoggerConfiguration()
@@ -101,7 +101,7 @@ public static class LogManager
     private static void Write(LogEventLevel level, LogTag tag, string message, Exception? ex)
     {
         var entry = new LogEntry(
-            DateTime.Now,
+            DateTime.UtcNow,
             LevelCode(level),
             tag,
             message,
