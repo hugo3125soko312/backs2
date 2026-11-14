@@ -3,9 +3,276 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
+             xmlns:conv="clr-namespace:backs2.Views"
              mc:Ignorable="d"
-             d:DesignHeight="450" d:DesignWidth="800">
+             d:DesignHeight="600" d:DesignWidth="1000">
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="ConfigView" Padding="12"/>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="300"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Left panel: Settings -->
+        <Grid Grid.Column="0" Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Dynamic Settings -->
+            <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Dynamic Settings" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="12,8,0,8"/>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding DynamicSettings}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource BackgroundBrush}" Margin="4" Padding="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding DisplayName}"
+                                                       Width="100"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,12,0"/>
+                                            <Grid Grid.Column="1">
+                                                <!-- String editor -->
+                                                <TextBox x:Name="StringEditor"
+                                                         Text="{Binding StringValue, UpdateSourceTrigger=PropertyChanged}"
+                                                         Background="{StaticResource PanelBrush}"
+                                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                                         BorderBrush="{StaticResource BorderBrush}"
+                                                         BorderThickness="1"
+                                                         FontSize="13"
+                                                         VerticalContentAlignment="Center"
+                                                         Margin="0,0,12,0"
+                                                         Visibility="Collapsed"/>
+                                                <!-- Numeric editor (int/double) -->
+                                                <TextBox x:Name="NumericEditor"
+                                                         Text="{Binding IntValue, UpdateSourceTrigger=PropertyChanged}"
+                                                         Background="{StaticResource PanelBrush}"
+                                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                                         BorderBrush="{StaticResource BorderBrush}"
+                                                         BorderThickness="1"
+                                                         FontSize="13"
+                                                         VerticalContentAlignment="Center"
+                                                         Margin="0,0,12,0"
+                                                         Visibility="Collapsed"/>
+                                                <!-- Bool checkbox -->
+                                                <CheckBox x:Name="BoolEditor"
+                                                          IsChecked="{Binding BoolValue, UpdateSourceTrigger=PropertyChanged}"
+                                                          Background="{StaticResource PanelBrush}"
+                                                          Margin="0,0,12,0"
+                                                          Visibility="Collapsed"/>
+                                                <!-- Color picker -->
+                                                <Border x:Name="ColorEditor"
+                                                        BorderBrush="{StaticResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        Margin="0,0,12,0"
+                                                        Width="60" Height="28"
+                                                        Visibility="Collapsed">
+                                                    <Border.Background>
+                                                        <MultiBinding Converter="{StaticResource ColorToBrushConverter}">
+                                                            <Binding Path="ColorValue"/>
+                                                        </MultiBinding>
+                                                    </Border.Background>
+                                                    <TextBlock Text="{Binding ColorValue}"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,4,0"/>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Theme Settings -->
+            <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Theme Settings" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="12,8,0,8"/>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding ThemeSettings}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource BackgroundBrush}" Margin="4" Padding="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding DisplayName}"
+                                                       Width="100"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,12,0"/>
+                                            <Grid Grid.Column="1">
+                                                <!-- Color picker row -->
+                                                <Border BorderBrush="{StaticResource BorderBrush}"
+                                                      BorderThickness="1"
+                                                      Margin="0,0,12,0"
+                                                      Width="60" Height="28">
+                                                    <Border.Background>
+                                                        <MultiBinding Converter="{StaticResource ColorToBrushConverter}">
+                                                            <Binding Path="ColorValue"/>
+                                                        </MultiBinding>
+                                                    </Border.Background>
+                                                    <TextBlock Text="{Binding ColorValue}"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                                               FontSize="10"
+                                                               HorizontalAlignment="Right"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,4,0"/>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Right panel: Provider Management -->
+        <Grid Grid.Column="2" Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- ProviderOrder ListBox -->
+            <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Provider Order" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="12,8,0,8"/>
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding ProviderOrder}"
+                             SelectedItem="{Binding SelectedInOrder, UpdateSourceTrigger=PropertyChanged}"
+                             Background="{StaticResource BackgroundBrush}"
+                             Foreground="{StaticResource TextPrimaryBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"
+                             BorderThickness="1">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="8,4"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- Move buttons -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="▲ Up"
+                        Command="{Binding MoveUpCommand}"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        Padding="8,4"
+                        Margin="0,0,8,0"
+                        FontSize="12"/>
+                <Button Content="▼ Down"
+                        Command="{Binding MoveDownCommand}"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        Padding="8,4"
+                        Margin="0,0,8,0"
+                        FontSize="12"/>
+                <Button Content="Remove"
+                        Command="{Binding RemoveProviderCommand}"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        Padding="8,4"
+                        FontSize="12"/>
+            </StackPanel>
+
+            <!-- Available Providers -->
+            <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Available Providers" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="12,8,0,8"/>
+                    <ComboBox Grid.Row="1"
+                              ItemsSource="{Binding AvailableProviders}"
+                              SelectedItem="{Binding SelectedAvailable, UpdateSourceTrigger=PropertyChanged}"
+                              Background="{StaticResource BackgroundBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              BorderBrush="{StaticResource BorderBrush}"
+                              BorderThickness="1"
+                              Padding="8,4"
+                              Margin="12,0"
+                              FontSize="13"/>
+                    <Button Grid.Row="2"
+                            Content="Add Provider"
+                            Command="{Binding AddProviderCommand}"
+                            Background="{StaticResource AccentBrush}"
+                            Foreground="{StaticResource BackgroundBrush}"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            Padding="12,6"
+                            Margin="12,8"
+                            FontSize="13"
+                            FontWeight="SemiBold"/>
+                </Grid>
+            </Border>
+
+            <!-- Save button -->
+            <Button Grid.Row="3"
+                    Content="Save Settings"
+                    Command="{Binding SaveCommand}"
+                    Background="{StaticResource AccentBrush}"
+                    Foreground="{StaticResource BackgroundBrush}"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Padding="20,8"
+                    Margin="12,0,12,12"
+                    FontSize="14"
+                    FontWeight="SemiBold"
+                    HorizontalAlignment="Right"/>
+        </Grid>
     </Grid>
 </UserControl>

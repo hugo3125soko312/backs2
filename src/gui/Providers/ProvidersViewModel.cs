@@ -20,6 +20,7 @@ public partial class ProviderDatasetRow
     public string Start { get; }
     public string End { get; }
     public string Span { get; }
+    public string Range { get; }
     public string Timeframes { get; }
 
     public ProviderDatasetRow(CacheMetadata m)
@@ -29,6 +30,9 @@ public partial class ProviderDatasetRow
         Start = m.MinT > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(m.MinT).ToString("yyyy-MM-dd") : "—";
         End = m.MaxT > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(m.MaxT).ToString("yyyy-MM-dd") : "—";
         Span = FormatSpan(m.MinT, m.MaxT);
+        Range = m.MinT > 0 && m.MaxT > 0
+            ? $"{Start} → {End}"
+            : "—";
         Timeframes = m.Timeframe;
     }
 

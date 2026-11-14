@@ -6,6 +6,128 @@
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="Account View - TODO" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+        <Grid.Resources>
+            <Style x:Key="ListBoxItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            </Style>
+            <Style x:Key="ItemTemplateStyle" TargetType="DataGridRow">
+                <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="FontSize" Value="13"/>
+            </Style>
+        </Grid.Resources>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Height="36">
+            <StackPanel Orientation="Horizontal" Margin="6,4">
+                <Button Command="{Binding RefreshCommand}" ToolTip="Refresh account list" Padding="6,2">
+                    <TextBlock Text="Refresh"/>
+                </Button>
+                <Button Command="{Binding SetActiveCommand}" ToolTip="Set this account as active" Padding="6,2">
+                    <TextBlock Text="Set Active"/>
+                </Button>
+                <Button Command="{Binding OpenFolderCommand}" ToolTip="Open accounts folder" Padding="6,2">
+                    <TextBlock Text="Open Folder"/>
+                </Button>
+                <Separator Margin="4,0"/>
+                <TextBlock Text="Active:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="4,0"/>
+                <TextBlock Text="{Binding ActiveAccountName}" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Margin="2,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Two-pane body -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: Account list -->
+            <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="Accounts" Padding="8,6" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding Accounts}"
+                             SelectedItem="{Binding SelectedAccount}"
+                             ItemContainerStyle="{StaticResource ListBoxItemStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Firm}" Width="60" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text=" | " Foreground="{StaticResource TextSecondaryBrush}" Margin="4,0"/>
+                                    <TextBlock Text="{Binding Plan}" Width="60" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text=" | " Foreground="{StaticResource TextSecondaryBrush}" Margin="4,0"/>
+                                    <TextBlock Text="{Binding Size}" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- Right: Detail panel -->
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Border Grid.Row="0" Background="{StaticResource BackgroundBrush}" Padding="12,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding DetailHeader}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding DetailSubHeader}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="12,0,0,0"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Phase Rules DataGrid -->
+                    <DataGrid Grid.Row="1"
+                              ItemsSource="{Binding PhaseRules}"
+                              AutoGenerateColumns="False"
+                              CanUserSortColumns="False"
+                              Background="{StaticResource BackgroundBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              RowHeight="26"
+                              IsReadOnly="True"
+                              BorderThickness="0,0,0,0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="120" IsReadOnly="True" CanUserSort="False"/>
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Notes -->
+                    <Grid Grid.Row="2" Background="{StaticResource BackgroundBrush}" Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Notes" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <TextBox Grid.Row="1"
+                                 Text="{Binding Notes}"
+                                 TextWrapping="Wrap"
+                                 Background="{StaticResource PanelBrush}"
+                                 Foreground="{StaticResource TextPrimaryBrush}"
+                                 BorderThickness="0"
+                                 FontSize="13"/>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

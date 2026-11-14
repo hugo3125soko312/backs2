@@ -3,14 +3,31 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:scottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
              xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+             d:DesignHeight="400" d:DesignWidth="800"
+             d:DataContext="{d:DesignInstance Type=vm:RunnerViewModel, IsDesignTimeCreatable=False}">
     <Grid Background="{StaticResource BackgroundBrush}">
-        <Border BorderBrush="{StaticResource TextSecondaryBrush}" BorderThickness="1" Background="{StaticResource PanelBrush}">
-            <TextBlock Text="[Walk-Forward Timeline Chart Stubbed - Awaiting Port from Chart Tab]"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="16"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                <TextBlock Text="Walk-Forward Timeline" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding WfResultsStatus}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
         </Border>
+
+        <!-- Chart -->
+        <scottPlot:WpfPlot x:Name="WpfPlotControl" Grid.Row="1" Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" Margin="8"/>
     </Grid>
 </UserControl>

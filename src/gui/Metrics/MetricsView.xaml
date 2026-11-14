@@ -4,8 +4,44 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+             d:DesignHeight="450" d:DesignWidth="600">
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="Metrics View - TODO" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+        <Grid.Resources>
+            <Style x:Key="AltRowStyle" TargetType="DataGridRow">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding AlternationIndex}" Value="0">
+                        <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding AlternationIndex}" Value="1">
+                        <Setter Property="Background" Value="Transparent"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Metrics" Padding="8,6" FontSize="14" Foreground="{StaticResource TextPrimaryBrush}"/>
+
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Metrics}"
+                  AutoGenerateColumns="False"
+                  CanUserSortColumns="True"
+                  RowStyle="{StaticResource AltRowStyle}"
+                  Background="{StaticResource BackgroundBrush}"
+                  Foreground="{StaticResource TextPrimaryBrush}"
+                  AlternationCount="2"
+                  RowHeight="24"
+                  IsReadOnly="True"
+                  GridLinesVisibility="None">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="*" Foreground="{StaticResource TextSecondaryBrush}"/>
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <DataGridTextColumn Header="Lag" Binding="{Binding Lag}" Width="80" Foreground="{StaticResource TextSecondaryBrush}"/>
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" Foreground="{StaticResource TextSecondaryBrush}"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </UserControl>

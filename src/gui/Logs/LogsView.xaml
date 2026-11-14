@@ -3,9 +3,103 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="clr-namespace:backs2.Views"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+             d:DesignHeight="600" d:DesignWidth="800"
+             d:DataContext="{d:DesignInstance Type=vm:LogsViewModel, IsDesignTimeCreatable=False}">
+    <UserControl.Resources>
+        <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
+    </UserControl.Resources>
+
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="Logs View - TODO" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal">
+                <StackPanel.Resources>
+                    <Style TargetType="Button">
+                        <Setter Property="Margin" Value="0,0,8,0"/>
+                    </Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Margin" Value="0,0,8,0"/>
+                    </Style>
+                </StackPanel.Resources>
+                <Button Command="{Binding RefreshCommand}"
+                        Content="Refresh"
+                        Padding="10,4"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"/>
+                <Button Command="{Binding ClearViewCommand}"
+                        Content="Clear View"
+                        Padding="10,4"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"/>
+                <Button Command="{Binding CopyAllCommand}"
+                        Content="Copy All"
+                        Padding="10,4"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"/>
+                <TextBlock Text="{Binding CommandStatus}"
+                           VerticalAlignment="Center"
+                           Margin="16,0,0,0"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Log Display -->
+        <Border Grid.Row="1" Margin="8" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding LogText}"
+                           FontFamily="Consolas"
+                           FontSize="12"
+                           Foreground="{StaticResource TextPrimaryBrush}"
+                           TextWrapping="NoWrap"
+                           Padding="8"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Command Input -->
+        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text=">" VerticalAlignment="Center" Margin="0,0,8,0"
+                           Foreground="{StaticResource AccentBrush}" FontFamily="Consolas" FontSize="13"/>
+                <TextBox Grid.Column="1" Text="{Binding CommandInput, UpdateSourceTrigger=PropertyChanged}"
+                         Background="{StaticResource BackgroundBrush}"
+                         Foreground="{StaticResource TextPrimaryBrush}"
+                         BorderBrush="{StaticResource BorderBrush}"
+                         VerticalContentAlignment="Center"
+                         FontFamily="Consolas"
+                         FontSize="13">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding ExecuteCommandCommand}"/>
+                    </TextBox.InputBindings>
+                </TextBox>
+                <Button Grid.Column="2" Command="{Binding ExecuteCommandCommand}"
+                        Content="Execute"
+                        Padding="12,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"
+                        IsEnabled="{Binding !IsExecuting}"/>
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

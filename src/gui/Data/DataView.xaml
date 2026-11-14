@@ -1,12 +1,340 @@
-<?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="backs2.Views.DataView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="clr-namespace:backs2.Views"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+             d:DesignHeight="800" d:DesignWidth="1200"
+             d:DataContext="{d:DesignInstance Type=vm:DataViewModel, IsDesignTimeCreatable=False}">
+    <UserControl.Resources>
+        <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
+    </UserControl.Resources>
+
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="Data View - TODO" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button Command="{Binding RefreshDataCommand}"
+                        Content="Refresh"
+                        Padding="10,4"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"/>
+                <Button Command="{Binding FetchCommand}"
+                        Content="Fetch"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"
+                        IsEnabled="{Binding !IsFetching}"/>
+                <Button Command="{Binding FetchAndQueueCommand}"
+                        Content="Fetch and Queue"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        IsEnabled="{Binding !IsFetching}"/>
+                <Button Command="{Binding CompileCommand}"
+                        Content="Compile"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"
+                        IsEnabled="{Binding !IsCompiling}"/>
+                <Button Command="{Binding CompileAndQueueCommand}"
+                        Content="Compile and Queue"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        IsEnabled="{Binding !IsCompiling}"/>
+                <Button Command="{Binding OpenQueueCommand}"
+                        Content="Open Queue"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        Background="{StaticResource PanelBrush}"
+                        Foreground="{StaticResource TextPrimaryBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"/>
+                <TextBlock Text="{Binding StatusText}"
+                           VerticalAlignment="Center"
+                           Margin="16,0,0,0"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Filters -->
+        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="150"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Symbol:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBox Grid.Column="1" Text="{Binding FilterSymbol, UpdateSourceTrigger=PropertyChanged}"
+                         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                         BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+                <TextBlock Grid.Column="2" Text="Timeframe:" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <ComboBox Grid.Column="3" ItemsSource="{Binding AvailableTimeframes}"
+                          SelectedItem="{Binding FilterTimeframe}"
+                          IsEditable="True" IsTextSearchEnabled="True"
+                          Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                          BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+                <TextBlock Grid.Column="4" Text="Tier:" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBox Grid.Column="5" Text="{Binding FilterTier, UpdateSourceTrigger=PropertyChanged}"
+                         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                         BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+                <TextBlock Grid.Column="6" Text="Provider:" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <ComboBox Grid.Column="7" ItemsSource="{Binding AvailableProviders}"
+                          SelectedItem="{Binding FilterProvider}"
+                          IsEditable="True"
+                          Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                          BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+                <TextBlock Grid.Column="8" Text="Size:" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBox Grid.Column="9" Text="{Binding FilterSize, UpdateSourceTrigger=PropertyChanged}"
+                         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                         BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+                <TextBlock Grid.Column="10" Text="Range:" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <TextBox Grid.Column="11" Text="{Binding FilterRange, UpdateSourceTrigger=PropertyChanged}"
+                         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                         BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+
+            </Grid>
+        </Border>
+
+        <!-- Main Content Grid -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="380"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Data Grid (Raw Ticks / Timeframes) -->
+            <Border Grid.Column="0" Margin="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Raw Ticks" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"
+                                   Visibility="{Binding IsRawTicksVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text="Timeframes" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"
+                                   Visibility="{Binding IsTimeframesVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text=" ({Binding Rows.Count} rows)" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"
+                                   Visibility="{Binding IsRawTicksVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <TextBlock Text=" ({Binding Rows.Count} rows)" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"
+                                   Visibility="{Binding IsTimeframesVisible, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <DataGrid Grid.Row="1"
+                              ItemsSource="{Binding Rows}"
+                              AutoGenerateColumns="False"
+                              CanUserSortColumns="True"
+                              CanUserResizeColumns="True"
+                              IsReadOnly="True"
+                              Background="{StaticResource BackgroundBrush}"
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              VerticalGridLinesBrush="Transparent"
+                              RowHeight="24"
+                              AlternatingRowBackground="{StaticResource PanelBrush}"
+                              AlternationCount="2"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="?" Width="40">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsQueued, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Foreground="{StaticResource AccentBrush}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Symbol" Binding="{Binding Symbol}" Width="100"/>
+                            <DataGridTextColumn Header="Timeframe" Binding="{Binding Timeframe}" Width="100"/>
+                            <DataGridTextColumn Header="Tier" Binding="{Binding Tier}" Width="120"/>
+                            <DataGridTextColumn Header="Provider" Binding="{Binding Provider}" Width="120"/>
+                            <DataGridTextColumn Header="Size" Binding="{Binding SizeDisplay}" Width="80"/>
+                            <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedDisplay}" Width="130"/>
+                            <DataGridTextColumn Header="Range" Binding="{Binding RangeDisplay}" Width="180"/>
+                            <DataGridTemplateColumn Header="Vol" Width="50">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding HasVolumeDisplay}" HorizontalAlignment="Center"
+                                                   Foreground="{Binding HasVolume, Converter={StaticResource BoolToForegroundConverter}}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" MinWidth="200"/>
+                        </DataGrid.Columns>
+                        <DataGrid.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="{x:Type GroupItem}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type GroupItem}">
+                                                    <Expander IsExpanded="True"
+                                                              Background="{StaticResource PanelBrush}"
+                                                              BorderBrush="{StaticResource BorderBrush}"
+                                                              BorderThickness="1">
+                                                        <Expander.Header>
+                                                            <StackPanel Orientation="Horizontal" Margin="4">
+                                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                                <TextBlock Text=" (" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                <TextBlock Text="{Binding ItemCount}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                <TextBlock Text=")" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                            </StackPanel>
+                                                        </Expander.Header>
+                                                        <ItemsPresenter/>
+                                                    </Expander>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
+                            </GroupStyle>
+                        </DataGrid.GroupStyle>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" Background="{StaticResource BorderBrush}"/>
+
+            <!-- Right Panel: Fetch/Compile -->
+            <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,8,8" Padding="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Fetch Data" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+
+                    <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Symbol:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Width="90"/>
+                            <TextBox Text="{Binding FetchSymbol, UpdateSourceTrigger=PropertyChanged}"
+                                     Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Timeframe:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Width="90"/>
+                            <ComboBox ItemsSource="{Binding CompileTimeframeOptions}"
+                                      SelectedItem="{Binding FetchTimeframe}"
+                                      Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                      BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Provider:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Width="90"/>
+                            <ComboBox ItemsSource="{Binding AvailableProviders}"
+                                      SelectedItem="{Binding FetchProvider}"
+                                      Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                      BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,8">
+                        <Button Command="{Binding FetchCommand}"
+                                Content="Fetch"
+                                Padding="12,4"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsFetching}"/>
+                        <Button Command="{Binding FetchAndQueueCommand}"
+                                Content="Fetch and Queue"
+                                Padding="12,4" Margin="8,0,0,0"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                IsEnabled="{Binding !IsFetching}"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="3" Text="Compile" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,8,0,8"/>
+
+                    <StackPanel Grid.Row="4" Orientation="Vertical" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Source:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Width="90"/>
+                            <TextBlock Text="{Binding CompileSourceLabel}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Timeframe:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Width="90"/>
+                            <ComboBox ItemsSource="{Binding CompileTimeframeOptions}"
+                                      SelectedItem="{Binding CompileTimeframe}"
+                                      Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                      BorderBrush="{StaticResource BorderBrush}" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,8,0,8">
+                        <Button Command="{Binding CompileCommand}"
+                                Content="Compile"
+                                Padding="12,4"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsCompiling}"/>
+                        <Button Command="{Binding CompileAndQueueCommand}"
+                                Content="Compile and Queue"
+                                Padding="12,4" Margin="8,0,0,0"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                IsEnabled="{Binding !IsCompiling}"/>
+                    </StackPanel>
+
+                    <Border Grid.Row="6" Background="{StaticResource BackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="4" Margin="0,8,0,0">
+                        <StackPanel Orientation="Vertical">
+                            <ProgressBar Value="{Binding CompileProgress}" Maximum="100" Height="14" IsIndeterminate="{Binding IsCompiling}"
+                                         Background="{StaticResource PanelBrush}" Foreground="{StaticResource AccentBrush}" BorderBrush="{StaticResource BorderBrush}"/>
+                            <TextBlock Text="{Binding CompileStatus}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" HorizontalAlignment="Right" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

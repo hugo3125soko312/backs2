@@ -1,5 +1,5 @@
-// src\gui\Metrics\MetricsViewModel.cs
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using backs2.Core.Metrics;
 
@@ -16,7 +16,7 @@ public partial class MetricsViewModel : ObservableObject
     private readonly MetricRegistry _registry;
 
     [ObservableProperty]
-    private List<MetricInfo> _metrics = new();
+    private ObservableCollection<MetricInfo> _metrics = new();
 
     public MetricsViewModel(MetricRegistry registry)
     {
@@ -26,6 +26,7 @@ public partial class MetricsViewModel : ObservableObject
 
     private void Reload()
     {
+        Metrics.Clear();
         var list = new List<MetricInfo>();
         foreach (var m in _registry.Metrics)
         {
@@ -42,6 +43,9 @@ public partial class MetricsViewModel : ObservableObject
             return c != 0 ? c : string.CompareOrdinal(a.Name, b.Name);
         });
 
-        Metrics = list;
+        foreach (var item in list)
+        {
+            Metrics.Add(item);
+        }
     }
 }

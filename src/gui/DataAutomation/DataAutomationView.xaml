@@ -3,9 +3,483 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="clr-namespace:backs2.Views"
+             xmlns:vm="clr-namespace:backs2.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="600" d:DesignWidth="800">
+             d:DesignHeight="800" d:DesignWidth="1000"
+             d:DataContext="{d:DesignInstance Type=vm:DataAutomationViewModel, IsDesignTimeCreatable=False}">
+    <UserControl.Resources>
+        <views:BoolToForegroundConverter x:Key="BoolToForegroundConverter"/>
+        <views:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+    </UserControl.Resources>
+
     <Grid Background="{StaticResource BackgroundBrush}">
-        <TextBlock Text="Data Automation View - TODO" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8,6">
+            <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                <TextBlock Text="Data Automation" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                <TextBlock Text="{Binding ElapsedDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                <TextBlock Text="{Binding EtaDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content with Three Subtab Panels -->
+        <Grid Grid.Row="1" Margin="8">
+            <!-- Extraction Panel (Subtab 0) -->
+            <Grid Visibility="{Binding IsExtractionPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Symbol/Timeframe -->
+                <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Symbol:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding Symbol, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Timeframe:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <ComboBox ItemsSource="{Binding Timeframes}"
+                                      SelectedItem="{Binding Timeframe}"
+                                      Width="80"
+                                      VerticalContentAlignment="Center"
+                                      Background="{StaticResource BackgroundBrush}"
+                                      Foreground="{StaticResource TextPrimaryBrush}"
+                                      BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Steps:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding StepCount, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="80" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Delay (ms):" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding DelayMs, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="80" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Calibration Status -->
+                <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="O:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding ODisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="100"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="H:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding HDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="100"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="L:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding LDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="100"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="C:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding CDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="100"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="V:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding VDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="100"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Click:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding ClickDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Width="120"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Calibration Buttons -->
+                <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" >
+                        <Button Command="{Binding CalibrateValueCommand}"
+                                CommandParameter="O"
+                                Content="Calibrate O"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding CalibrateValueCommand}"
+                                CommandParameter="H"
+                                Content="Calibrate H"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding CalibrateValueCommand}"
+                                CommandParameter="L"
+                                Content="Calibrate L"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding CalibrateValueCommand}"
+                                CommandParameter="C"
+                                Content="Calibrate C"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding CalibrateValueCommand}"
+                                CommandParameter="V"
+                                Content="Calibrate V"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding CalibrateClickCommand}"
+                                Content="Calibrate Click"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                        <Button Command="{Binding PreviewCalibrationCommand}"
+                                Content="Preview"
+                                Padding="10,4"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding HasAnyCalibration}"/>
+                        <Button Command="{Binding ClearCalibrationCommand}"
+                                Content="Clear All"
+                                Padding="10,4"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Extraction Controls -->
+                <Border Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Date:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding DateDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="140" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Time:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding TimeDisplay, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <Button Command="{Binding StartAutomationCommand}"
+                                Content="Start Extraction"
+                                Padding="14,6"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsRunning}"/>
+                        <Button Command="{Binding StopAutomationCommand}"
+                                Content="Stop"
+                                Padding="14,6"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                IsEnabled="{Binding IsRunning}"/>
+                        <TextBlock Text="Progress:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <ProgressBar Value="{Binding ExtractionProgress}" Maximum="100" Width="200" Height="18"
+                                     Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource AccentBrush}" BorderBrush="{StaticResource BorderBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Re-Extract -->
+                <Border Grid.Row="4" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <TextBlock Text="Re-Extract Step Index:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBox Text="{Binding ReExtractInput, UpdateSourceTrigger=PropertyChanged}"
+                                 Width="200" VerticalContentAlignment="Center"
+                                 Background="{StaticResource BackgroundBrush}"
+                                 Foreground="{StaticResource TextPrimaryBrush}"
+                                 BorderBrush="{StaticResource BorderBrush}"/>
+                        <Button Command="{Binding ReExtractCommand}"
+                                Content="Re-Extract"
+                                Padding="14,6"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsRunning}"/>
+                        <Button Command="{Binding StopReExtractCommand}"
+                                Content="Stop"
+                                Padding="14,6"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                IsEnabled="{Binding IsRunning}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Status -->
+                <Border Grid.Row="5" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <TextBlock Text="{Binding DelayDisplay}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="{Binding PerStepDisplay}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="{Binding EtaDisplay}" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Timeline placeholder -->
+                <Border Grid.Row="9" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0">
+                    <TextBlock Text="[Extraction Timeline Chart - Stubbed]"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                </Border>
+            </Grid>
+
+            <!-- Parsing Panel (Subtab 1) -->
+            <Grid Visibility="{Binding IsParsingPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Ticker:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding ParseTicker, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Timeframe:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <ComboBox ItemsSource="{Binding Timeframes}"
+                                      SelectedItem="{Binding ParseTimeframe}"
+                                      Width="80"
+                                      VerticalContentAlignment="Center"
+                                      Background="{StaticResource BackgroundBrush}"
+                                      Foreground="{StaticResource TextPrimaryBrush}"
+                                      BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <CheckBox Content="Use GPU" IsChecked="{Binding UseGpu}"
+                                  VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <Button Command="{Binding StartParsingCommand}"
+                                Content="Start Parsing"
+                                Padding="14,6"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsParsing}"/>
+                        <Button Command="{Binding StopParsingCommand}"
+                                Content="Stop"
+                                Padding="14,6"
+                                Background="{StaticResource PanelBrush}"
+                                Foreground="{StaticResource TextPrimaryBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                IsEnabled="{Binding IsParsing}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <TextBlock Text="Progress:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <ProgressBar Value="{Binding ParseProgress}" Maximum="100" Width="300" Height="18"
+                                     Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource AccentBrush}" BorderBrush="{StaticResource BorderBrush}"/>
+                        <TextBlock Text="{Binding ParseElapsedDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="{Binding ParseEtaDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="{Binding ParseRateDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding ParseStatus}" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"/>
+                </Border>
+
+                <Border Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0">
+                    <TextBlock Text="[Parsing Results Grid - Stubbed]"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                </Border>
+            </Grid>
+
+            <!-- Analysis Panel (Subtab 2) -->
+            <Grid Visibility="{Binding IsAnalysisPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+            <StackPanel.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Margin" Value="0,0,16,0"/>
+                </Style>
+            </StackPanel.Resources>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Path:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding AnalysisPath, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="300" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="TZ Offset:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding AnalysisTimezoneOffset, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="60" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" >
+                            <TextBlock Text="Closed Hours:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBox Text="{Binding AnalysisSessionClosedHours, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" VerticalContentAlignment="Center"
+                                     Background="{StaticResource BackgroundBrush}"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     BorderBrush="{StaticResource BorderBrush}"/>
+                        </StackPanel>
+                        <CheckBox Content="Skip Weekend" IsChecked="{Binding AnalysisSkipWeekend}"
+                                  VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <Button Command="{Binding AnalyzeCommand}"
+                                Content="Analyze"
+                                Padding="14,6"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                IsEnabled="{Binding !IsAnalyzing}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding AnalysisResultText}" FontFamily="Consolas" FontSize="12"
+                               Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                </Border>
+
+                <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+                        <StackPanel.Resources>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Margin" Value="0,0,8,0"/>
+                            </Style>
+                        </StackPanel.Resources>
+                        <TextBlock Text="Status: " Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Text="{Binding ParseStatus}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,8,0,0">
+                    <TextBlock Text="[Analysis Chart - Stubbed]"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="14"/>
+                </Border>
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>
