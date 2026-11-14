@@ -8,8 +8,8 @@ using backs2.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
-
 namespace backs2.ViewModels;
 
 public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTradeMessage>
@@ -21,6 +21,9 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
     [ObservableProperty]
     private NavigationNode? _selectedNode;
+
+    /// <summary>The active root's tab ViewModel — drives the main ContentControl.</summary>
+    public object? CurrentVm => NavigationNodes.FirstOrDefault(n => n.IsActive)?.Content;
 
     public ObservableCollection<NavigationNode> NavigationNodes { get; } = new();
 
@@ -248,6 +251,8 @@ public partial class MainViewModel : ObservableObject, IRecipient<NavigateToTrad
 
         foreach (var root in NavigationNodes)
             root.IsActive = ReferenceEquals(root, owningRoot);
+
+        OnPropertyChanged(nameof(CurrentVm));
 
         if (value.SubtabIndex >= 0 && owningRoot.Content is INavigationTarget target)
             target.Navigate(value.SubtabIndex);

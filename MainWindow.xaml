@@ -19,6 +19,6 @@
             </TreeView.ItemTemplate>
         </TreeView>
 
-        <ContentControl Grid.Column="1" Content="{Binding SelectedNode.Content}" Margin="16" Background="{StaticResource BackgroundBrush}"/>
+        <ContentControl Grid.Column="1" Content="{Binding CurrentVm}" Margin="16" Background="{StaticResource BackgroundBrush}"/>
     </Grid>
 </Window>
