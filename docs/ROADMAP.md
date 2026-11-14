@@ -98,6 +98,18 @@ Test: full click-through of DataGrid grouping and header checkboxes, colour pick
 
 Fail: any visual regression, popup that does not open, or plot that does not render. Revert to 11.0.11 and record the blocker.
 ---
+## Docs Alignment [PENDING]
+
+Multiple docs still describe the app as Avalonia with `.axaml` files, but the repo is WPF (`UseWPF=true`, `ScottPlot.WPF`, winfx XAML namespaces, `src/gui/RunnerView.xaml` not `.axaml`).
+
+Confirmed discrepancies:
+- AGENTS.md / ARCHITECTURE.md reference Avalonia 11.3.22, `RunnerView.axaml`, `Grid.RowDefinitions="Auto,*"` string syntax, DataGrid `TextAlignment`/`AlternationCount`/`TextTrimming` — none of these exist in the WPF codebase.
+- docs/PLANS/XAML_*.md and docs/WALKFORWARD_UI_WIRING.md describe a rich `RunnerView.axaml` (MC Settings expander, WF Settings expander, subtabs grid) that was never ported to WPF.
+- realissues.md DOC-001/DOC-002 confirm the WPF-vs-Avalonia terminology mix.
+
+Impact: any agent following the docs will look for files/APIs that don't exist and may break the WPF build trying to apply Avalonia fixes.
+
+Needed: rewrite AGENTS.md + ARCHITECTURE.md + XAML_* plan docs to describe the actual WPF shell (`App.xaml` DataTemplates, `MainWindow.xaml` ContentControl bound to `SelectedNode.Content`, tab stubs in `src/gui/*.xaml`). No view code changes are part of this item — the tab views remain stubs until separately scheduled.
 
 ## Phase 36: Runtime Performance Monitor [COMPLETED]
 
